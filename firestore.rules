@@ -1,0 +1,59 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function authenticated() {
+      return request.auth != null;
+    }
+
+    function isStaffOf(userId) {
+      return authenticated() &&
+        exists(/databases/$(database)/documents/staff_users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/staff_users/$(request.auth.uid)).data.storeId == userId &&
+        get(/databases/$(database)/documents/staff_users/$(request.auth.uid)).data.active == true;
+    }
+
+    // Registro global de cajeras y personal
+    match /staff_users/{staffId} {
+      // La cajera puede leer su propio perfil y el dueño puede leer los perfiles de sus cajeras
+      allow read: if authenticated() && (
+        request.auth.uid == staffId ||
+        (resource != null && resource.data.storeId == request.auth.uid)
+      );
+      // El dueño de la tienda puede crear o modificar las cajeras asignadas a su tienda
+      allow create, update: if authenticated() && (
+        request.resource.data.storeId == request.auth.uid
+      );
+      // Solo el dueño de la tienda puede eliminar cajeras
+      allow delete: if authenticated() && (
+        resource != null && resource.data.storeId == request.auth.uid
+      );
+    }
+
+    // Catálogo público y datos del negocio accesibles para la tienda online (Mayorista / Minorista)
+    match /users/{userId}/settings/main {
+      allow read: if true;
+      allow write: if authenticated() && (request.auth.uid == userId || isStaffOf(userId));
+    }
+
+    match /users/{userId}/products/{productId} {
+      allow read: if true;
+      allow write: if authenticated() && (request.auth.uid == userId || isStaffOf(userId));
+    }
+
+    match /users/{userId}/categories/{categoryId} {
+      allow read: if true;
+      allow write: if authenticated() && (request.auth.uid == userId || isStaffOf(userId));
+    }
+
+    // Cada tienda tiene acceso total para el dueño y acceso operativo para sus cajeras activas
+    match /users/{userId}/{document=**} {
+      allow read, write: if authenticated() && (request.auth.uid == userId || isStaffOf(userId));
+    }
+
+    // Bloqueo estricto para cualquier otra colección en producción
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

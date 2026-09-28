@@ -1,0 +1,18 @@
+Abrí y analizá este proyecto completo sin reemplazar su diseño ni su estructura visual.
+
+Objetivo:
+Conectar la aplicación de gestión de zapatería al proyecto Firebase que voy a proporcionar.
+
+Tareas:
+1. Ejecutar npm install.
+2. Copiar .env.example como .env.local y solicitarme únicamente las credenciales Web faltantes de Firebase.
+3. Verificar Firebase Authentication con Email/Password.
+4. Verificar Firestore y Firebase Storage.
+5. Publicar firestore.rules, firestore.indexes.json y storage.rules.
+6. Ejecutar npm run build y corregir únicamente errores reales de compilación.
+7. Mantener toda la interfaz Claymation, el modo noche azul marino, la navegación superior y todos los módulos existentes.
+8. No reemplazar Firestore por localStorage ni datos simulados.
+9. No exponer credenciales privadas ni agregar Firebase Admin al frontend.
+10. Cuando funcione, desplegar la carpeta out con Firebase Hosting.
+
+La documentación técnica está en README-ANTIGRAVITY.md.
