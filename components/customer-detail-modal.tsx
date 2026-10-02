@@ -116,8 +116,8 @@ export function CustomerDetailModal({
               <div>
                 <div className="flex items-center gap-2">
                   <DialogTitle className="text-xl font-bold">{customer.name}</DialogTitle>
-                  <Badge variant={customer.type === "mayorista" ? "default" : "secondary"}>
-                    {customer.type === "mayorista" ? "Mayorista" : "Minorista"}
+                  <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-950/50 dark:text-orange-300 border-0 font-semibold text-xs">
+                    Mayorista
                   </Badge>
                 </div>
                 <DialogDescription className="flex items-center gap-3 mt-1 text-xs">

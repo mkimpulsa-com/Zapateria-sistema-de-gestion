@@ -177,7 +177,7 @@ export function SupplierDetailModal({
               {money(balance)}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {balance > 0 ? "Pendiente de pago por la zapatería" : balance < 0 ? "Saldo a favor nuestro" : "Al día (sin deuda pendiente)"}
+              {balance > 0 ? "Pendiente de pago por la empresa" : balance < 0 ? "Saldo a favor nuestro" : "Al día (sin deuda pendiente)"}
             </p>
           </div>
 

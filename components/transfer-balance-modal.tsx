@@ -102,7 +102,7 @@ export function TransferBalanceModal({
             <div>
               <DialogTitle className="text-xl">Transferir entre cuentas</DialogTitle>
               <DialogDescription>
-                Movimiento interno de fondos entre dos cuentas bancarias o cajas de la zapatería.
+                Movimiento interno de fondos entre dos cuentas bancarias o cajas del negocio.
               </DialogDescription>
             </div>
           </div>

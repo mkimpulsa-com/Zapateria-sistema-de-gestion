@@ -14,39 +14,14 @@ import { Badge } from "@/components/ui/badge";
 import { Printer, Download, Barcode, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 
+import { BarcodeView } from "@/components/barcode-view";
+import { generateBarcodeSvg, isValidEan13, normalizeToValidEan13 } from "@/lib/barcode";
+
 interface ProductBarcodeModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   product: any | null;
   settings?: any;
-}
-
-const code39: Record<string, string> = {
-  "0": "nnnwwnwnn", "1": "wnnwnnnnw", "2": "nnwwnnnnw", "3": "wnwwnnnnn", "4": "nnnwwnnnw",
-  "5": "wnnwwnnnn", "6": "nnwwwnnnn", "7": "nnnwnnwnw", "8": "wnnwnnwnn", "9": "nnwwnnwnn",
-  "A": "wnnnnwnnw", "B": "nnwnnwnnw", "C": "wnwnnwnnn", "D": "nnnnwwnnw", "E": "wnnnwwnnn",
-  "F": "nnwnwwnnn", "G": "nnnnnwwnw", "H": "wnnnnwwnn", "I": "nnwnnwwnn", "J": "nnnnwwwnn",
-  "K": "wnnnnnnww", "L": "nnwnnnnww", "M": "wnwnnnnwn", "N": "nnnnwnnww", "O": "wnnnwnnwn",
-  "P": "nnwnwnnwn", "Q": "nnnnnnwww", "R": "wnnnnnwwn", "S": "nnwnnnwwn", "T": "nnnnwnwwn",
-  "U": "wwnnnnnnw", "V": "nwwnnnnnw", "W": "wwwnnnnnn", "X": "nwnnwnnnw", "Y": "wwnnwnnnn",
-  "Z": "nwwnwnnnn", "-": "nwnnnnwnw", ".": "wwnnnnwnn", " ": "nwwnnnwnn", "*": "nwnnwnwnn",
-};
-
-function renderBarcodeSvg(value: string) {
-  const clean = (value || "000000").toUpperCase().replace(/[^0-9A-Z. -]/g, "-");
-  const encoded = `*${clean}*`;
-  const bars: { x: number; w: number }[] = [];
-  let x = 0;
-  for (const char of encoded) {
-    const pattern = code39[char] || code39["-"];
-    pattern.split("").forEach((width, i) => {
-      const w = width === "w" ? 3 : 1;
-      if (i % 2 === 0) bars.push({ x, w });
-      x += w;
-    });
-    x += 1;
-  }
-  return { bars, totalWidth: x, clean };
 }
 
 export function ProductBarcodeModal({
@@ -63,7 +38,6 @@ export function ProductBarcodeModal({
   if (!product) return null;
 
   const barcodeValue = product.barcode || product.sku || "000000";
-  const { bars, totalWidth } = renderBarcodeSvg(barcodeValue);
 
   const handlePrintOnlyBarcode = () => {
     try {
@@ -86,6 +60,15 @@ export function ProductBarcodeModal({
         return;
       }
 
+      const barcodeSvgHtml = generateBarcodeSvg(barcodeValue, {
+        height: 40,
+        width: 1.8,
+        margin: 10,
+        displayValue: false,
+        background: "#ffffff",
+        lineColor: "#000000",
+      });
+
       // Generate stickers HTML according to the chosen quantity - strictly barcode only without price
       const stickersHtml = Array.from({ length: Math.max(1, Math.min(100, quantity)) })
         .map(
@@ -98,9 +81,7 @@ export function ProductBarcodeModal({
                 : ""
             }
             <div class="barcode-wrapper">
-              <svg viewBox="0 0 ${totalWidth} 40" class="barcode-svg" preserveAspectRatio="none">
-                ${bars.map((b) => `<rect x="${b.x}" y="0" width="${b.w}" height="40" fill="#000000" />`).join("")}
-              </svg>
+              ${barcodeSvgHtml}
             </div>
             <div class="barcode-digits">${barcodeValue}</div>
           </div>
@@ -179,22 +160,26 @@ export function ProductBarcodeModal({
               }
               .barcode-wrapper {
                 width: 100%;
-                max-width: 48mm;
+                max-width: 50mm;
                 height: 13mm;
                 display: flex;
                 align-items: center;
                 justify-content: center;
+                margin: 0.5mm 0;
               }
-              .barcode-svg {
-                width: 100%;
+              .barcode-wrapper svg {
+                max-width: 100%;
                 height: 100%;
+                max-height: 13mm;
                 display: block;
+                margin: 0 auto;
+                shape-rendering: crispEdges !important;
               }
               .barcode-digits {
                 font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-                font-size: 10px;
+                font-size: 10.5px;
                 font-weight: 700;
-                letter-spacing: 0.14em;
+                letter-spacing: 0.12em;
                 margin-top: 1px;
               }
               .prod-price {
@@ -263,12 +248,14 @@ export function ProductBarcodeModal({
               </>
             )}
 
-            <div className="w-full h-14 my-1 flex items-center justify-center">
-              <svg viewBox={`0 0 ${totalWidth} 40`} className="h-full w-full max-w-[210px]" preserveAspectRatio="none">
-                {bars.map((b, i) => (
-                  <rect key={i} x={b.x} y="0" width={b.w} height="40" fill="currentColor" />
-                ))}
-              </svg>
+            <div className="w-full h-14 my-1 flex items-center justify-center bg-white rounded-lg p-1">
+              <BarcodeView
+                value={barcodeValue}
+                className="h-full w-full max-w-[210px]"
+                height={38}
+                width={1.7}
+                margin={10}
+              />
             </div>
 
             <p className="font-mono text-xs font-bold tracking-widest mt-1">
@@ -276,7 +263,9 @@ export function ProductBarcodeModal({
             </p>
           </div>
           <span className="text-[11px] text-muted-foreground mt-2 font-medium">
-            Vista previa exacta: solo código de barra sin precio
+            {isValidEan13(barcodeValue)
+              ? "Vista previa exacta: EAN-13 Oficial GS1 con zona de silencio (100% lectura láser/CCD)"
+              : "Vista previa exacta: Code 128 Industrial con zona de silencio (100% lectura láser/CCD)"}
           </span>
         </div>
 

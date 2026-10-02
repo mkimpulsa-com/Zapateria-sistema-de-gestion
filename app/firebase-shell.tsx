@@ -215,18 +215,18 @@ export default function FirebaseShell() {
             <span className="brand-orb mx-auto grid size-16 place-items-center rounded-3xl text-white">
               {mode === "forgot" ? <KeyRound className="size-8" /> : <ShoppingBag className="size-8" />}
             </span>
-            <CardTitle className="mt-3 text-2xl">
+            <CardTitle className="mt-3 text-2xl font-black tracking-tight">
               {mode === "login"
-                ? "Gestión de Zapatería"
+                ? "CR MAYORISTA"
                 : mode === "register"
-                ? "Registrar mi Zapatería"
+                ? "CR MAYORISTA · Registro"
                 : "Recuperar Contraseña"}
             </CardTitle>
             <p className="text-sm text-muted-foreground">
               {mode === "login"
-                ? "Acceso privado al sistema de tu sucursal"
+                ? "Sistema de Gestión y Control Mayorista"
                 : mode === "register"
-                ? "Cada cuenta cuenta con su propio catálogo, stock y caja privada"
+                ? "Creá tu cuenta de acceso a CR MAYORISTA"
                 : "Ingresá tu correo para recibir un enlace seguro de restablecimiento"}
             </p>
           </CardHeader>
@@ -242,7 +242,7 @@ export default function FirebaseShell() {
                     type="email"
                     required
                     autoComplete="email"
-                    placeholder="tu@zapateria.com"
+                    placeholder="tu@empresa.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                   />
@@ -328,12 +328,12 @@ export default function FirebaseShell() {
                   {mode === "register" && (
                     <div className="grid gap-1.5">
                       <label htmlFor="auth-business-name" className="text-sm font-semibold">
-                        Nombre de tu zapatería / negocio
+                        Nombre de tu empresa o distribuidora
                       </label>
                       <Input
                         id="auth-business-name"
                         name="businessName"
-                        placeholder="Ej: Zapatería Central"
+                        placeholder="Ej: Distribuidora Central"
                       />
                     </div>
                   )}
@@ -347,7 +347,7 @@ export default function FirebaseShell() {
                       type="email"
                       required
                       autoComplete="email"
-                      placeholder="tu@zapateria.com"
+                      placeholder="tu@empresa.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                     />
@@ -397,7 +397,7 @@ export default function FirebaseShell() {
                   {error && <p className="rounded-xl bg-red-50 dark:bg-red-950/40 p-3 text-sm text-red-700 dark:text-red-400 border border-red-200 dark:border-red-900/50 leading-relaxed">{error}</p>}
                   <Button className="h-11 w-full rounded-xl" disabled={busy}>
                     {mode === "login" ? <LogIn /> : <UserPlus />}
-                    {busy ? "Procesando…" : mode === "login" ? "Ingresar a mi negocio" : "Crear mi zapatería"}
+                    {busy ? "Procesando…" : mode === "login" ? "Ingresar a CR MAYORISTA" : "Crear mi cuenta en CR MAYORISTA"}
                   </Button>
                 </form>
                 {allowSignup && (
@@ -408,7 +408,7 @@ export default function FirebaseShell() {
                       setMode(mode === "login" ? "register" : "login");
                     }}
                   >
-                    {mode === "login" ? "¿No tenés cuenta? Registrá tu zapatería aquí" : "¿Ya tenés cuenta? Ingresá acá"}
+                    {mode === "login" ? "¿No tenés cuenta? Registrá tu negocio mayorista aquí" : "¿Ya tenés cuenta? Ingresá acá"}
                   </button>
                 )}
               </>

@@ -18,23 +18,19 @@ function TiendaView() {
   useEffect(() => {
     // Read params from searchParams or fallback to window.location
     let uid = searchParams.get("store") || searchParams.get("uid") || searchParams.get("id");
-    let tipo = searchParams.get("tipo") || searchParams.get("channel");
 
     if (!uid && typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
       uid = urlParams.get("store") || urlParams.get("uid") || urlParams.get("id");
-      tipo = urlParams.get("tipo") || urlParams.get("channel");
     }
 
     const cleanUid = String(uid || "").trim();
-    const cleanChannel: "mayorista" | "minorista" =
-      tipo === "minorista" || tipo === "retail" ? "minorista" : "mayorista";
 
     setStoreUid(cleanUid);
-    setChannel(cleanChannel);
+    setChannel("mayorista");
 
     if (!cleanUid) {
-      setError("No se indicó el identificador de la zapatería en el enlace (parámetro ?store=...).");
+      setError("No se indicó el identificador del catálogo mayorista en el enlace (parámetro ?store=...).");
       setLoading(false);
       return;
     }
@@ -49,7 +45,7 @@ function TiendaView() {
       })
       .catch((err) => {
         console.error("Error cargando tienda:", err);
-        setError("No se pudo cargar el catálogo de la zapatería. Verificá que el enlace sea correcto.");
+        setError("No se pudo cargar el catálogo mayorista. Verificá que el enlace sea correcto.");
         setLoading(false);
       });
   }, [searchParams]);
@@ -63,7 +59,7 @@ function TiendaView() {
           </div>
           <div>
             <h3 className="font-bold text-slate-800 text-lg">Cargando catálogo...</h3>
-            <p className="text-sm text-slate-500 mt-1">Conectando con el inventario de la zapatería</p>
+            <p className="text-sm text-slate-500 mt-1">Conectando con el inventario del catálogo mayorista</p>
           </div>
         </div>
       </div>
@@ -79,7 +75,7 @@ function TiendaView() {
           </div>
           <h2 className="text-xl font-bold text-slate-900">Catálogo no disponible</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
-            {error || "No encontramos los datos de esta zapatería."}
+            {error || "No encontramos los datos de este catálogo mayorista."}
           </p>
           <div className="pt-2">
             <Button

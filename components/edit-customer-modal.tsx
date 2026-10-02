@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
   Pencil,
   Phone,
@@ -36,13 +37,7 @@ export function EditCustomerModal({
   busy,
   onSubmit,
 }: EditCustomerModalProps) {
-  const [type, setType] = useState<"minorista" | "mayorista">("minorista");
-
-  useEffect(() => {
-    if (customer) {
-      setType(customer.type === "mayorista" ? "mayorista" : "minorista");
-    }
-  }, [customer]);
+  const [type, setType] = useState<"mayorista">("mayorista");
 
   if (!customer) return null;
 
@@ -53,7 +48,7 @@ export function EditCustomerModal({
       action: "edit_customer",
       customerId: customer.id,
       name: String(form.get("name") || "").trim(),
-      type,
+      type: "mayorista",
       document: String(form.get("document") || "").trim(),
       phone: String(form.get("phone") || "").trim(),
       email: String(form.get("email") || "").trim(),
@@ -74,11 +69,11 @@ export function EditCustomerModal({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <span className="grid size-10 place-items-center rounded-xl bg-blue-500/10 text-blue-600">
+            <span className="grid size-10 place-items-center rounded-xl bg-orange-500/10 text-orange-600">
               <Pencil className="size-5" />
             </span>
             <div>
-              <DialogTitle className="text-xl">Editar cliente</DialogTitle>
+              <DialogTitle className="text-xl">Editar cliente mayorista</DialogTitle>
               <DialogDescription>
                 Modificá los datos de contacto y condiciones comerciales de {customer.name}.
               </DialogDescription>
@@ -87,36 +82,12 @@ export function EditCustomerModal({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="mt-2 space-y-5">
-          <div>
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">
-              Tipo de cliente
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setType("minorista")}
-                className={`flex items-center justify-center gap-2 rounded-xl border p-3 text-sm font-bold transition ${
-                  type === "minorista"
-                    ? "border-primary bg-primary/10 text-primary shadow-xs"
-                    : "border-border bg-card text-muted-foreground hover:bg-muted/50"
-                }`}
-              >
-                <span className="size-2 rounded-full bg-blue-500" />
-                Minorista
-              </button>
-              <button
-                type="button"
-                onClick={() => setType("mayorista")}
-                className={`flex items-center justify-center gap-2 rounded-xl border p-3 text-sm font-bold transition ${
-                  type === "mayorista"
-                    ? "border-primary bg-primary/10 text-primary shadow-xs"
-                    : "border-border bg-card text-muted-foreground hover:bg-muted/50"
-                }`}
-              >
-                <Building className="size-4" />
-                Mayorista
-              </button>
+          <div className="rounded-xl border border-orange-200 bg-orange-50/70 p-3.5 text-xs text-orange-900 dark:border-orange-900/50 dark:bg-orange-950/30 dark:text-orange-200 flex items-center justify-between">
+            <div className="flex items-center gap-2 font-semibold">
+              <Building className="size-4 text-orange-600 dark:text-orange-400" />
+              <span>Tipo de cuenta: <strong>Cliente Mayorista</strong></span>
             </div>
+            <Badge className="bg-orange-600 text-white text-[10px]">Mayorista</Badge>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">

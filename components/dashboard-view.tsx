@@ -161,7 +161,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
     setMounted(true);
   }, []);
 
-  const businessName = data.settings?.business_name || "Mi Zapatería";
+  const businessName = data.settings?.business_name || "CR MAYORISTA";
   const products = data.products || [];
   const sales = data.sales || [];
   const customers = data.customers || [];
@@ -398,36 +398,31 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
     return dataArray;
   }, [filteredSales, period]);
 
-  // Chart 2: Channel Split (Minorista vs Mayorista)
-  const channelData = useMemo(() => {
-    const retail = periodStats.retailRevenue;
-    const wholesale = periodStats.wholesaleRevenue;
-    const total = retail + wholesale;
+  // Chart 2: Payment Methods Breakdown (Mayorista)
+  const paymentMethodData = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of filteredSales) {
+      const method = s.payment_method || "Efectivo";
+      map.set(method, (map.get(method) || 0) + Number(s.total || 0));
+    }
 
-    if (total === 0) {
+    const palette = ["#f97316", "#3b82f6", "#10b981", "#8b5cf6", "#ec4899", "#06b6d4"];
+    const total = Array.from(map.values()).reduce((a, b) => a + b, 0);
+
+    if (total === 0 || map.size === 0) {
       return [
-        { name: "Minorista", value: 1, revenue: 0, percent: 50, color: CHANNEL_COLORS.minorista },
-        { name: "Mayorista", value: 1, revenue: 0, percent: 50, color: CHANNEL_COLORS.mayorista },
+        { name: "Sin operaciones", value: 1, revenue: 0, percent: 100, color: "#94a3b8" },
       ];
     }
 
-    return [
-      {
-        name: "Minorista",
-        value: retail,
-        revenue: retail,
-        percent: Math.round((retail / total) * 100),
-        color: CHANNEL_COLORS.minorista,
-      },
-      {
-        name: "Mayorista",
-        value: wholesale,
-        revenue: wholesale,
-        percent: Math.round((wholesale / total) * 100),
-        color: CHANNEL_COLORS.mayorista,
-      },
-    ];
-  }, [periodStats]);
+    return Array.from(map.entries()).map(([name, val], idx) => ({
+      name,
+      value: val,
+      revenue: val,
+      percent: total > 0 ? Math.round((val / total) * 100) : 0,
+      color: palette[idx % palette.length],
+    }));
+  }, [filteredSales]);
 
   // TOP 5 MEJORES PRODUCTOS
   const topProducts = useMemo(() => {
@@ -478,7 +473,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
           } else if (pId) {
             productStats.set(pId, {
               id: pId,
-              name: item.name || "Calzado",
+              name: item.name || "Producto",
               brand: "—",
               category: "General",
               color: "—",
@@ -529,7 +524,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
       customerAgg.set(String(c.id), {
         id: String(c.id),
         name: c.name,
-        type: c.type || "minorista",
+        type: "mayorista",
         phone: c.phone || "",
         totalSpent: 0,
         orderCount: 0,
@@ -558,7 +553,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
           customerAgg.set(tempKey, {
             id: tempKey,
             name: s.customer_name,
-            type: s.channel === "mayorista" ? "mayorista" : "minorista",
+            type: "mayorista",
             phone: "",
             totalSpent: total,
             orderCount: 1,
@@ -583,12 +578,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
 
   // CLIENTE MAYORISTA: Spotlight VIP y Ranking de mayoristas
   const wholesaleAnalysis = useMemo(() => {
-    const wholesaleCustomers = customers.filter(
-      (c: any) =>
-        c.type === "mayorista" ||
-        String(c.name || "").toLowerCase().includes("mayor") ||
-        String(c.name || "").toLowerCase().includes("distribuidora")
-    );
+    const wholesaleCustomers = customers;
 
     // Sales by wholesale customers
     const map = new Map<
@@ -610,7 +600,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
       });
     }
 
-    for (const s of filteredSales.filter((s: any) => s.channel === "mayorista")) {
+    for (const s of filteredSales) {
       const cId = s.customer_id ? String(s.customer_id) : "";
       let entry = cId ? map.get(cId) : undefined;
 
@@ -683,11 +673,11 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
         </div>
       </div>
 
-      {/* KPI METRIC CARDS */}
+      {/* KPI METRIC CARDS 3D CLAYMORPHISM */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {/* Total Sales */}
-        <Card className="border-0 shadow-[0_8px_24px_rgb(15_33_55/6%)] relative overflow-hidden">
-          <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-blue-500 to-indigo-600" />
+        <Card className="group relative overflow-hidden">
+          <div className="absolute top-0 left-0 h-1.5 w-full bg-gradient-to-r from-blue-500 to-indigo-600" />
           <CardContent className="p-5 flex flex-col justify-between h-full gap-3">
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -698,8 +688,8 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                   {money(periodStats.revenue)}
                 </p>
               </div>
-              <span className="grid size-11 place-items-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 shrink-0">
-                <CircleDollarSign className="size-5" />
+              <span className="clay-pill-3d clay-pill-blue size-12 shrink-0">
+                <CircleDollarSign className="size-6" strokeWidth={2.3} />
               </span>
             </div>
 
@@ -716,8 +706,8 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
         </Card>
 
         {/* Cash Balance */}
-        <Card className="border-0 shadow-[0_8px_24px_rgb(15_33_55/6%)] relative overflow-hidden">
-          <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-emerald-500 to-teal-500" />
+        <Card className="group relative overflow-hidden">
+          <div className="absolute top-0 left-0 h-1.5 w-full bg-gradient-to-r from-emerald-500 to-teal-500" />
           <CardContent className="p-5 flex flex-col justify-between h-full gap-3">
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -728,8 +718,8 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                   {money(data.stats.cashBalance)}
                 </p>
               </div>
-              <span className="grid size-11 place-items-center rounded-2xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400 shrink-0">
-                <WalletCards className="size-5" />
+              <span className="clay-pill-3d clay-pill-green size-12 shrink-0">
+                <WalletCards className="size-6" strokeWidth={2.3} />
               </span>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-1 pt-2 border-t border-border/50 text-xs text-muted-foreground">
@@ -747,8 +737,8 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
         </Card>
 
         {/* Capital Stock */}
-        <Card className="border-0 shadow-[0_8px_24px_rgb(15_33_55/6%)] relative overflow-hidden">
-          <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-purple-500 to-violet-600" />
+        <Card className="group relative overflow-hidden">
+          <div className="absolute top-0 left-0 h-1.5 w-full bg-gradient-to-r from-purple-500 to-violet-600" />
           <CardContent className="p-5 flex flex-col justify-between h-full gap-3">
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -759,20 +749,20 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                   {money(data.stats.stockValue)}
                 </p>
               </div>
-              <span className="grid size-11 place-items-center rounded-2xl bg-purple-50 text-purple-600 dark:bg-purple-950/40 dark:text-purple-400 shrink-0">
-                <Boxes className="size-5" />
+              <span className="clay-pill-3d clay-pill-violet size-12 shrink-0">
+                <Boxes className="size-6" strokeWidth={2.3} />
               </span>
             </div>
             <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs text-muted-foreground">
-              <span>{products.reduce((acc, p) => acc + Number(p.total_stock || 0), 0)} pares ({data.stats.productCount} mod.)</span>
-              <span className="text-primary font-semibold">{periodStats.totalPairsSold} vendidos ({PERIOD_LABELS[period]})</span>
+              <span>{products.reduce((acc, p) => acc + Number(p.total_stock || 0), 0)} unidades ({data.stats.productCount} prod.)</span>
+              <span className="text-primary font-semibold">{periodStats.totalPairsSold} vendidas ({PERIOD_LABELS[period]})</span>
             </div>
           </CardContent>
         </Card>
 
         {/* Operational Alerts & Debt */}
-        <Card className="border-0 shadow-[0_8px_24px_rgb(15_33_55/6%)] relative overflow-hidden">
-          <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-amber-500 to-orange-500" />
+        <Card className="group relative overflow-hidden">
+          <div className="absolute top-0 left-0 h-1.5 w-full bg-gradient-to-r from-amber-500 to-orange-500" />
           <CardContent className="p-5 flex flex-col justify-between h-full gap-3">
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -786,8 +776,8 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                   <span className="text-xs text-muted-foreground">modelos a reponer</span>
                 </div>
               </div>
-              <span className="grid size-11 place-items-center rounded-2xl bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400 shrink-0">
-                <Archive className="size-5" />
+              <span className="clay-pill-3d clay-pill-coral size-12 shrink-0">
+                <Archive className="size-6" strokeWidth={2.3} />
               </span>
             </div>
             <div className="pt-2 border-t border-border/50 text-xs text-muted-foreground">
@@ -811,10 +801,10 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
             <div>
               <CardTitle className="flex items-center gap-2 text-lg">
                 <TrendingUp className="size-5 text-primary" />
-                Evolución de Ingresos por Venta
+                Evolución de Ventas Mayoristas
               </CardTitle>
               <CardDescription>
-                Comportamiento según canal · {PERIOD_FULL_LABELS[period]}
+                Facturación y unidades vendidas · {PERIOD_FULL_LABELS[period]}
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -831,12 +821,8 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                   <AreaChart data={salesTimelineData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0} />
-                      </linearGradient>
-                      <linearGradient id="colorMayorista" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#f97316" stopOpacity={0.35} />
-                        <stop offset="95%" stopColor="#f97316" stopOpacity={0.0} />
+                        <stop offset="5%" stopColor="#ff7a5c" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#ff7a5c" stopOpacity={0.0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border/50" />
@@ -862,19 +848,12 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                             <div className="rounded-xl border bg-card p-3 shadow-xl text-xs space-y-1">
                               <p className="font-bold text-foreground">{item.date || item.displayDate}</p>
                               <div className="flex justify-between gap-4 text-muted-foreground">
-                                <span>Minorista:</span>
-                                <span className="font-semibold text-blue-600">{money(item.minorista)}</span>
+                                <span>Facturación Mayorista:</span>
+                                <span className="font-semibold text-primary">{money(item.total)}</span>
                               </div>
                               <div className="flex justify-between gap-4 text-muted-foreground">
-                                <span>Mayorista:</span>
-                                <span className="font-semibold text-orange-600">{money(item.mayorista)}</span>
-                              </div>
-                              <div className="border-t pt-1 flex justify-between gap-4 font-bold text-foreground">
-                                <span>Total:</span>
-                                <span>{money(item.total)}</span>
-                              </div>
-                              <div className="text-[11px] text-muted-foreground">
-                                {item.pares} pares vendidos
+                                <span>Unidades despachadas:</span>
+                                <span className="font-semibold text-orange-600">{item.pares} u.</span>
                               </div>
                             </div>
                           );
@@ -885,20 +864,11 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                     <Area
                       type="monotone"
                       dataKey="total"
-                      name="Total"
-                      stroke="#3b82f6"
+                      name="Facturación"
+                      stroke="#ff7a5c"
                       strokeWidth={2.5}
                       fillOpacity={1}
                       fill="url(#colorTotal)"
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="mayorista"
-                      name="Mayorista"
-                      stroke="#f97316"
-                      strokeWidth={2}
-                      fillOpacity={1}
-                      fill="url(#colorMayorista)"
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -906,25 +876,25 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
             </div>
             <div className="mt-3 flex items-center justify-center gap-6 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5">
-                <span className="size-2.5 rounded-full bg-blue-500" /> Venta General / Minorista
+                <span className="size-2.5 rounded-full bg-primary" /> Facturación Mayorista ($)
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="size-2.5 rounded-full bg-orange-500" /> Venta Mayorista
+                <span className="size-2.5 rounded-full bg-orange-400" /> Volumen en Unidades
               </span>
             </div>
           </CardContent>
         </Card>
 
-        {/* Chart 2: Channel Split Donut */}
+        {/* Chart 2: Payment Methods Split Donut */}
         <Card className="border-0 shadow-[0_8px_28px_rgb(15_33_55/7%)] flex flex-col justify-between">
           <CardHeader className="flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-2">
             <div>
               <CardTitle className="flex items-center gap-2 text-lg">
                 <Percent className="size-5 text-primary" />
-                Canales: Minorista vs Mayorista
+                Medios de Pago y Cobranzas
               </CardTitle>
               <CardDescription>
-                Distribución porcentual · {PERIOD_LABELS[period]}
+                Distribución por medio de cobro · {PERIOD_LABELS[period]}
               </CardDescription>
             </div>
             <PeriodFilterButtons value={period} onChange={setPeriod} size="xs" />
@@ -935,7 +905,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
-                      data={channelData}
+                      data={paymentMethodData}
                       cx="50%"
                       cy="50%"
                       innerRadius={52}
@@ -943,7 +913,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                       paddingAngle={4}
                       dataKey="value"
                     >
-                      {channelData.map((entry, index) => (
+                      {paymentMethodData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>
@@ -968,33 +938,33 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
 
             {/* Breakdown Cards */}
             <div className="grid grid-cols-2 gap-3 w-full mt-2">
-              <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 dark:border-blue-900/50 dark:bg-blue-950/20">
+              <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 dark:bg-primary/10">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">Minorista</span>
+                  <span className="text-xs font-semibold text-primary">Facturación Total</span>
                   <Badge variant="secondary" className="text-[10px] font-bold">
-                    {channelData[0]?.percent || 0}%
+                    {periodStats.count} op.
                   </Badge>
                 </div>
                 <p className="mt-1 text-base font-extrabold text-foreground">
-                  {money(periodStats.retailRevenue)}
+                  {money(periodStats.revenue)}
                 </p>
                 <p className="text-[11px] text-muted-foreground">
-                  {periodStats.retailCount} ventas al público
+                  {periodStats.totalPairsSold} unidades mayoristas
                 </p>
               </div>
 
-              <div className="rounded-xl border border-orange-100 bg-orange-50/50 p-3 dark:border-orange-900/50 dark:bg-orange-950/20">
+              <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 dark:border-amber-900/50 dark:bg-amber-950/20">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-orange-700 dark:text-orange-300">Mayorista</span>
+                  <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">Cuentas Corrientes</span>
                   <Badge variant="secondary" className="text-[10px] font-bold">
-                    {channelData[1]?.percent || 0}%
+                    {periodStats.customersWithDebt} con saldo
                   </Badge>
                 </div>
                 <p className="mt-1 text-base font-extrabold text-foreground">
-                  {money(periodStats.wholesaleRevenue)}
+                  {money(periodStats.totalDebtAmount)}
                 </p>
                 <p className="text-[11px] text-muted-foreground">
-                  {periodStats.wholesaleCount} ventas por curva/mayor
+                  Saldo pendiente a cobrar
                 </p>
               </div>
             </div>
@@ -1072,7 +1042,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
 
                   <div className="text-right shrink-0">
                     <p className="font-extrabold text-sm text-foreground">
-                      {product.soldUnits > 0 ? `${product.soldUnits} pares` : `${product.currentStock} en stock`}
+                      {product.soldUnits > 0 ? `${product.soldUnits} u.` : `${product.currentStock} en stock`}
                     </p>
                     <p className="text-xs text-primary font-semibold">
                       {product.revenue > 0 ? money(product.revenue) : "Sin ventas"}
@@ -1148,9 +1118,9 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                         </p>
                         <Badge
                           variant="outline"
-                          className="text-[10px] h-4 px-1 capitalize text-muted-foreground"
+                          className="text-[10px] h-4 px-1 capitalize text-primary font-semibold border-primary/30"
                         >
-                          {customer.type || "minorista"}
+                          Mayorista
                         </Badge>
                       </div>
                       <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
@@ -1265,7 +1235,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                           {money(wholesaleAnalysis.topWholesaler.totalPurchases)}
                         </p>
                         <span className="text-[10px] text-muted-foreground block">
-                          {wholesaleAnalysis.topWholesaler.ordersCount} pedidos ({wholesaleAnalysis.topWholesaler.pairsCount} pares)
+                          {wholesaleAnalysis.topWholesaler.ordersCount} pedidos ({wholesaleAnalysis.topWholesaler.pairsCount} u.)
                         </span>
                       </div>
 
@@ -1424,7 +1394,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                       </div>
                     </div>
                     <Badge variant={p.total_stock <= p.min_stock ? "destructive" : "secondary"}>
-                      {p.total_stock} pares
+                      {p.total_stock} u.
                     </Badge>
                   </div>
                   <p className="mt-2 text-sm font-extrabold text-primary">
@@ -1434,7 +1404,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
 
                 <div className="mt-3">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
-                    Tocar talle para vender:
+                    Tocar variante para vender:
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {(p.variants || []).map((v: any) => (

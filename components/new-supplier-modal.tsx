@@ -224,7 +224,7 @@ export function NewSupplierModal({
                 className="rounded-xl bg-background"
               />
               <span className="text-[11px] text-muted-foreground font-normal">
-                Importe que la zapatería adeuda actualmente a este proveedor por facturas o remitos previos.
+                Importe que la empresa adeuda actualmente a este proveedor por facturas o remitos previos.
               </span>
             </label>
           </div>

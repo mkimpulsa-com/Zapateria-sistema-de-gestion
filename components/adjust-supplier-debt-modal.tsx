@@ -185,7 +185,7 @@ export function AdjustSupplierDebtModal({
                 </span>
               ) : resultingBalance < 0 ? (
                 <span className="text-blue-600 font-medium">
-                  Quedará un saldo a favor de la zapatería de {money(Math.abs(resultingBalance))}.
+                  Quedará un saldo a favor de la empresa de {money(Math.abs(resultingBalance))}.
                 </span>
               ) : (
                 <span className="flex items-center gap-1 text-amber-600 font-medium">

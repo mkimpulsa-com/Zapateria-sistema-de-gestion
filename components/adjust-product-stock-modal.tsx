@@ -70,7 +70,7 @@ export function AdjustProductStockModal({
             <div>
               <DialogTitle className="text-lg font-bold">Ajustar stock de {product.name}</DialogTitle>
               <DialogDescription className="text-xs">
-                {product.brand} · {product.color} · Total actual: {product.total_stock} pares
+                {product.brand} · {product.color} · Total actual: {product.total_stock} unidades
               </DialogDescription>
             </div>
           </div>
@@ -89,7 +89,7 @@ export function AdjustProductStockModal({
               }`}
             >
               <Plus className="size-3.5" />
-              Ingreso (+ pares)
+              Ingreso (+ unidades)
             </button>
             <button
               type="button"
@@ -101,41 +101,48 @@ export function AdjustProductStockModal({
               }`}
             >
               <Minus className="size-3.5" />
-              Egreso (− pares)
+              Egreso (− unidades)
             </button>
           </div>
 
-          {/* SELECCIONAR TALLE */}
-          <div>
-            <label className="text-xs font-semibold block mb-2">Seleccioná el talle a ajustar:</label>
-            <div className="flex flex-wrap gap-1.5">
-              {variants.map((v: any) => {
-                const isSelected = String(v.id) === String(activeId);
-                return (
-                  <button
-                    key={v.id}
-                    type="button"
-                    onClick={() => setSelectedVariantId(String(v.id))}
-                    className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                      isSelected
-                        ? "border-primary bg-primary text-primary-foreground shadow-sm scale-105"
-                        : "bg-card hover:bg-muted text-foreground"
-                    }`}
-                  >
-                    <span>Talle {v.size}</span>
-                    <span className={`text-[11px] px-1.5 py-0.2 rounded-full ${isSelected ? "bg-white/20" : "bg-muted text-muted-foreground"}`}>
-                      {v.stock}
-                    </span>
-                  </button>
-                );
-              })}
+          {/* SELECCIONAR VARIANTE / TALLE */}
+          {variants.length > 1 || (variants[0] && !["Único", "Unico", "General"].includes(variants[0].size)) ? (
+            <div>
+              <label className="text-xs font-semibold block mb-2">Seleccioná la variante / talle a ajustar:</label>
+              <div className="flex flex-wrap gap-1.5">
+                {variants.map((v: any) => {
+                  const isSelected = String(v.id) === String(activeId);
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => setSelectedVariantId(String(v.id))}
+                      className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                        isSelected
+                          ? "border-primary bg-primary text-primary-foreground shadow-sm scale-105"
+                          : "bg-card hover:bg-muted text-foreground"
+                      }`}
+                    >
+                      <span>{v.size}</span>
+                      <span className={`text-[11px] px-1.5 py-0.2 rounded-full ${isSelected ? "bg-white/20" : "bg-muted text-muted-foreground"}`}>
+                        {v.stock}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="rounded-xl bg-muted/40 p-2.5 text-xs text-muted-foreground flex items-center justify-between font-semibold">
+              <span>Inventario general</span>
+              <span className="font-bold text-foreground">{variants[0]?.stock || 0} u. actuales</span>
+            </div>
+          )}
 
           {/* CANTIDAD */}
           <div>
             <label className="text-xs font-semibold block mb-1.5">
-              Cantidad de pares a {type === "ingreso" ? "ingresar" : "dar de baja"}:
+              Cantidad de unidades a {type === "ingreso" ? "ingresar" : "dar de baja"}:
             </label>
             <div className="flex items-center gap-2">
               <Input

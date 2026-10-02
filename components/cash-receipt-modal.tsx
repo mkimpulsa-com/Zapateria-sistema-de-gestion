@@ -66,7 +66,7 @@ export function CashReceiptModal({
   if (!movement) return null;
 
   const isIncome = movement.type === "ingreso";
-  const businessName = settings.business_name || "Mi Zapatería";
+  const businessName = settings.business_name || "CR MAYORISTA";
   const branchName = settings.branch_name || "Casa Central";
   const logoUrl = settings.logo_url || "";
   const phone = settings.phone || settings.whatsapp || "";
@@ -401,7 +401,7 @@ export function CashReceiptModal({
             {/* FOOTER NOTE */}
             <div className="mt-6 pt-3 border-t border-slate-200 text-center text-[10px] text-slate-500">
               <p className="font-semibold text-slate-700">
-                {businessName} · Sistema de Gestión de Zapatería
+                {businessName} · Sistema de Gestión Mayorista
               </p>
               <p>Comprobante de movimiento interno de tesorería y arqueo de caja.</p>
             </div>

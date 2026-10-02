@@ -16,6 +16,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { BarcodeView } from "@/components/barcode-view";
 
 interface SaleInvoiceModalProps {
   open: boolean;
@@ -67,43 +68,17 @@ const timeFmt = (value?: string) => {
   }
 };
 
-const code39: Record<string, string> = {
-  "0": "nnnwwnwnn", "1": "wnnwnnnnw", "2": "nnwwnnnnw", "3": "wnwwnnnnn", "4": "nnnwwnnnw",
-  "5": "wnnwwnnnn", "6": "nnwwwnnnn", "7": "nnnwnnwnw", "8": "wnnwnnwnn", "9": "nnwwnnwnn",
-  "A": "wnnnnwnnw", "B": "nnwnnwnnw", "C": "wnwnnwnnn", "D": "nnnnwwnnw", "E": "wnnnwwnnn",
-  "F": "nnwnwwnnn", "G": "nnnnnwwnw", "H": "wnnnnwwnn", "I": "nnwnnwwnn", "J": "nnnnwwwnn",
-  "K": "wnnnnnnww", "L": "nnwnnnnww", "M": "wnwnnnnwn", "N": "nnnnwnnww", "O": "wnnnwnnwn",
-  "P": "nnwnwnnwn", "Q": "nnnnnnwww", "R": "wnnnnnwwn", "S": "nnwnnnwwn", "T": "nnnnwnwwn",
-  "U": "wwnnnnnnw", "V": "nwwnnnnnw", "W": "wwwnnnnnn", "X": "nwnnwnnnw", "Y": "wwnnwnnnn",
-  "Z": "nwwnwnnnn", "-": "nwnnnnwnw", ".": "wwnnnnwnn", " ": "nwwnnnwnn", "*": "nwnnwnwnn",
-};
-
 function InvoiceBarcode({ value }: { value: string }) {
-  const clean = (value || "REM-0000").toUpperCase().replace(/[^0-9A-Z. -]/g, "-");
-  const encoded = `*${clean}*`;
-  const bars: { x: number; w: number }[] = [];
-  let x = 0;
-  for (const char of encoded) {
-    const pattern = code39[char] || code39["-"];
-    pattern.split("").forEach((width, i) => {
-      const w = width === "w" ? 3 : 1;
-      if (i % 2 === 0) bars.push({ x, w });
-      x += w;
-    });
-    x += 1;
-  }
   return (
     <div className="flex flex-col items-center">
-      <svg
-        viewBox={`0 0 ${x} 32`}
-        className="h-7 w-full max-w-44"
-        preserveAspectRatio="none"
-        aria-label={`Código de barras ${value}`}
-      >
-        {bars.map((b, i) => (
-          <rect key={i} x={b.x} y="0" width={b.w} height="28" fill="#1e293b" />
-        ))}
-      </svg>
+      <BarcodeView
+        value={value || "REM-0000"}
+        className="h-8 w-full max-w-48"
+        height={30}
+        width={1.5}
+        margin={6}
+        lineColor="#1e293b"
+      />
       <span className="mt-0.5 font-mono text-[10px] tracking-widest text-slate-600 font-bold">
         {value}
       </span>
@@ -132,7 +107,7 @@ export function SaleInvoiceModal({
 
   if (!sale) return null;
 
-  const businessName = settings.business_name || "Mi Zapatería";
+  const businessName = settings.business_name || "CR MAYORISTA";
   const branchName = settings.branch_name || "Casa Central";
   const logoUrl = settings.logo_url || "";
   const phone = settings.phone || settings.whatsapp || "";
@@ -147,7 +122,7 @@ export function SaleInvoiceModal({
   const discount = Number(sale.discount || 0);
   const rawTotal = Number(sale.total || 0);
   const paymentMethod = sale.payment_method || "Efectivo";
-  const channel = (sale.channel || "minorista").toUpperCase();
+  const channel = (sale.channel || "mayorista").toUpperCase();
 
   const isBrl = sale.currency === "BRL";
   const brlRate = Number(sale.exchange_rate) || 250;
@@ -715,8 +690,8 @@ export function SaleInvoiceModal({
                 <thead>
                   <tr className="bg-slate-900 text-white font-bold text-[10px] uppercase tracking-wider">
                     <th className="py-2 px-3 text-center w-12 border-r border-slate-700">Cant.</th>
-                    <th className="py-2 px-3 border-r border-slate-700">Descripción / Modelo</th>
-                    <th className="py-2 px-3 text-center w-16 border-r border-slate-700">Talle</th>
+                    <th className="py-2 px-3 border-r border-slate-700">Descripción / Artículo</th>
+                    <th className="py-2 px-3 text-center w-20 border-r border-slate-700">Variante</th>
                     <th className="py-2 px-3 text-right w-24 border-r border-slate-700">P. Unitario</th>
                     <th className="py-2 px-3 text-right w-28">Subtotal</th>
                   </tr>
@@ -743,7 +718,7 @@ export function SaleInvoiceModal({
                           )}
                         </td>
                         <td className="py-2 px-3 text-center font-mono font-bold text-slate-800 border-r border-slate-200">
-                          {item.size}
+                          {["Único", "Unico", "General", "Estándar"].includes(item.size) ? "—" : item.size}
                         </td>
                         <td className="py-2 px-3 text-right font-mono text-slate-700 border-r border-slate-200">
                           {money(item.unit_price)}
@@ -763,9 +738,9 @@ export function SaleInvoiceModal({
               {/* Left note & payment stamp */}
               <div className="sm:col-span-7 rounded-xl border border-slate-300 p-3 bg-slate-50/50 text-[11px] text-slate-600 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800">Total de pares entregados:</span>
+                  <span className="font-bold text-slate-800">Total unidades entregadas:</span>
                   <span className="font-mono font-bold text-slate-900 px-2 py-0.5 rounded bg-slate-200">
-                    {totalPairs} {totalPairs === 1 ? "par" : "pares"}
+                    {totalPairs} {totalPairs === 1 ? "unidad" : "unidades"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -906,7 +881,7 @@ export function SaleInvoiceModal({
             <div className="mt-6 pt-3 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="text-[9px] text-slate-500 text-center sm:text-left">
                 <p className="font-semibold text-slate-700">
-                  {businessName} · Sistema de Gestión de Zapatería
+                  {businessName} · Sistema de Gestión Mayorista
                 </p>
                 <p>Comprobante de uso interno y control de mercadería entregada.</p>
               </div>

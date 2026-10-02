@@ -57,7 +57,7 @@ export function StaffSettingsView({
   staff = [],
   onSave,
   busy,
-  storeName = "Mi Zapatería",
+  storeName = "CR MAYORISTA",
 }: StaffSettingsViewProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [deletingStaff, setDeletingStaff] = useState<any | null>(null);

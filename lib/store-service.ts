@@ -7,6 +7,12 @@ import { getApp, getApps, initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth, db, storage, firebaseConfig } from "@/lib/firebase";
 import { compressImageFile } from "./image-compressor";
+import {
+  generateValidEan13,
+  normalizeToValidEan13,
+  cleanBarcodeScan,
+  isBarcodeMatch,
+} from "./barcode";
 
 const now = () => new Date().toISOString();
 const bool = (value: unknown, fallback=false) => value===undefined ? fallback : value===true||value===1||value==="1"||value==="true"||value==="on";
@@ -14,12 +20,12 @@ const text = (value: unknown, fallback="") => value===undefined ? fallback : Str
 const number = (value: unknown, fallback=0) => value===undefined ? fallback : Number(value)||0;
 
 const defaultSettings = {
-  business_name:"Mi Zapatería", branch_name:"Sucursal principal", tax_id:"", email:"", whatsapp:"", logo_url:"",
-  receipt_type:"X", receipt_prefix:"X", next_receipt_number:1, currency:"ARS", secondary_currency:"BRL", exchange_rate_brl:250, default_channel:"minorista",
+  business_name:"CR MAYORISTA", branch_name:"Sucursal principal", tax_id:"", email:"", whatsapp:"", logo_url:"",
+  receipt_type:"X", receipt_prefix:"X", next_receipt_number:1, currency:"ARS", secondary_currency:"BRL", exchange_rate_brl:250, default_channel:"mayorista",
   payment_methods:"Efectivo,Transferencia,Tarjeta,Mercado Pago,Cuenta corriente", max_discount_percent:20, rounding_mode:"none",
   wholesale_min_qty:12, allow_mixed_sale:true, wholesale_terms:"Precios mayoristas desde el mínimo indicado.",
   low_stock_at:3, default_sizes:"35,36,37,38,39,40", allow_negative_stock:false, barcode_prefix:"",
-  catalog_default_price:"retail", catalog_in_stock_only:true, catalog_show_barcode:true, catalog_contact:"",
+  catalog_default_price:"wholesale", catalog_in_stock_only:true, catalog_show_barcode:true, catalog_contact:"",
   catalog_terms:"Precios sujetos a disponibilidad.", theme_default:"system", motion_level:"full", nav_density:"normal",
   scan_sound:true, camera_enabled:true, phone:"", address:"", updated_at:now(),
 };
@@ -60,8 +66,8 @@ async function ensureSeed(uid?: string) {
   // Cada usuario comienza con su propio espacio aislado y configuraciones básicas
   const currentUser = auth?.currentUser;
   const initialBusinessName = currentUser?.displayName
-    ? `Zapatería ${currentUser.displayName.split(" ")[0]}`
-    : "Mi Zapatería";
+    ? `CR MAYORISTA - ${currentUser.displayName.split(" ")[0]}`
+    : "CR MAYORISTA";
 
   await setDoc(settingsRef, {
     ...defaultSettings,
@@ -91,8 +97,8 @@ export async function seedDemoData(uid?: string) {
       variants: variants.map(([size, stock]) => ({ id: `${id}-${size}`, size, stock })),
     });
   }
-  batch.set(userDoc("customers", "maria-gonzalez", userId), { name: "María González", type: "minorista", phone: "3757 555-018", email: "", balance: 0, credit_limit: 0, created_at: now() });
-  batch.set(userDoc("customers", "calzados-norte", userId), { name: "Calzados Norte", type: "mayorista", phone: "3757 555-221", email: "", balance: 125000, credit_limit: 500000, created_at: now() });
+  batch.set(userDoc("customers", "maria-gonzalez", userId), { name: "Boutique Elegance (María González)", type: "mayorista", phone: "3757 555-018", email: "", balance: 0, credit_limit: 200000, created_at: now() });
+  batch.set(userDoc("customers", "calzados-norte", userId), { name: "Calzados Norte (Distribuidora)", type: "mayorista", phone: "3757 555-221", email: "", balance: 125000, credit_limit: 500000, created_at: now() });
   batch.set(userDoc("suppliers", "distribuidora-andina", userId), { name: "Distribuidora Andina", contact: "Lucas", phone: "11 5555-1300", balance: 280000, created_at: now() });
   batch.set(userDoc("suppliers", "fabrica-sur", userId), { name: "Fábrica Sur", contact: "Carla", phone: "341 555-9090", balance: 0, created_at: now() });
   batch.set(userDoc("cashMovements", "saldo-apertura", userId), { type: "ingreso", category: "Aporte inicial", amount: 350000, description: "Saldo de apertura", reference: "", created_at: now() });
@@ -128,7 +134,7 @@ export async function createCashierAccount({
       name: name.trim(),
       role: "cajera",
       storeId: ownerUid,
-      storeName: storeName || "Zapatería",
+      storeName: storeName || "CR MAYORISTA",
       active: true,
       created_at: now(),
       created_by: ownerUid,
@@ -379,7 +385,7 @@ export async function runStoreAction(body: any, uid?: string) {
     const name = text(body.name);
     if (!name) throw new Error("El nombre del modelo es obligatorio.");
     const skuRaw = text(body.sku);
-    const barcodeRaw = text(body.barcode);
+    const rawBarcode = cleanBarcodeScan(body.barcode);
     const existing = withId(await getDocs(userCol("products", userId)));
 
     // Si se especifica SKU, verificar que no esté duplicado
@@ -387,16 +393,24 @@ export async function runStoreAction(body: any, uid?: string) {
       throw new Error("El SKU ingresado ya está en uso en otro modelo.");
     }
 
-    // Si se especifica código de barras, verificar que no esté duplicado
-    if (barcodeRaw && existing.some((item: any) => String(item.barcode) === barcodeRaw)) {
-      throw new Error("El código de barras ingresado ya está en uso.");
+    // Normalizar o autogenerar código EAN-13 oficial GS1
+    let barcode = "";
+    if (rawBarcode) {
+      barcode = normalizeToValidEan13(rawBarcode);
+    } else {
+      const settingsSnap = await getDoc(userDoc("settings", "main", userId));
+      const settingsData = settingsSnap.exists() ? (settingsSnap.data() as any) : {};
+      const prefix = settingsData.barcode_prefix || "779";
+      barcode = generateValidEan13(prefix);
+    }
+
+    // Verificar que no esté duplicado usando comparación inteligente (12 vs 13 dígitos)
+    if (existing.some((item: any) => isBarcodeMatch(item.barcode, barcode))) {
+      throw new Error("El código de barras ingresado ya está en uso en otro modelo.");
     }
 
     // Autogenerar SKU si no se proporcionó
     const sku = skuRaw || `MOD-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    // Autogenerar código de barras numérico si no se proporcionó
-    const barcode = barcodeRaw || `779${Math.floor(1000000000 + Math.random() * 9000000000)}`;
 
     const target = doc(userCol("products", userId));
 
@@ -460,13 +474,16 @@ export async function runStoreAction(body: any, uid?: string) {
     if (!name) throw new Error("El nombre del modelo no puede estar vacío.");
 
     const skuRaw = text(body.sku, current.sku);
-    const barcodeRaw = text(body.barcode, current.barcode);
+    let barcodeRaw = text(body.barcode, current.barcode);
+    if (barcodeRaw) {
+      barcodeRaw = normalizeToValidEan13(cleanBarcodeScan(barcodeRaw));
+    }
     const allProducts = withId(await getDocs(userCol("products", userId)));
 
     if (skuRaw && allProducts.some((item: any) => String(item.id) !== productId && String(item.sku).toLowerCase() === skuRaw.toLowerCase())) {
       throw new Error("El SKU ingresado ya está asignado a otro modelo.");
     }
-    if (barcodeRaw && allProducts.some((item: any) => String(item.id) !== productId && String(item.barcode) === barcodeRaw)) {
+    if (barcodeRaw && allProducts.some((item: any) => String(item.id) !== productId && isBarcodeMatch(item.barcode, barcodeRaw))) {
       throw new Error("El código de barras ya está asignado a otro modelo.");
     }
 
@@ -536,7 +553,7 @@ export async function runStoreAction(body: any, uid?: string) {
     const balance = number(body.balance, 0);
     const customerRef = await addDoc(userCol("customers", userId), {
       name: text(body.name),
-      type: body.type === "mayorista" ? "mayorista" : "minorista",
+      type: "mayorista",
       phone: text(body.phone),
       email: text(body.email),
       document: text(body.document || body.dni || body.cuit),
@@ -564,7 +581,7 @@ export async function runStoreAction(body: any, uid?: string) {
     (store as any).createdCustomer = {
       id: customerRef.id,
       name: text(body.name),
-      type: body.type === "mayorista" ? "mayorista" : "minorista",
+      type: "mayorista",
     };
     return store;
   } else if (action === "edit_customer") {
@@ -580,7 +597,7 @@ export async function runStoreAction(body: any, uid?: string) {
 
     await updateDoc(customerRef, {
       name,
-      type: body.type === "mayorista" ? "mayorista" : "minorista",
+      type: "mayorista",
       phone: body.phone !== undefined ? text(body.phone) : (current.phone || ""),
       email: body.email !== undefined ? text(body.email) : (current.email || ""),
       document: body.document !== undefined ? text(body.document) : (body.dni !== undefined ? text(body.dni) : (current.document || "")),
@@ -1171,8 +1188,8 @@ export async function runStoreAction(body: any, uid?: string) {
         customer_phone: customerData?.phone || "",
         customer_address: customerData?.address || "",
         customer_city: customerData?.city || "",
-        customer_type: customerData?.type || (body.channel === "mayorista" ? "mayorista" : "minorista"),
-        channel: body.channel === "mayorista" ? "mayorista" : "minorista",
+        customer_type: customerData?.type || "mayorista",
+        channel: "mayorista",
         subtotal,
         discount,
         discount_percent: Math.round(discountPercent * 100) / 100,
@@ -1248,7 +1265,7 @@ export async function runStoreAction(body: any, uid?: string) {
           amount: paidAmount, // Consolidado en pesos ARS
           currency: saleCurrency,
           amount_currency: depositAmount,
-          description: `Venta ${body.channel || "minorista"} (${saleCurrency === "BRL" ? `R$ ${paidAmountBrl.toFixed(2)} BRL (Equiv: $${paidAmount} ARS)` : `$${paidAmount} ARS`}) · ${bankAccountName}`,
+          description: `Venta mayorista (${saleCurrency === "BRL" ? `R$ ${paidAmountBrl.toFixed(2)} BRL (Equiv: $${paidAmount} ARS)` : `$${paidAmount} ARS`}) · ${bankAccountName}`,
           reference: receiptNo,
           created_at: createdAt,
         });
@@ -1303,7 +1320,7 @@ export async function runStoreAction(body: any, uid?: string) {
       throw new Error("La contraseña debe tener al menos 6 caracteres.");
     }
     const storeSettings = (await getDoc(userSettingsDoc(userId))).data() || {};
-    const storeName = storeSettings.business_name || "Mi Zapatería";
+    const storeName = storeSettings.business_name || "CR MAYORISTA";
     await createCashierAccount({
       email,
       password,

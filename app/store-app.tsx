@@ -43,7 +43,9 @@ import { BankAccountSelectField } from "@/components/bank-account-select-field";
 import { WholesaleStoreAdmin } from "@/components/wholesale-store-admin";
 import { CategoriesSettingsView } from "@/components/categories-settings-view";
 import { ProductBarcodeModal } from "@/components/product-barcode-modal";
+import { BarcodeView } from "@/components/barcode-view";
 import { StaffSettingsView } from "@/components/staff-settings-view";
+import { cleanBarcodeScan, isBarcodeMatch } from "@/lib/barcode";
 
 type Variant = { id:number; product_id:number; size:string; stock:number };
 type Product = { id:number; sku:string; barcode:string; name:string; brand:string; category:string; color:string; gender:string; cost:number; retail_price:number; wholesale_price:number; min_stock:number; total_stock:number; image_url?:string; variants:Variant[] };
@@ -57,7 +59,7 @@ const nav = [
   ["resumen", "Resumen", LayoutDashboard], ["ventas", "Punto de venta", ShoppingCart],
   ["productos", "Productos", ShoppingBag], ["inventario", "Inventario", Boxes],
   ["clientes", "Clientes", Users], ["proveedores", "Proveedores", Truck],
-  ["caja", "Caja e ingresos", WalletCards], ["tienda", "Tienda", Store],
+  ["caja", "Caja e ingresos", WalletCards], ["tienda", "Tienda Mayorista", Store],
   ["catalogos", "Catálogos", FileText],
   ["reportes", "Reportes", BarChart3], ["configuracion", "Configuración", Settings],
 ] as const;
@@ -78,8 +80,26 @@ function Field({ label, name, defaultValue, type="text", placeholder, required=f
 }
 
 function StatCard({ label, value, note, icon:Icon, tone="blue" }:any) {
-  const tones:any = { blue:"bg-blue-50 text-blue-700 dark:bg-blue-950/40", green:"bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40", coral:"bg-orange-50 text-orange-700 dark:bg-orange-950/40", violet:"bg-violet-50 text-violet-700 dark:bg-violet-950/40" };
-  return <Card className="gap-3 border-0 py-5 shadow-[0_8px_28px_rgb(15_33_55/7%)]"><CardContent className="flex items-start justify-between px-5"><div><p className="text-sm text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-bold tracking-tight">{value}</p><p className="mt-1 text-xs text-muted-foreground">{note}</p></div><span className={`clay-icon rounded-2xl p-3 ${tones[tone]}`}><Icon className="size-5" /></span></CardContent></Card>;
+  const tones:Record<string, string> = {
+    blue: "clay-pill-blue",
+    green: "clay-pill-green",
+    coral: "clay-pill-coral",
+    violet: "clay-pill-violet",
+  };
+  return (
+    <Card className="gap-3 py-5 group">
+      <CardContent className="flex items-start justify-between px-5">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
+          <p className="mt-2 text-2xl font-black tracking-tight">{value}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{note}</p>
+        </div>
+        <span className={`clay-pill-3d size-12 shrink-0 ${tones[tone] || tones.blue}`}>
+          <Icon className="size-5.5" strokeWidth={2.3} />
+        </span>
+      </CardContent>
+    </Card>
+  );
 }
 
 function SectionTitle({ eyebrow, title, text, action }:any) {
@@ -90,18 +110,19 @@ function ModalForm({ open, onOpenChange, title, description, children, onSubmit,
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{title}</DialogTitle><DialogDescription>{description}</DialogDescription></DialogHeader><form onSubmit={onSubmit} className="grid gap-4"><div className="grid gap-4 sm:grid-cols-2">{children}</div><div className="mt-2 flex justify-end gap-2"><Button type="button" variant="outline" onClick={()=>onOpenChange(false)}>Cancelar</Button><Button type="submit">{submit}</Button></div></form></DialogContent></Dialog>;
 }
 
-const code39:Record<string,string> = {
-  "0":"nnnwwnwnn","1":"wnnwnnnnw","2":"nnwwnnnnw","3":"wnwwnnnnn","4":"nnnwwnnnw","5":"wnnwwnnnn","6":"nnwwwnnnn","7":"nnnwnnwnw","8":"wnnwnnwnn","9":"nnwwnnwnn",
-  "A":"wnnnnwnnw","B":"nnwnnwnnw","C":"wnwnnwnnn","D":"nnnnwwnnw","E":"wnnnwwnnn","F":"nnwnwwnnn","G":"nnnnnwwnw","H":"wnnnnwwnn","I":"nnwnnwwnn","J":"nnnnwwwnn",
-  "K":"wnnnnnnww","L":"nnwnnnnww","M":"wnwnnnnwn","N":"nnnnwnnww","O":"wnnnwnnwn","P":"nnwnwnnwn","Q":"nnnnnnwww","R":"wnnnnnwwn","S":"nnwnnnwwn","T":"nnnnwnwwn",
-  "U":"wwnnnnnnw","V":"nwwnnnnnw","W":"wwwnnnnnn","X":"nwnnwnnnw","Y":"wwnnwnnnn","Z":"nwwnwnnnn","-":"nwnnnnwnw",".":"wwnnnnwnn"," ":"nwwnnnwnn","*":"nwnnwnwnn"
-};
-
 function BarcodeLabel({ value }:{value:string}) {
-  const encoded = `*${value.toUpperCase().replace(/[^0-9A-Z. -]/g, "-")}*`;
-  const bars:{x:number;w:number}[]=[]; let x=0;
-  for (const char of encoded) { const pattern=code39[char] || code39["-"]; pattern.split("").forEach((width,i)=>{const w=width==="w"?3:1;if(i%2===0)bars.push({x,w});x+=w;});x+=1; }
-  return <div className="flex flex-col items-center"><svg viewBox={`0 0 ${x} 42`} className="h-10 w-full max-w-56" preserveAspectRatio="none" aria-label={`Código de barras ${value}`}>{bars.map((b,i)=><rect key={i} x={b.x} y="0" width={b.w} height="38" fill="currentColor" />)}</svg><span className="mt-1 font-mono text-[11px] tracking-[.16em]">{value}</span></div>;
+  return (
+    <div className="flex flex-col items-center">
+      <BarcodeView
+        value={value}
+        className="h-10 w-full max-w-56"
+        height={36}
+        width={1.6}
+        margin={8}
+      />
+      <span className="mt-1 font-mono text-[11px] font-bold tracking-[.16em]">{value}</span>
+    </div>
+  );
 }
 
 export default function StoreApp({
@@ -120,7 +141,7 @@ export default function StoreApp({
   const uid = targetUid;
   const [data,setData]=useState<StoreData|null>(null); const [error,setError]=useState(""); const [busy,setBusy]=useState(false);
   const [section,setSection]=useState<string>(isCashier ? "ventas" : "resumen"); const [query,setQuery]=useState(""); const [dark,setDark]=useState(false);
-  const [modal,setModal]=useState(""); const [toast,setToast]=useState(""); const [channel,setChannel]=useState<"minorista"|"mayorista">("minorista");
+  const [modal,setModal]=useState(""); const [toast,setToast]=useState(""); const [channel,setChannel]=useState<"mayorista">("mayorista");
   const [adjustTarget,setAdjustTarget]=useState<{v:Variant;p:Product}|null>(null);
   const [editingProduct,setEditingProduct]=useState<Product|null>(null);
   const [adjustingProduct,setAdjustingProduct]=useState<Product|null>(null);
@@ -146,12 +167,12 @@ export default function StoreApp({
   const [additionalChargeDescription,setAdditionalChargeDescription]=useState("");
   const [payment,setPayment]=useState("Efectivo");
   const [customerId,setCustomerId]=useState("");
-  const [scan,setScan]=useState(""); const [catalogPrice,setCatalogPrice]=useState<"retail"|"wholesale">("retail"); const [invoiceSale,setInvoiceSale]=useState<any|null>(null); const videoRef=useRef<HTMLVideoElement>(null);
+  const [scan,setScan]=useState(""); const [catalogPrice,setCatalogPrice]=useState<"wholesale">("wholesale"); const [invoiceSale,setInvoiceSale]=useState<any|null>(null); const videoRef=useRef<HTMLVideoElement>(null);
 
   const load=async()=>{try{const storeData=await loadStore(uid) as StoreData;setData(storeData);if(!bankAccountId&&storeData?.bankAccounts?.length){setBankAccountId(String(storeData.bankAccounts[0].id));}setError("");}catch(e:any){setError(e.message||"No se pudo cargar");}};
   useEffect(()=>{load();},[uid]);
   useEffect(()=>{document.documentElement.classList.toggle("dark",dark);},[dark]);
-  useEffect(()=>{if(!data?.settings)return;const theme=data.settings.theme_default;if(theme==="dark")setDark(true);else if(theme==="light")setDark(false);else setDark(window.matchMedia?.("(prefers-color-scheme: dark)").matches??false);setChannel(data.settings.default_channel==="mayorista"?"mayorista":"minorista");setCatalogPrice(data.settings.catalog_default_price==="wholesale"?"wholesale":"retail");const methods=String(data.settings.payment_methods||"Efectivo").split(",").map((x:string)=>x.trim()).filter(Boolean);if(methods.length&&!methods.includes(payment))setPayment(methods[0]);},[data?.settings?.theme_default,data?.settings?.default_channel,data?.settings?.catalog_default_price,data?.settings?.payment_methods]);
+  useEffect(()=>{if(!data?.settings)return;const theme=data.settings.theme_default;if(theme==="dark")setDark(true);else if(theme==="light")setDark(false);else setDark(window.matchMedia?.("(prefers-color-scheme: dark)").matches??false);setChannel("mayorista");setCatalogPrice("wholesale");const methods=String(data.settings.payment_methods||"Efectivo").split(",").map((x:string)=>x.trim()).filter(Boolean);if(methods.length&&!methods.includes(payment))setPayment(methods[0]);},[data?.settings?.theme_default,data?.settings?.default_channel,data?.settings?.catalog_default_price,data?.settings?.payment_methods]);
   useEffect(()=>{
     if(data?.bankAccounts?.length && (!bankAccountId || !data.bankAccounts.some((a:any)=>String(a.id)===String(bankAccountId)))){
       setBankAccountId(String(data.bankAccounts[0].id));
@@ -161,21 +182,29 @@ export default function StoreApp({
   useEffect(()=>{
     const ctx=(document as any).modelContext;if(!ctx?.registerTool)return;const life=new AbortController();
     Promise.resolve(ctx.registerTool({name:"search_inventory",title:"Buscar inventario",description:"Busca productos por nombre, SKU, marca o código y devuelve stock por talle.",inputSchema:{type:"object",properties:{query:{type:"string"}},required:["query"],additionalProperties:false},annotations:{readOnlyHint:true,untrustedContentHint:false},execute:({query:q}:any)=>{const term=String(q).toLowerCase();return {products:(data?.products??[]).filter(p=>[p.name,p.sku,p.brand,p.barcode].join(" ").toLowerCase().includes(term)).slice(0,12).map(p=>({name:p.name,sku:p.sku,stock:p.total_stock,sizes:p.variants.filter(v=>v.stock>0).map(v=>`${v.size}:${v.stock}`)}))};}},{signal:life.signal})).catch(()=>{});
-    Promise.resolve(ctx.registerTool({name:"start_new_sale",title:"Iniciar venta",description:"Abre el punto de venta del sistema.",inputSchema:{type:"object",properties:{channel:{type:"string",enum:["minorista","mayorista"]}},additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false},execute:({channel:c}:any)=>{setChannel(c==="mayorista"?"mayorista":"minorista");setSection("ventas");return {status:"ready",channel:c||"minorista"};}},{signal:life.signal})).catch(()=>{});
+    Promise.resolve(ctx.registerTool({name:"start_new_sale",title:"Iniciar venta",description:"Abre el punto de venta mayorista.",inputSchema:{type:"object",properties:{},additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false},execute:()=>{setChannel("mayorista");setSection("ventas");return {status:"ready",channel:"mayorista"};}},{signal:life.signal})).catch(()=>{});
     return()=>life.abort();
   },[data]);
 
-  const action=async(body:any,success:string)=>{setBusy(true);try{const nextData:any=await runStoreAction(body,uid);setData(nextData as StoreData);setToast(success);if(body.action!=="create_category")setModal("");if(nextData?.createdCustomer?.id){setCustomerId(String(nextData.createdCustomer.id));if(nextData.createdCustomer.type==="mayorista"){setChannel("mayorista");}}if(nextData?.createdBankAccount?.id){setBankAccountId(String(nextData.createdBankAccount.id));}return nextData;}catch(e:any){setToast(e.message||"No se pudo guardar");return false;}finally{setBusy(false);}};
+  const action=async(body:any,success:string)=>{setBusy(true);try{const nextData:any=await runStoreAction(body,uid);setData(nextData as StoreData);setToast(success);if(body.action!=="create_category")setModal("");if(nextData?.createdCustomer?.id){setCustomerId(String(nextData.createdCustomer.id));setChannel("mayorista");}if(nextData?.createdBankAccount?.id){setBankAccountId(String(nextData.createdBankAccount.id));}return nextData;}catch(e:any){setToast(e.message||"No se pudo guardar");return false;}finally{setBusy(false);}};
   const fromForm=(e:FormEvent<HTMLFormElement>)=>Object.fromEntries(new FormData(e.currentTarget).entries());
-  const filtered=useMemo(()=>{const q=query.toLowerCase().trim();return (data?.products??[]).filter(p=>!q||[p.name,p.sku,p.barcode,p.brand,p.category,p.color].join(" ").toLowerCase().includes(q));},[data,query]);
+  const filtered=useMemo(()=>{
+    const q=cleanBarcodeScan(query).toLowerCase();
+    return (data?.products??[]).filter(p=>!q||isBarcodeMatch(p.barcode, q)||[p.name,p.sku,p.barcode,p.brand,p.category,p.color].join(" ").toLowerCase().includes(q));
+  },[data,query]);
   const cartTotal=Math.max(0, cart.reduce((s,i)=>s+i.unitPrice*i.quantity,0)-discount+(Number(additionalCharge)||0));
-  const addVariant=(p:Product,v:Variant)=>{const allowNegative=Boolean(data?.settings?.allow_negative_stock);if(v.stock<=0&&!allowNegative)return;const price=channel==="mayorista"?p.wholesale_price:p.retail_price;setCart(c=>{const found=c.find(i=>i.variantId===v.id);const max=allowNegative?9999:v.stock;return found?c.map(i=>i.variantId===v.id?{...i,quantity:Math.min(i.quantity+1,max),max}:i):[...c,{productId:p.id,variantId:v.id,name:p.name,size:v.size,quantity:1,unitPrice:price,max}]});setToast(`${p.name} · talle ${v.size}`);};
+  const addVariant=(p:Product,v:Variant)=>{const allowNegative=Boolean(data?.settings?.allow_negative_stock);if(v.stock<=0&&!allowNegative)return;const price=p.wholesale_price;setCart(c=>{const found=c.find(i=>i.variantId===v.id);const max=allowNegative?9999:v.stock;return found?c.map(i=>i.variantId===v.id?{...i,quantity:Math.min(i.quantity+1,max),max}:i):[...c,{productId:p.id,variantId:v.id,name:p.name,size:v.size,quantity:1,unitPrice:price,max}]});setToast(`${p.name} · talle ${v.size}`);};
   const scanProduct = (code = scan) => {
-    const value = code.trim();
+    const value = cleanBarcodeScan(code);
+    // Limpiar siempre de inmediato para evitar que el siguiente disparo de la pistola concatene códigos
+    setScan("");
     if (!value) return;
-    let p = data?.products.find(p => p.barcode === value || p.sku.toLowerCase() === value.toLowerCase());
+
+    // 1. Coincidencia inteligente por código de barras (EAN-13, 12 vs 13 dígitos, UPC) o SKU
+    let p = data?.products.find(p => isBarcodeMatch(p.barcode, value) || p.sku.toLowerCase() === value.toLowerCase());
     if (!p) {
       const matches = (data?.products || []).filter(item =>
+        isBarcodeMatch(item.barcode, value) ||
         [item.name, item.sku, item.barcode, item.brand].join(" ").toLowerCase().includes(value.toLowerCase())
       );
       if (matches.length === 1) {
@@ -199,11 +228,10 @@ export default function StoreApp({
           oscillator.stop(ctx.currentTime + 0.09);
         } catch {}
       }
-      setScan("");
     } else if (p && !v) {
-      setToast(`El producto "${p.name}" no tiene talles con stock disponible`);
+      setToast(`El producto "${p.name}" no tiene variantes con stock disponible`);
     } else {
-      setToast("Código o calzado no encontrado");
+      setToast(`Código "${value}" no encontrado`);
     }
   };
   const closeSale=async(paidAmountOverride?:number, options?: { discount?: number; discountPercent?: number; additionalCharge?: number; additionalChargeDescription?: string; currency?: "ARS" | "BRL"; exchangeRate?: number })=>{
@@ -221,7 +249,7 @@ export default function StoreApp({
       additionalChargeDescription: finalAdditionalChargeDescription,
       paymentMethod:payment,
       customerId,
-      channel,
+      channel: "mayorista",
       bankAccountId,
       paidAmount: paidAmountOverride,
       cashierId: isCashier ? user?.uid : null,
@@ -250,12 +278,12 @@ export default function StoreApp({
 
   useEffect(()=>{if(modal!=="product")return;const frame=requestAnimationFrame(()=>{const input=document.querySelector<HTMLInputElement>('input[name="sizes"]');if(input)input.value=String(data?.settings?.default_sizes||"35,36,37,38,39,40");});return()=>cancelAnimationFrame(frame);},[modal,data?.settings?.default_sizes]);
 
-  useEffect(()=>{ if(modal!=="scanner")return; let stream:MediaStream|undefined; let frame=0; let cancelled=false; (async()=>{try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}const Detector=(window as any).BarcodeDetector;if(!Detector)throw new Error("La cámara no admite lectura automática en este navegador.");const detector=new Detector({formats:["ean_13","ean_8","code_128","code_39"]});const tick=async()=>{if(cancelled||!videoRef.current)return;try{const codes=await detector.detect(videoRef.current);if(codes[0]?.rawValue){const value=String(codes[0].rawValue);setScan(value);setModal("");scanProduct(value);return;}}catch{}frame=requestAnimationFrame(tick);};tick();}catch(e:any){setToast(e.message||"No se pudo abrir la cámara");setModal("");}})();return()=>{cancelled=true;cancelAnimationFrame(frame);stream?.getTracks().forEach(t=>t.stop());}; },[modal]);
+  useEffect(()=>{ if(modal!=="scanner")return; let stream:MediaStream|undefined; let frame=0; let cancelled=false; (async()=>{try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}const Detector=(window as any).BarcodeDetector;if(!Detector)throw new Error("La cámara no admite lectura automática en este navegador.");const detector=new Detector({formats:["ean_13","ean_8","code_128","code_39"]});const tick=async()=>{if(cancelled||!videoRef.current)return;try{const codes=await detector.detect(videoRef.current);if(codes[0]?.rawValue){const value=cleanBarcodeScan(codes[0].rawValue);setScan("");setModal("");scanProduct(value);return;}}catch{}frame=requestAnimationFrame(tick);};tick();}catch(e:any){setToast(e.message||"No se pudo abrir la cámara");setModal("");}})();return()=>{cancelled=true;cancelAnimationFrame(frame);stream?.getTracks().forEach(t=>t.stop());}; },[modal]);
 
-  if(!data && !error) return <div className="flex min-h-screen items-center justify-center bg-background"><div className="text-center"><div className="mx-auto mb-4 size-12 animate-spin rounded-full border-4 border-primary/20 border-t-primary"/><p className="text-sm text-muted-foreground">Preparando tu zapatería…</p></div></div>;
+  if(!data && !error) return <div className="flex min-h-screen items-center justify-center bg-background"><div className="text-center"><div className="mx-auto mb-4 size-12 animate-spin rounded-full border-4 border-primary/20 border-t-primary"/><p className="text-sm text-muted-foreground">Preparando tu sistema mayorista…</p></div></div>;
   if(error) return <div className="flex min-h-screen items-center justify-center p-6"><Card className="max-w-md"><CardContent><h1 className="text-xl font-bold">No pudimos abrir el sistema</h1><p className="mt-2 text-sm text-muted-foreground">{error}</p><Button className="mt-5" onClick={load}>Reintentar</Button></CardContent></Card></div>;
 
-  const business=data!.settings?.business_name||"Mi Zapatería";
+  const business=data!.settings?.business_name||"CR MAYORISTA";
   const activeNavList = isCashier ? cashierNav : nav;
   const pageTitle=activeNavList.find(n=>n[0]===section)?.[1]||(isCashier ? "Punto de venta" : "Resumen");
 
@@ -264,7 +292,7 @@ export default function StoreApp({
       <div className="top-brandbar mx-auto flex min-h-20 max-w-[1800px] flex-wrap items-center gap-3 px-4 py-3 sm:flex-nowrap sm:px-7 lg:px-9">
         <button className="brand-block flex shrink-0 items-center gap-3 text-left" onClick={()=>setSection(isCashier ? "ventas" : "resumen")} aria-label="Ir al inicio">
           <span className="brand-orb grid size-11 place-items-center overflow-hidden rounded-2xl text-white">{data!.settings?.logo_url?<img src={data!.settings.logo_url} alt="" className="size-full object-contain"/>:<ShoppingBag className="size-6"/>}</span>
-          <span className="hidden min-w-0 sm:block"><span className="block max-w-52 truncate text-base font-extrabold">{business}</span><span className="block text-xs text-muted-foreground">{data!.settings?.branch_name||"Sucursal principal"} · Sistema operativo</span></span>
+          <span className="hidden min-w-0 sm:block"><span className="block max-w-52 truncate text-base font-extrabold">{business}</span><span className="block text-xs text-muted-foreground">{data!.settings?.branch_name||"Sucursal principal"} · Sistema Mayorista</span></span>
         </button>
         <span className="current-section hidden rounded-full px-3 py-1.5 text-xs font-bold xl:inline-flex">{pageTitle}</span>
         <div className="relative order-3 w-full sm:order-none sm:ml-auto sm:max-w-md"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/><Input value={query} onChange={e=>setQuery(e.target.value)} className="h-11 rounded-xl bg-card pl-9" placeholder="Buscar producto, código, marca…"/></div>
@@ -293,14 +321,29 @@ export default function StoreApp({
             onClick={() => setSection("tienda")}
           >
             <Store className="size-4" />
-            Tienda
+            Tienda Mayorista
           </Button>
         )}
         <Button className="hidden h-11 shrink-0 rounded-xl bg-[#ff7a5c] hover:bg-[#e9684c] sm:flex" onClick={()=>setSection("ventas")}><Plus/>Nueva venta</Button>
       </div>
       <div className="top-nav-rail">
-        <nav className="top-section-nav mx-auto flex max-w-[1800px] items-start gap-1.5 overflow-x-auto px-4 py-2.5 sm:gap-3 sm:px-7 lg:px-9 2xl:justify-center" aria-label="Secciones principales">
-          {activeNavList.map(([id,label,Icon])=><button key={id} onClick={()=>setSection(id)} aria-current={section===id?"page":undefined} className={`top-section-button flex shrink-0 flex-col items-center gap-1.5 px-2 py-1.5 text-xs font-bold ${section===id?"is-active":""}`}><span className="section-icon grid size-12 place-items-center rounded-full"><Icon className="size-5" strokeWidth={2.15}/></span><span className="section-label">{label}</span></button>)}
+        <nav className="top-section-nav mx-auto flex max-w-[1800px] items-start gap-1.5 overflow-x-auto px-4 py-2.5 sm:gap-3.5 sm:px-7 lg:px-9 2xl:justify-center" aria-label="Secciones principales">
+          {activeNavList.map(([id, label, Icon]) => (
+            <button
+              key={id}
+              data-nav-id={id}
+              onClick={() => setSection(id)}
+              aria-current={section === id ? "page" : undefined}
+              className={`top-section-button flex shrink-0 flex-col items-center gap-2 px-2.5 py-1.5 text-xs font-bold ${
+                section === id ? "is-active" : ""
+              }`}
+            >
+              <span className="section-icon shrink-0">
+                <Icon className="size-6 shrink-0" strokeWidth={2.3} />
+              </span>
+              <span className="section-label">{label}</span>
+            </button>
+          ))}
         </nav>
       </div>
     </header>
@@ -314,7 +357,7 @@ export default function StoreApp({
         {!isCashier && section==="proveedores"&&<SuppliersView suppliers={data!.suppliers} supplierMoves={data!.supplierMoves||[]} onNewSupplier={()=>setModal("supplier")} onEditSupplier={(s:any)=>setEditingSupplier(s)} onAdjustDebt={(s:any)=>setAdjustingSupplier(s)} onViewDetail={(s:any)=>setViewingSupplier(s)} onDeleteSupplier={(s:any)=>setDeletingSupplier(s)}/>} 
         {section==="caja"&&<Cash data={data!} isCashier={isCashier} setModal={setModal} onEdit={(m:any)=>setEditingCashMovement(m)} onDelete={(m:any)=>setDeletingCashMovement(m)} onViewReceipt={(m:any)=>setViewingCashMovement(m)} />} 
         {!isCashier && section==="tienda"&&<WholesaleStoreAdmin data={data!} uid={uid} setSection={setSection} setToast={setToast}/>}
-        {section==="catalogos"&&<CatalogConfigured data={data!} products={filtered} price={catalogPrice} setPrice={setCatalogPrice}/>}
+        {section==="catalogos"&&<CatalogConfigured data={data!} products={filtered}/>}
         {!isCashier && section==="reportes"&&<Reports data={data!} onSelectSale={(s:any)=>setInvoiceSale(s)}/>} 
         {!isCashier && section==="configuracion"&&<SettingsCenter data={data!} onSave={action} busy={busy} dark={dark} setDark={setDark} setToast={setToast} uid={uid} setModal={setModal} onEditBankAccount={(acc:any)=>setEditingBankAccount(acc)} onTransferModal={()=>setTransferModalOpen(true)}/>}
       </main>
@@ -501,7 +544,7 @@ export default function StoreApp({
         <AlertDialogHeader>
           <AlertDialogTitle>¿Eliminar este proveedor?</AlertDialogTitle>
           <AlertDialogDescription>
-            Vas a eliminar a <strong>{deletingSupplier?.name}</strong> ({deletingSupplier?.category || "Calzado"}).
+            Vas a eliminar a <strong>{deletingSupplier?.name}</strong> ({deletingSupplier?.category || "General"}).
             {Number(deletingSupplier?.balance || 0) > 0 && (
               <span className="mt-2 block font-semibold text-destructive">
                 ¡Atención! Se registra un saldo adeudado a este proveedor de {money(Number(deletingSupplier.balance))}.
@@ -715,45 +758,45 @@ function CustomerSelectField({
   );
 }
 
-function SalesPOS({data,filtered,channel,setChannel,cart,setCart,addVariant,scan,setScan,scanProduct,setModal,discount,setDiscount,payment,setPayment,customerId,setCustomerId,cartTotal,closeSale,busy}:any){return <><SectionTitle eyebrow="Venta rápida" title="Punto de venta" text="Escaneá, elegí el talle y cobrá sin salir de la pantalla."/><div className="mb-5 grid gap-3 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-[1fr_auto_auto]"><div className="relative"><Barcode className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-primary"/><Input autoFocus className="h-12 pl-10" placeholder="Escaneá con lector USB/Bluetooth o escribí el código" value={scan} onChange={e=>setScan(e.target.value)} onKeyDown={e=>e.key==="Enter"&&scanProduct()}/></div><Button variant="outline" className="h-12" onClick={()=>setModal("scanner")}><Camera/>Usar cámara</Button><div className="flex rounded-xl bg-muted p-1"><button onClick={()=>setChannel("minorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel==="minorista"?"bg-card shadow":"text-muted-foreground"}`}>Minorista</button><button onClick={()=>setChannel("mayorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel==="mayorista"?"bg-card shadow":"text-muted-foreground"}`}>Mayorista</button></div></div><div className="grid gap-6 xl:grid-cols-[1fr_390px]"><div className="grid content-start gap-4 sm:grid-cols-2 2xl:grid-cols-3">{filtered.map((p:Product)=><Card key={p.id} className="gap-3 border-0 py-0 shadow-sm overflow-hidden flex flex-col">{p.image_url?<div className="h-36 w-full overflow-hidden bg-muted/20"><img src={p.image_url} alt={p.name} className="h-full w-full object-cover hover:scale-105 transition-transform duration-300"/></div>:<div className="h-20 w-full bg-gradient-to-r from-primary/5 via-muted/30 to-primary/5 flex items-center justify-center text-muted-foreground/40"><ShoppingBag className="size-7 opacity-50"/></div>}<CardContent className="px-4 pb-4 pt-2 flex-1 flex flex-col justify-between"><div><div className="mb-2 flex items-start justify-between gap-2"><div><p className="font-bold">{p.name}</p><p className="text-xs text-muted-foreground">{p.brand} · {p.sku}</p></div><Badge variant="outline">{p.total_stock} pares</Badge></div><p className="mb-3 text-xl font-extrabold text-primary">{money(channel==="mayorista"?p.wholesale_price:p.retail_price)}</p></div><div><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Elegir talle</p><div className="flex flex-wrap gap-1.5">{p.variants.map(v=><Button key={v.id} variant="outline" size="xs" disabled={!v.stock} onClick={()=>addVariant(p,v)}>{v.size}<span className="text-[10px] text-muted-foreground">{v.stock}</span></Button>)}</div></div></CardContent></Card>)}</div><Card className="sticky top-24 h-fit gap-4 border-0 py-5 shadow-[0_14px_40px_rgb(15_33_55/12%)]"><CardHeader className="flex-row items-center justify-between px-5"><CardTitle className="flex items-center gap-2"><ShoppingCart className="size-5 text-primary"/>Venta actual</CardTitle><Badge>{cart.reduce((s:number,i:CartItem)=>s+i.quantity,0)} pares</Badge></CardHeader><CardContent className="space-y-4 px-5"><div className="max-h-64 space-y-2 overflow-y-auto pr-1">{cart.length===0?<div className="rounded-2xl border border-dashed p-7 text-center text-sm text-muted-foreground">Escaneá un producto o elegí un talle para comenzar.</div>:cart.map((i:CartItem)=><div key={i.variantId} className="flex items-center gap-3 rounded-xl bg-muted/55 p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{i.name}</p><p className="text-xs text-muted-foreground">Talle {i.size} · {money(i.unitPrice)}</p></div><div className="flex items-center gap-1"><button className="size-7 rounded-lg border" onClick={()=>setCart((c:CartItem[])=>c.map(x=>x.variantId===i.variantId?{...x,quantity:Math.max(0,x.quantity-1)}:x).filter(x=>x.quantity>0))}>−</button><span className="w-6 text-center text-sm font-bold">{i.quantity}</span><button className="size-7 rounded-lg border" onClick={()=>setCart((c:CartItem[])=>c.map(x=>x.variantId===i.variantId?{...x,quantity:Math.min(x.max,x.quantity+1)}:x))}>+</button></div></div>)}</div><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold">Descuento<Input type="number" value={discount} onChange={e=>setDiscount(Number(e.target.value)||0)} className="mt-1"/></label><label className="text-xs font-semibold">Medio de pago<select value={payment} onChange={e=>setPayment(e.target.value)} className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Cuenta corriente</option></select></label></div><CustomerSelectField customers={data.customers} customerId={customerId} setCustomerId={setCustomerId} onNewCustomer={()=>setModal("customer")}/><div className="border-t pt-4"><div className="flex justify-between text-sm text-muted-foreground"><span>Subtotal</span><span>{money(cartTotal+discount)}</span></div><div className="mt-2 flex items-end justify-between"><span className="font-semibold">Total</span><span className="text-3xl font-black tracking-tight">{money(cartTotal)}</span></div></div><Button className="h-12 w-full rounded-xl text-base" disabled={!cart.length||busy} onClick={closeSale}>{busy?"Procesando…":`Cobrar ${money(cartTotal)}`}</Button><p className="text-center text-xs text-muted-foreground">Genera comprobante X y descuenta el stock automáticamente.</p></CardContent></Card></div></>}
+function SalesPOS({data,filtered,channel,setChannel,cart,setCart,addVariant,scan,setScan,scanProduct,setModal,discount,setDiscount,payment,setPayment,customerId,setCustomerId,cartTotal,closeSale,busy}:any){return <><SectionTitle eyebrow="Venta rápida" title="Punto de venta" text="Escaneá, elegí la variante y cobrá sin salir de la pantalla."/><div className="mb-5 grid gap-3 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-[1fr_auto_auto]"><div className="relative"><Barcode className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-primary"/><Input autoFocus className="h-12 pl-10" placeholder="Escaneá con lector USB/Bluetooth o escribí el código" value={scan} onChange={e=>{const val=e.target.value;if(val.includes("\n")||val.includes("\r")){scanProduct(val);}else{setScan(val);}}} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();scanProduct(scan);}}}/></div><Button variant="outline" className="h-12" onClick={()=>setModal("scanner")}><Camera/>Usar cámara</Button><div className="flex rounded-xl bg-muted p-1"><button onClick={()=>setChannel("minorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel==="minorista"?"bg-card shadow":"text-muted-foreground"}`}>Minorista</button><button onClick={()=>setChannel("mayorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel==="mayorista"?"bg-card shadow":"text-muted-foreground"}`}>Mayorista</button></div></div><div className="grid gap-6 xl:grid-cols-[1fr_390px]"><div className="grid content-start gap-4 sm:grid-cols-2 2xl:grid-cols-3">{filtered.map((p:Product)=><Card key={p.id} className="gap-3 border-0 py-0 shadow-sm overflow-hidden flex flex-col">{p.image_url?<div className="h-36 w-full overflow-hidden bg-muted/20"><img src={p.image_url} alt={p.name} className="h-full w-full object-cover hover:scale-105 transition-transform duration-300"/></div>:<div className="h-20 w-full bg-gradient-to-r from-primary/5 via-muted/30 to-primary/5 flex items-center justify-center text-muted-foreground/40"><ShoppingBag className="size-7 opacity-50"/></div>}<CardContent className="px-4 pb-4 pt-2 flex-1 flex flex-col justify-between"><div><div className="mb-2 flex items-start justify-between gap-2"><div><p className="font-bold">{p.name}</p><p className="text-xs text-muted-foreground">{p.brand} · {p.sku}</p></div><Badge variant="outline">{p.total_stock} u.</Badge></div><p className="mb-3 text-xl font-extrabold text-primary">{money(channel==="mayorista"?p.wholesale_price:p.retail_price)}</p></div><div><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Elegir variante</p><div className="flex flex-wrap gap-1.5">{p.variants.map(v=><Button key={v.id} variant="outline" size="xs" disabled={!v.stock} onClick={()=>addVariant(p,v)}>{v.size}<span className="text-[10px] text-muted-foreground">{v.stock}</span></Button>)}</div></div></CardContent></Card>)}</div><Card className="sticky top-24 h-fit gap-4 border-0 py-5 shadow-[0_14px_40px_rgb(15_33_55/12%)]"><CardHeader className="flex-row items-center justify-between px-5"><CardTitle className="flex items-center gap-2"><ShoppingCart className="size-5 text-primary"/>Venta actual</CardTitle><Badge>{cart.reduce((s:number,i:CartItem)=>s+i.quantity,0)} unidades</Badge></CardHeader><CardContent className="space-y-4 px-5"><div className="max-h-64 space-y-2 overflow-y-auto pr-1">{cart.length===0?<div className="rounded-2xl border border-dashed p-7 text-center text-sm text-muted-foreground">Escaneá un producto o elegí una variante para comenzar.</div>:cart.map((i:CartItem)=><div key={i.variantId} className="flex items-center gap-3 rounded-xl bg-muted/55 p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{i.name}</p><p className="text-xs text-muted-foreground">Variante {i.size} · {money(i.unitPrice)}</p></div><div className="flex items-center gap-1"><button className="size-7 rounded-lg border" onClick={()=>setCart((c:CartItem[])=>c.map(x=>x.variantId===i.variantId?{...x,quantity:Math.max(0,x.quantity-1)}:x).filter(x=>x.quantity>0))}>−</button><span className="w-6 text-center text-sm font-bold">{i.quantity}</span><button className="size-7 rounded-lg border" onClick={()=>setCart((c:CartItem[])=>c.map(x=>x.variantId===i.variantId?{...x,quantity:Math.min(x.max,x.quantity+1)}:x))}>+</button></div></div>)}</div><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold">Descuento<Input type="number" value={discount} onChange={e=>setDiscount(Number(e.target.value)||0)} className="mt-1"/></label><label className="text-xs font-semibold">Medio de pago<select value={payment} onChange={e=>setPayment(e.target.value)} className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Cuenta corriente</option></select></label></div><CustomerSelectField customers={data.customers} customerId={customerId} setCustomerId={setCustomerId} onNewCustomer={()=>setModal("customer")}/><div className="border-t pt-4"><div className="flex justify-between text-sm text-muted-foreground"><span>Subtotal</span><span>{money(cartTotal+discount)}</span></div><div className="mt-2 flex items-end justify-between"><span className="font-semibold">Total</span><span className="text-3xl font-black tracking-tight">{money(cartTotal)}</span></div></div><Button className="h-12 w-full rounded-xl text-base" disabled={!cart.length||busy} onClick={closeSale}>{busy?"Procesando…":`Cobrar ${money(cartTotal)}`}</Button><p className="text-center text-xs text-muted-foreground">Genera comprobante X y descuenta el stock automáticamente.</p></CardContent></Card></div></>}
 
 function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
   const productsList = filtered || [];
   const totalPairs = productsList.reduce((sum: number, p: Product) => sum + (Number(p.total_stock) || 0), 0);
   const costStock = productsList.reduce((sum: number, p: Product) => sum + ((Number(p.cost) || 0) * (Number(p.total_stock) || 0)), 0);
-  const retailStock = productsList.reduce((sum: number, p: Product) => sum + ((Number(p.retail_price) || 0) * (Number(p.total_stock) || 0)), 0);
-  const marginStock = Math.max(0, retailStock - costStock);
-  const marginPercent = retailStock > 0 ? Math.round((marginStock / retailStock) * 100) : 0;
+  const wholesaleStock = productsList.reduce((sum: number, p: Product) => sum + ((Number(p.wholesale_price) || 0) * (Number(p.total_stock) || 0)), 0);
+  const marginStock = Math.max(0, wholesaleStock - costStock);
+  const marginPercent = wholesaleStock > 0 ? Math.round((marginStock / wholesaleStock) * 100) : 0;
   const isFiltered = Boolean(data?.products?.length && data.products.length !== productsList.length);
 
   return (
     <>
       <SectionTitle 
         eyebrow="Catálogo maestro" 
-        title="Productos" 
-        text="Modelos, precios, códigos y curvas de talles." 
-        action={<Button onClick={()=>setModal("product")}><PackagePlus/>Nuevo producto</Button>}
+        title="Productos y Artículos Mayoristas" 
+        text="Artículos generales, calzados, indumentaria, precios de venta por mayor y costos." 
+        action={<Button onClick={()=>setModal("product")} className="bg-orange-600 hover:bg-orange-700 text-white font-semibold"><PackagePlus/>Nuevo producto</Button>}
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard 
           label="Stock al costo" 
           value={money(costStock)} 
-          note={isFiltered ? `${totalPairs} pares (${productsList.length} prod. filtrados)` : `${totalPairs} pares en inventario`} 
+          note={isFiltered ? `${totalPairs} unidades (${productsList.length} prod. filtrados)` : `${totalPairs} unidades en inventario`} 
           icon={Boxes} 
           tone="blue"
         />
         <StatCard 
-          label="Stock con ganancias" 
-          value={money(retailStock)} 
-          note="Valor proyectado en venta minorista" 
+          label="Stock valorizado mayorista" 
+          value={money(wholesaleStock)} 
+          note="Valor proyectado en venta mayorista" 
           icon={TrendingUp} 
           tone="green"
         />
         <StatCard 
-          label="Margen en stock" 
+          label="Margen mayorista en stock" 
           value={money(marginStock)} 
-          note={`${marginPercent}% margen promedio proyectado`} 
+          note={`${marginPercent}% margen promedio mayorista`} 
           icon={Percent} 
           tone="violet"
         />
@@ -764,18 +807,18 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Producto</TableHead>
+                <TableHead>Producto / Artículo</TableHead>
                 <TableHead>Código</TableHead>
-                <TableHead>Stock por talle</TableHead>
-                <TableHead>Minorista</TableHead>
-                <TableHead>Mayorista</TableHead>
+                <TableHead>Stock / Variantes</TableHead>
+                <TableHead>Precio Mayorista</TableHead>
+                <TableHead>PVP Sugerido</TableHead>
                 <TableHead>Margen</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.map((p:Product)=>{
-                const margin=p.retail_price?Math.round((p.retail_price-p.cost)/p.retail_price*100):0;
+                const margin=p.wholesale_price?Math.round((p.wholesale_price-p.cost)/p.wholesale_price*100):0;
                 return (
                   <TableRow key={p.id}>
                     <TableCell>
@@ -793,11 +836,11 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
                     </TableCell>
                     <TableCell>
                       <div className="flex max-w-xs flex-wrap gap-1">
-                        {p.variants.map(v=><Badge key={v.id} variant={v.stock?"secondary":"outline"}>{v.size}: {v.stock}</Badge>)}
+                        {p.variants.map(v=><Badge key={v.id} variant={v.stock?"secondary":"outline"}>{["Único", "Unico", "General"].includes(v.size) ? `${v.stock} u.` : `${v.size}: ${v.stock}`}</Badge>)}
                       </div>
                     </TableCell>
-                    <TableCell className="font-semibold">{money(p.retail_price)}</TableCell>
-                    <TableCell>{money(p.wholesale_price)}</TableCell>
+                    <TableCell className="font-extrabold text-orange-600 dark:text-orange-400">{money(p.wholesale_price)}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{p.retail_price ? money(p.retail_price) : "—"}</TableCell>
                     <TableCell><Badge className="bg-emerald-100 text-emerald-800">{margin}%</Badge></TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1.5">
@@ -830,8 +873,8 @@ function Inventory({data,filtered,adjust,isCashier,onAddToCart}:any){
     <>
       <SectionTitle
         eyebrow={isCashier ? "Consulta de stock" : "Control de existencias"}
-        title="Inventario por talle"
-        text={isCashier ? "Consultá la disponibilidad por talle y precios de venta al público en mostrador." : "Cada talle tiene su propio stock y trazabilidad."}
+        title="Inventario y Existencias"
+        text={isCashier ? "Consultá la disponibilidad por artículo o variante y precios de venta." : "Control de existencias por artículo y variante."}
       />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {filtered.map((p:Product)=>(
@@ -847,7 +890,7 @@ function Inventory({data,filtered,adjust,isCashier,onAddToCart}:any){
                   </div>
                 </div>
                 <Badge variant={p.total_stock<=p.min_stock?"destructive":"secondary"}>
-                  {p.total_stock} pares
+                  {p.total_stock} u.
                 </Badge>
               </div>
             </CardHeader>
@@ -880,9 +923,9 @@ function Inventory({data,filtered,adjust,isCashier,onAddToCart}:any){
                     }`}
                     title={isCashier ? (canSell ? "Agregar al carrito de venta" : "Sin existencias") : "Ajustar stock"}
                   >
-                    <p className="text-xs text-muted-foreground">Talle</p>
-                    <p className="text-lg font-bold">{v.size}</p>
-                    <p className="text-xs font-semibold">{v.stock} pares</p>
+                    <p className="text-xs text-muted-foreground">{["Único", "Unico", "General"].includes(v.size) ? "Stock General" : "Variante"}</p>
+                    <p className="text-lg font-bold">{["Único", "Unico", "General"].includes(v.size) ? "Total" : v.size}</p>
+                    <p className="text-xs font-semibold">{v.stock} u.</p>
                     {isCashier && canSell && (
                       <span className="mt-1 block text-[10px] font-bold text-primary">+ Vender</span>
                     )}
@@ -1003,9 +1046,9 @@ function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier}:any){
 
 function Catalog({data,products,price,setPrice}:any){return <div className="print-only-area"><div className="no-print"><SectionTitle eyebrow="Venta visual" title="Generador de catálogos" text="Elegí la lista de precios y compartí o imprimí los productos disponibles." action={<div className="flex gap-2"><Button variant="outline" onClick={()=>window.print()}><Printer/>Imprimir / PDF</Button></div>}/><div className="mb-6 flex items-center gap-2 rounded-2xl border bg-card p-2"><button onClick={()=>setPrice("retail")} className={`rounded-xl px-4 py-2 text-sm font-semibold ${price==="retail"?"bg-primary text-primary-foreground":""}`}>Precio minorista</button><button onClick={()=>setPrice("wholesale")} className={`rounded-xl px-4 py-2 text-sm font-semibold ${price==="wholesale"?"bg-primary text-primary-foreground":""}`}>Precio mayorista</button><Badge variant="outline" className="ml-auto">Solo productos con stock</Badge></div></div><div className="mb-7 hidden print:block"><h1 className="text-3xl font-bold">{data.settings?.business_name}</h1><p>{data.settings?.phone} · {data.settings?.address}</p><p className="mt-2 text-sm">Catálogo {price==="retail"?"minorista":"mayorista"}</p></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{products.filter((p:Product)=>p.total_stock>0).map((p:Product)=><Card key={p.id} className="print-card gap-3 overflow-hidden border-0 py-0 shadow-sm"><div className="flex h-28 items-center justify-center bg-gradient-to-br from-[#e8f0ff] to-[#fff0ec] text-[#0f2137]"><ShoppingBag className="size-14 opacity-70"/></div><CardContent className="px-5 pb-5"><div className="flex justify-between gap-3"><div><p className="text-lg font-bold">{p.name}</p><p className="text-xs text-muted-foreground">{p.brand} · {p.color}</p></div><p className="text-xl font-black text-primary">{money(price==="retail"?p.retail_price:p.wholesale_price)}</p></div><div className="my-4 flex flex-wrap gap-1.5">{p.variants.filter(v=>v.stock>0).map(v=><Badge key={v.id} variant="outline">{v.size}</Badge>)}</div><BarcodeLabel value={p.barcode}/></CardContent></Card>)}</div></div>}
 
-function Reports({data,onSelectSale}:any){const max=Math.max(...data.products.map((p:Product)=>p.total_stock),1);const retail=data.sales.filter((s:Sale)=>s.channel==="minorista").reduce((a:number,s:Sale)=>a+s.total,0);const wholesale=data.sales.filter((s:Sale)=>s.channel==="mayorista").reduce((a:number,s:Sale)=>a+s.total,0);return <><SectionTitle eyebrow="Inteligencia del negocio" title="Reportes" text="Indicadores para comprar mejor, vender más y cuidar el margen."/><div className="grid gap-6 lg:grid-cols-2"><Card className="border-0 shadow-sm"><CardHeader><CardTitle>Stock por modelo</CardTitle></CardHeader><CardContent className="space-y-4">{data.products.map((p:Product)=><div key={p.id}><div className="mb-1 flex justify-between text-sm"><span className="font-medium">{p.name}</span><span>{p.total_stock} pares</span></div><div className="h-3 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{width:`${Math.max(4,p.total_stock/max*100)}%`}}/></div></div>)}</CardContent></Card><Card className="border-0 shadow-sm"><CardHeader><CardTitle>Canales de venta</CardTitle></CardHeader><CardContent><div className="grid grid-cols-2 gap-4"><div className="rounded-2xl bg-blue-50 p-5 dark:bg-blue-950/30"><p className="text-sm text-muted-foreground">Minorista</p><p className="mt-2 text-2xl font-black">{money(retail)}</p></div><div className="rounded-2xl bg-orange-50 p-5 dark:bg-orange-950/30"><p className="text-sm text-muted-foreground">Mayorista</p><p className="mt-2 text-2xl font-black">{money(wholesale)}</p></div></div><div className="mt-6 rounded-2xl border p-5"><p className="text-sm font-semibold">Capital en mercadería</p><p className="mt-2 text-3xl font-black">{money(data.stats.stockValue)}</p><p className="mt-2 text-sm text-muted-foreground">Valorizado al costo de compra actual.</p></div></CardContent></Card><Card className="border-0 shadow-sm lg:col-span-2"><CardHeader><CardTitle>Ventas recientes</CardTitle></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Comprobante</TableHead><TableHead>Fecha</TableHead><TableHead>Cliente</TableHead><TableHead>Canal</TableHead><TableHead>Pago</TableHead><TableHead>Estado</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Comprobante</TableHead></TableRow></TableHeader><TableBody>{data.sales.map((s:Sale)=><TableRow key={s.id} className="hover:bg-muted/30"><TableCell className="font-mono font-bold text-primary">{s.receipt_no}</TableCell><TableCell>{date(s.created_at)}</TableCell><TableCell>{s.customer_name||"Consumidor final"}</TableCell><TableCell className="capitalize">{s.channel}</TableCell><TableCell>{s.payment_method}</TableCell><TableCell><span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-bold ${s.status==="pagada"?"bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40":s.status==="pago_parcial"?"bg-amber-50 text-amber-700 dark:bg-amber-950/40":"bg-red-50 text-red-700 dark:bg-red-950/40"}`}>{s.status==="pagada"?"Pagada":s.status==="pago_parcial"?"Pago Parcial":"Con Deuda"}</span></TableCell><TableCell className="text-right font-bold">{money(s.total)}</TableCell><TableCell className="text-right">{onSelectSale&&<Button variant="outline" size="xs" onClick={()=>onSelectSale(s)} className="h-7 gap-1 rounded-lg text-xs" title="Ver Factura X / Remito"><FileText className="size-3 text-primary"/>Factura X</Button>}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card></div></>}
+function Reports({data,onSelectSale}:any){const max=Math.max(...data.products.map((p:Product)=>p.total_stock),1);const wholesale=data.sales.reduce((a:number,s:Sale)=>a+s.total,0);const totalPairs=data.sales.reduce((sum:number, s:Sale)=>{if(Array.isArray((s as any).items)){return sum+(s as any).items.reduce((acc:number,it:any)=>acc+Number(it.quantity||1),0);}return sum+1;},0);return <><SectionTitle eyebrow="Inteligencia del negocio" title="Reportes Mayoristas" text="Indicadores de ventas por volumen, rotación de productos y margen comercial."/><div className="grid gap-6 lg:grid-cols-2"><Card className="border-0 shadow-sm"><CardHeader><CardTitle>Stock por producto</CardTitle></CardHeader><CardContent className="space-y-4">{data.products.map((p:Product)=><div key={p.id}><div className="mb-1 flex justify-between text-sm"><span className="font-medium">{p.name}</span><span>{p.total_stock} u.</span></div><div className="h-3 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{width:`${Math.max(4,p.total_stock/max*100)}%`}}/></div></div>)}</CardContent></Card><Card className="border-0 shadow-sm"><CardHeader><CardTitle>Rendimiento Mayorista</CardTitle></CardHeader><CardContent><div className="grid grid-cols-2 gap-4"><div className="rounded-2xl bg-orange-50 p-5 dark:bg-orange-950/30"><p className="text-sm text-muted-foreground font-semibold">Facturación Mayorista</p><p className="mt-2 text-2xl font-black text-orange-600 dark:text-orange-400">{money(wholesale)}</p></div><div className="rounded-2xl bg-emerald-50 p-5 dark:bg-emerald-950/30"><p className="text-sm text-muted-foreground font-semibold">Unidades Vendidas</p><p className="mt-2 text-2xl font-black text-emerald-600 dark:text-emerald-400">{totalPairs}</p></div></div><div className="mt-6 rounded-2xl border p-5"><p className="text-sm font-semibold">Capital en mercadería</p><p className="mt-2 text-3xl font-black">{money(data.stats.stockValue)}</p><p className="mt-2 text-sm text-muted-foreground">Valorizado al costo de compra actual.</p></div></CardContent></Card><Card className="border-0 shadow-sm lg:col-span-2"><CardHeader><CardTitle>Ventas recientes</CardTitle></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Comprobante</TableHead><TableHead>Fecha</TableHead><TableHead>Cliente</TableHead><TableHead>Canal</TableHead><TableHead>Pago</TableHead><TableHead>Estado</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Comprobante</TableHead></TableRow></TableHeader><TableBody>{data.sales.map((s:Sale)=><TableRow key={s.id} className="hover:bg-muted/30"><TableCell className="font-mono font-bold text-primary">{s.receipt_no}</TableCell><TableCell>{date(s.created_at)}</TableCell><TableCell>{s.customer_name||"Cliente mayorista"}</TableCell><TableCell className="capitalize font-semibold text-orange-600 dark:text-orange-400">{s.channel||"Mayorista"}</TableCell><TableCell>{s.payment_method}</TableCell><TableCell><span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-bold ${s.status==="pagada"?"bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40":s.status==="pago_parcial"?"bg-amber-50 text-amber-700 dark:bg-amber-950/40":"bg-red-50 text-red-700 dark:bg-red-950/40"}`}>{s.status==="pagada"?"Pagada":s.status==="pago_parcial"?"Pago Parcial":"Con Deuda"}</span></TableCell><TableCell className="text-right font-bold">{money(s.total)}</TableCell><TableCell className="text-right">{onSelectSale&&<Button variant="outline" size="xs" onClick={()=>onSelectSale(s)} className="h-7 gap-1 rounded-lg text-xs" title="Ver Factura X / Remito"><FileText className="size-3 text-primary"/>Factura X</Button>}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card></div></>}
 
-function SettingsPage({data,setModal}:any){const rows=[["Nombre personalizable",data.settings?.business_name,Store],["Sucursal","Única",Building2],["Comprobantes","Tipo X · no fiscal",FileText],["Moneda","Pesos argentinos (ARS)",CircleDollarSign],["Mayorista",`Desde ${data.settings?.wholesale_min_qty && Number(data.settings.wholesale_min_qty) !== 6 ? data.settings.wholesale_min_qty : 12} pares`,Tags]];return <><SectionTitle eyebrow="Administración" title="Configuración" text="Datos generales y reglas de operación del negocio." action={<Button onClick={()=>setModal("settings")}><Settings/>Editar datos</Button>}/><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{rows.map(([label,value,Icon]:any)=><Card key={label} className="gap-3 border-0 py-5 shadow-sm"><CardContent className="flex items-center gap-4 px-5"><span className="grid size-12 place-items-center rounded-2xl bg-primary/10 text-primary"><Icon/></span><div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p><p className="mt-1 font-bold">{value}</p></div></CardContent></Card>)}</div><Card className="mt-6 border-0 shadow-sm"><CardHeader><CardTitle>Capacidades activas</CardTitle></CardHeader><CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{["Inventario por modelo, color y talle","Lectores USB, Bluetooth y cámara","Precios minoristas y mayoristas","Caja con ingresos y egresos","Clientes y cuentas corrientes","Catálogo imprimible con códigos","Comprobantes internos X","Modo claro y nocturno","Historial de movimientos"].map(x=><div key={x} className="flex items-center gap-2 rounded-xl bg-muted/50 p-3 text-sm"><Check className="size-4 text-emerald-600"/>{x}</div>)}</CardContent></Card></>}
+function SettingsPage({data,setModal}:any){const rows=[["Nombre personalizable",data.settings?.business_name,Store],["Sucursal","Única",Building2],["Comprobantes","Tipo X · no fiscal",FileText],["Moneda","Pesos argentinos (ARS)",CircleDollarSign],["Mayorista",`Desde ${data.settings?.wholesale_min_qty && Number(data.settings.wholesale_min_qty) !== 6 ? data.settings.wholesale_min_qty : 12} unidades`,Tags]];return <><SectionTitle eyebrow="Administración" title="Configuración" text="Datos generales y reglas de operación del negocio." action={<Button onClick={()=>setModal("settings")}><Settings/>Editar datos</Button>}/><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{rows.map(([label,value,Icon]:any)=><Card key={label} className="gap-3 border-0 py-5 shadow-sm"><CardContent className="flex items-center gap-4 px-5"><span className="grid size-12 place-items-center rounded-2xl bg-primary/10 text-primary"><Icon/></span><div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p><p className="mt-1 font-bold">{value}</p></div></CardContent></Card>)}</div><Card className="mt-6 border-0 shadow-sm"><CardHeader><CardTitle>Capacidades activas</CardTitle></CardHeader><CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{["Inventario por producto, modelo y variante","Lectores USB, Bluetooth y cámara","Precios minoristas y mayoristas","Caja con ingresos y egresos","Clientes y cuentas corrientes","Catálogo imprimible con códigos","Comprobantes internos X","Modo claro y nocturno","Historial de movimientos"].map(x=><div key={x} className="flex items-center gap-2 rounded-xl bg-muted/50 p-3 text-sm"><Check className="size-4 text-emerald-600"/>{x}</div>)}</CardContent></Card></>}
 
 function SelectField({label,name,defaultValue,children}:{label:string;name:string;defaultValue?:string;children:any}) {
   return <label className="grid gap-1.5 text-sm font-medium"><span>{label}</span><select name={name} defaultValue={defaultValue} className="h-10 rounded-xl border bg-background px-3 text-sm">{children}</select></label>;
@@ -1177,19 +1220,9 @@ function SalesPOSConfigured({
         {cameraEnabled ? "Usar cámara" : "Cámara off"}
       </Button>
 
-      <div className="flex rounded-xl bg-muted p-1">
-        <button
-          onClick={() => setChannel("minorista")}
-          className={`rounded-lg px-3.5 text-sm font-semibold transition-all ${channel === "minorista" ? "bg-card shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          Minorista
-        </button>
-        <button
-          onClick={() => setChannel("mayorista")}
-          className={`rounded-lg px-3.5 text-sm font-semibold transition-all ${channel === "mayorista" ? "bg-card shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          Mayorista
-        </button>
+      <div className="flex items-center gap-2 rounded-xl bg-orange-500/10 border border-orange-500/30 px-3.5 h-12 text-sm font-bold text-orange-700 dark:text-orange-300">
+        <Tags className="size-4 text-orange-600 dark:text-orange-400" />
+        <span>Venta Mayorista</span>
       </div>
 
       <Button
@@ -1202,12 +1235,10 @@ function SalesPOSConfigured({
       </Button>
     </div>
 
-    {channel === "mayorista" && (
-      <div className="mb-5 flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
-        <Tags className="size-4"/>
-        Mínimo mayorista: {data.settings?.wholesale_min_qty && Number(data.settings.wholesale_min_qty) !== 6 ? data.settings.wholesale_min_qty : 12} pares {data.settings?.allow_mixed_sale ? "combinando modelos" : "por modelo"}.
-      </div>
-    )}
+    <div className="mb-5 flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-50/80 px-4 py-3 text-sm text-orange-900 dark:border-orange-900/50 dark:bg-orange-950/30 dark:text-orange-200">
+      <Tags className="size-4 text-orange-600 dark:text-orange-400"/>
+      <span>Precios mayoristas aplicados · Mínimo sugerido: {data.settings?.wholesale_min_qty && Number(data.settings.wholesale_min_qty) !== 6 ? data.settings.wholesale_min_qty : 12} unidades {data.settings?.allow_mixed_sale ? "combinando modelos" : "por modelo"}.</span>
+    </div>
 
     <div className="grid gap-6 xl:grid-cols-[1fr_390px]">
       {/* Columna Principal Izquierda */}
@@ -1219,7 +1250,7 @@ function SalesPOSConfigured({
               <div className="flex items-center gap-2">
                 <Search className="size-4 text-primary" />
                 <h3 className="font-bold text-sm">
-                  Calzados encontrados para &ldquo;{scan}&rdquo;
+                  Productos encontrados para &ldquo;{scan}&rdquo;
                 </h3>
                 <Badge variant="outline" className="bg-background text-xs">
                   {matchingProducts.length} {matchingProducts.length === 1 ? "resultado" : "resultados"}
@@ -1238,7 +1269,7 @@ function SalesPOSConfigured({
 
             {matchingProducts.length === 0 ? (
               <div className="rounded-xl border border-dashed bg-background/60 p-6 text-center text-sm text-muted-foreground">
-                No se encontró ningún calzado con &ldquo;{scan}&rdquo;. Podés escanear con el lector o{" "}
+                No se encontró ningún producto con &ldquo;{scan}&rdquo;. Podés escanear con el lector o{" "}
                 <button
                   type="button"
                   onClick={() => setShowAllCatalog(true)}
@@ -1259,31 +1290,46 @@ function SalesPOSConfigured({
                             <p className="font-bold text-sm truncate">{p.name}</p>
                             <p className="text-[11px] text-muted-foreground truncate">{p.brand} · {p.sku}</p>
                           </div>
-                          <Badge variant="outline" className="shrink-0 text-[10px]">{p.total_stock} pares</Badge>
+                          <Badge variant="outline" className="shrink-0 text-[10px]">{p.total_stock} u.</Badge>
                         </div>
-                        <p className="mb-2 text-lg font-extrabold text-primary">
-                          {money(channel === "mayorista" ? p.wholesale_price : p.retail_price)}
-                        </p>
+                        <div className="flex items-baseline gap-1.5 mb-2">
+                          <p className="text-lg font-extrabold text-orange-600 dark:text-orange-400">
+                            {money(p.wholesale_price)}
+                          </p>
+                          <span className="text-[10px] uppercase font-bold text-muted-foreground">Mayorista</span>
+                        </div>
                       </div>
                       <div>
-                        <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          Elegir talle para sumar
-                        </p>
-                        <div className="flex flex-wrap gap-1">
-                          {p.variants.map(v => (
-                            <Button
-                              key={v.id}
-                              variant="outline"
-                              size="xs"
-                              disabled={!allowNegative && !v.stock}
-                              onClick={() => addVariant(p, v)}
-                              className="h-7 px-2 text-xs hover:border-primary hover:bg-primary/10"
-                            >
-                              {v.size}
-                              <span className="ml-1 text-[10px] text-muted-foreground font-semibold">({v.stock})</span>
-                            </Button>
-                          ))}
-                        </div>
+                        {p.variants.length === 1 && ["Único", "Unico", "General", "Estándar"].includes(p.variants[0].size) ? (
+                          <Button
+                            className="w-full h-8 text-xs font-bold gap-1 rounded-xl bg-orange-600 hover:bg-orange-700 text-white"
+                            disabled={!allowNegative && !p.variants[0].stock}
+                            onClick={() => addVariant(p, p.variants[0])}
+                          >
+                            <Plus className="size-3.5" /> Agregar (+1) · {p.variants[0].stock} u.
+                          </Button>
+                        ) : (
+                          <>
+                            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                              Elegir talle / variante
+                            </p>
+                            <div className="flex flex-wrap gap-1">
+                              {p.variants.map(v => (
+                                <Button
+                                  key={v.id}
+                                  variant="outline"
+                                  size="xs"
+                                  disabled={!allowNegative && !v.stock}
+                                  onClick={() => addVariant(p, v)}
+                                  className="h-7 px-2 text-xs hover:border-primary hover:bg-primary/10"
+                                >
+                                  {v.size}
+                                  <span className="ml-1 text-[10px] text-muted-foreground font-semibold">({v.stock})</span>
+                                </Button>
+                              ))}
+                            </div>
+                          </>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -1299,8 +1345,8 @@ function SalesPOSConfigured({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Boxes className="size-4 text-primary" />
-                <h3 className="font-bold text-sm">Catálogo completo de calzados</h3>
-                <Badge variant="outline">{filtered.length} modelos</Badge>
+                <h3 className="font-bold text-sm">Catálogo completo de productos</h3>
+                <Badge variant="outline">{filtered.length} productos</Badge>
               </div>
               <Button
                 variant="ghost"
@@ -1322,19 +1368,34 @@ function SalesPOSConfigured({
                           <p className="font-bold">{p.name}</p>
                           <p className="text-xs text-muted-foreground">{p.brand} · {p.sku}</p>
                         </div>
-                        <Badge variant="outline">{p.total_stock} pares</Badge>
+                        <Badge variant="outline">{p.total_stock} u.</Badge>
                       </div>
-                      <p className="mb-3 text-xl font-extrabold text-primary">{money(channel === "mayorista" ? p.wholesale_price : p.retail_price)}</p>
+                      <div className="flex items-baseline gap-2 mb-3">
+                        <p className="text-xl font-black text-orange-600 dark:text-orange-400">{money(p.wholesale_price)}</p>
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground">Mayorista</span>
+                      </div>
                     </div>
                     <div>
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Elegir talle</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {p.variants.map(v => (
-                          <Button key={v.id} variant="outline" size="xs" disabled={!allowNegative && !v.stock} onClick={() => addVariant(p, v)}>
-                            {v.size}<span className="text-[10px] text-muted-foreground">{v.stock}</span>
-                          </Button>
-                        ))}
-                      </div>
+                      {p.variants.length === 1 && ["Único", "Unico", "General", "Estándar"].includes(p.variants[0].size) ? (
+                        <Button
+                          className="w-full h-8 text-xs font-bold gap-1 rounded-xl bg-orange-600 hover:bg-orange-700 text-white"
+                          disabled={!allowNegative && !p.variants[0].stock}
+                          onClick={() => addVariant(p, p.variants[0])}
+                        >
+                          <Plus className="size-3.5" /> Agregar al carrito · {p.variants[0].stock} u.
+                        </Button>
+                      ) : (
+                        <>
+                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Elegir variante</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {p.variants.map(v => (
+                              <Button key={v.id} variant="outline" size="xs" disabled={!allowNegative && !v.stock} onClick={() => addVariant(p, v)}>
+                                {v.size}<span className="text-[10px] text-muted-foreground">{v.stock}</span>
+                              </Button>
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -1356,7 +1417,7 @@ function SalesPOSConfigured({
                     <div>
                       <h3 className="font-bold text-base leading-none">Productos en la venta</h3>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {cart.reduce((sum: number, item: CartItem) => sum + item.quantity, 0)} pares agregados a esta venta
+                        {cart.reduce((sum: number, item: CartItem) => sum + item.quantity, 0)} unidades agregadas a esta venta
                       </p>
                     </div>
                   </div>
@@ -1389,7 +1450,7 @@ function SalesPOSConfigured({
                       >
                         <CardContent className="p-3.5 sm:p-4">
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                            {/* Información del Calzado */}
+                            {/* Información del Producto */}
                             <div className="flex items-center gap-3.5 min-w-0">
                               <ProductImage
                                 src={parent?.image_url}
@@ -1400,7 +1461,7 @@ function SalesPOSConfigured({
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <p className="font-bold text-base truncate">{item.name}</p>
                                   <Badge className="bg-primary text-primary-foreground font-black text-xs px-2.5 py-0.5">
-                                    Talle {item.size}
+                                    Variante {item.size}
                                   </Badge>
                                 </div>
                                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -1408,9 +1469,9 @@ function SalesPOSConfigured({
                                   {parent?.barcode ? ` · Código: ${parent.barcode}` : ""}
                                 </p>
                                 <p className="text-xs font-semibold text-primary mt-1">
-                                  {money(item.unitPrice)} c/par
+                                  {money(item.unitPrice)} c/u
                                   <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                                    (Stock disponible: {remainingStock} pares)
+                                    (Stock disponible: {remainingStock} unidades)
                                   </span>
                                 </p>
                               </div>
@@ -1433,7 +1494,7 @@ function SalesPOSConfigured({
                                         .filter(x => x.quantity > 0)
                                     )
                                   }
-                                  title="Quitar 1 par"
+                                  title="Quitar 1 unidad"
                                 >
                                   −
                                 </button>
@@ -1453,7 +1514,7 @@ function SalesPOSConfigured({
                                       )
                                     )
                                   }
-                                  title="Sumar 1 par"
+                                  title="Sumar 1 unidad"
                                 >
                                   +
                                 </button>
@@ -1472,7 +1533,7 @@ function SalesPOSConfigured({
                                   )
                                 }
                                 className="size-9 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center transition-colors"
-                                title="Eliminar este calzado de la venta"
+                                title="Eliminar este producto de la venta"
                               >
                                 <Trash2 className="size-4" />
                               </button>
@@ -1483,7 +1544,7 @@ function SalesPOSConfigured({
                           {parent && parent.variants && parent.variants.length > 1 && (
                             <div className="mt-3 pt-2.5 border-t border-border/40 flex items-center gap-1.5 flex-wrap">
                               <span className="text-[11px] text-muted-foreground font-semibold">
-                                + Sumar otro talle de este modelo:
+                                + Sumar otra opción de este modelo:
                               </span>
                               {parent.variants
                                 .filter((v: Variant) => v.id !== item.variantId && (allowNegative || v.stock > 0))
@@ -1517,7 +1578,7 @@ function SalesPOSConfigured({
                     <div>
                       <h3 className="text-xl font-bold">Punto de venta listo</h3>
                       <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">
-                        Pasá el lector de código de barras USB/Bluetooth sobre el calzado o escribí el nombre o código arriba para agregarlo.
+                        Pasá el lector de código de barras USB/Bluetooth sobre el producto o escribí el nombre o código arriba para agregarlo.
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
@@ -1537,7 +1598,7 @@ function SalesPOSConfigured({
                       </Button>
                     </div>
                     <p className="text-[11px] text-muted-foreground/80 pt-2">
-                      La pantalla mostrará exclusivamente los calzados que vayas escaneando o eligiendo para esta venta.
+                      La pantalla mostrará exclusivamente los productos que vayas escaneando o eligiendo para esta venta.
                     </p>
                   </CardContent>
                 </Card>
@@ -1554,12 +1615,12 @@ function SalesPOSConfigured({
             <ShoppingCart className="size-5 text-primary"/>
             Resumen de cobro
           </CardTitle>
-          <Badge>{cart.reduce((sum:number,item:CartItem)=>sum+item.quantity,0)} pares</Badge>
+          <Badge>{cart.reduce((sum:number,item:CartItem)=>sum+item.quantity,0)} unidades</Badge>
         </CardHeader>
         <CardContent className="space-y-4 px-5">
           {cart.length === 0 ? (
             <div className="rounded-2xl border border-dashed p-4 text-center text-xs text-muted-foreground">
-              Sin calzados cargados aún.
+              Sin productos cargados aún.
             </div>
           ) : (
             <div className="max-h-44 space-y-1.5 overflow-y-auto pr-1">
@@ -1938,7 +1999,7 @@ function SalesPOSConfigured({
   </>;
 }
 
-function CatalogConfigured({ data, products, price, setPrice }: any) {
+function CatalogConfigured({ data, products }: any) {
   const [barcodeProduct, setBarcodeProduct] = useState<Product | null>(null);
   const visibleProducts = data.settings?.catalog_in_stock_only
     ? products.filter((product: Product) => product.total_stock > 0)
@@ -1948,32 +2009,22 @@ function CatalogConfigured({ data, products, price, setPrice }: any) {
     <div className="print-only-area">
       <div className="no-print">
         <SectionTitle
-          eyebrow="Venta visual"
-          title="Generador de catálogos"
-          text="Elegí la lista de precios y compartí o imprimí los productos disponibles."
+          eyebrow="Venta Mayorista"
+          title="Generador de Catálogos Mayoristas"
+          text="Compartí o imprimí los productos disponibles con precios mayoristas para clientes comerciales."
           action={
-            <Button variant="outline" onClick={() => window.print()}>
+            <Button variant="outline" onClick={() => window.print()} className="rounded-xl">
               <Printer /> Imprimir / PDF
             </Button>
           }
         />
-        <div className="mb-6 flex flex-wrap items-center gap-2 rounded-2xl border bg-card p-2">
-          <button
-            onClick={() => setPrice("retail")}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold ${
-              price === "retail" ? "bg-primary text-primary-foreground" : ""
-            }`}
-          >
-            Precio minorista
-          </button>
-          <button
-            onClick={() => setPrice("wholesale")}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold ${
-              price === "wholesale" ? "bg-primary text-primary-foreground" : ""
-            }`}
-          >
-            Precio mayorista
-          </button>
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-2xl border bg-card p-3">
+          <div className="flex items-center gap-2">
+            <span className="flex items-center gap-1.5 rounded-xl bg-orange-500/10 border border-orange-500/30 px-3.5 py-1.5 text-xs font-bold text-orange-700 dark:text-orange-300">
+              <Tags className="size-4 text-orange-600 dark:text-orange-400" />
+              Precios Mayoristas Oficiales
+            </span>
+          </div>
           <Badge variant="outline" className="ml-auto">
             {data.settings?.catalog_in_stock_only ? "Solo con stock" : "Todos los productos"}
           </Badge>
@@ -1995,8 +2046,8 @@ function CatalogConfigured({ data, products, price, setPrice }: any) {
             </p>
           </div>
         </div>
-        <p className="mt-2 text-sm">
-          Catálogo {price === "retail" ? "minorista" : "mayorista"}
+        <p className="mt-2 text-sm font-semibold">
+          Catálogo Oficial de Precios Mayoristas
         </p>
       </div>
 
@@ -2010,16 +2061,24 @@ function CatalogConfigured({ data, products, price, setPrice }: any) {
                 className="h-44 w-full object-cover rounded-none border-b border-border/30"
               />
               <CardContent className="px-5 pb-3 pt-3">
-                <div className="flex justify-between gap-3">
+                <div className="flex justify-between items-start gap-3">
                   <div>
                     <p className="text-lg font-bold">{product.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {product.brand} · {product.color}
                     </p>
                   </div>
-                  <p className="text-xl font-black text-primary">
-                    {money(price === "retail" ? product.retail_price : product.wholesale_price)}
-                  </p>
+                  <div className="text-right">
+                    <p className="text-xl font-black text-orange-600 dark:text-orange-400">
+                      {money(product.wholesale_price)}
+                    </p>
+                    <span className="text-[10px] uppercase font-bold text-muted-foreground">Mayorista</span>
+                    {product.retail_price > 0 && (
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        PVP: {money(product.retail_price)}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 <div className="my-4 flex flex-wrap gap-1.5">
@@ -2091,12 +2150,12 @@ function SettingsCenter({data,onSave,busy,dark,setDark,setToast,uid,setModal,onE
   const exportCsv=(name:string,rows:any[])=>{downloadFile(`${name}-${new Date().toISOString().slice(0,10)}.csv`,csv(rows),"text/csv;charset=utf-8");setToast(`Archivo ${name} descargado`);};
   const importBackup=async(event:React.ChangeEvent<HTMLInputElement>)=>{const file=event.target.files?.[0];event.target.value="";if(!file)return;try{const backup=JSON.parse(await file.text());if(!window.confirm("Esta acción reemplazará todos los datos actuales por los de la copia. ¿Querés continuar?"))return;await onSave({action:"import_backup",confirmation:"IMPORTAR COPIA",backup},"Copia restaurada correctamente");}catch{setToast("El archivo seleccionado no es una copia válida");}};
   const uploadLogo=async(event:React.ChangeEvent<HTMLInputElement>)=>{const file=event.target.files?.[0];event.target.value="";if(!file)return;setUploadingLogo(true);try{const logoUrl=await uploadBusinessLogo(file,uid);await onSave({action:"save_settings",logoUrl},"Logo actualizado");}catch(error:any){setToast(error.message||"No se pudo subir el logo");}finally{setUploadingLogo(false);}};
-  const testReader=()=>{const value=readerCode.trim();if(!value){setReaderResult("Escaneá o escribí un código para probar el lector.");return;}const product=data.products.find((item:Product)=>item.barcode===value||item.sku.toLowerCase()===value.toLowerCase());setReaderResult(product?`Detectado: ${product.name} · ${product.total_stock} pares`:`El lector respondió, pero el código ${value} no está registrado.`);};
+  const testReader=()=>{const value=cleanBarcodeScan(readerCode);if(!value){setReaderResult("Escaneá o escribí un código para probar el lector.");return;}const product=data.products.find((item:Product)=>isBarcodeMatch(item.barcode, value)||item.sku.toLowerCase()===value.toLowerCase());setReaderResult(product?`Detectado: ${product.name} · ${product.total_stock} pares (Código: ${product.barcode})`:`El lector respondió con "${value}", pero no coincide con ningún producto registrado.`);};
   const testCamera=async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:true});stream.getTracks().forEach(track=>track.stop());setToast("Cámara disponible y autorizada");}catch{setToast("No se pudo acceder a la cámara");}};
   return <>
     <SectionTitle eyebrow="Centro de control" title="Configuración" text="Administrá la sucursal, las reglas comerciales y la seguridad de los datos desde un solo lugar."/>
     <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {[[Store,settings.business_name||"Mi Zapatería",settings.branch_name||"Sucursal principal"],[FileText,`${settings.receipt_prefix||"X"}-${String(settings.next_receipt_number||1).padStart(8,"0")}`,"Próximo comprobante"],[Tags,`${settings.wholesale_min_qty && Number(settings.wholesale_min_qty) !== 6 ? settings.wholesale_min_qty : 12} pares`,"Mínimo mayorista"],[Database,`${data.products.length} productos`,`${data.sales.length} ventas recientes`]].map(([Icon,value,label]:any)=><Card key={label} className="settings-summary border-0 py-4 shadow-sm"><CardContent className="flex items-center gap-3 px-4"><span className="grid size-10 place-items-center rounded-full bg-primary/10 text-primary"><Icon className="size-4"/></span><div className="min-w-0"><p className="truncate font-bold">{value}</p><p className="text-xs text-muted-foreground">{label}</p></div></CardContent></Card>)}
+      {[[Store,settings.business_name||"CR MAYORISTA",settings.branch_name||"Sucursal principal"],[FileText,`${settings.receipt_prefix||"X"}-${String(settings.next_receipt_number||1).padStart(8,"0")}`,"Próximo comprobante"],[Tags,`${settings.wholesale_min_qty && Number(settings.wholesale_min_qty) !== 6 ? settings.wholesale_min_qty : 12} unidades`,"Mínimo mayorista"],[Database,`${data.products.length} productos`,`${data.sales.length} ventas recientes`]].map(([Icon,value,label]:any)=><Card key={label} className="settings-summary border-0 py-4 shadow-sm"><CardContent className="flex items-center gap-3 px-4"><span className="grid size-10 place-items-center rounded-full bg-primary/10 text-primary"><Icon className="size-4"/></span><div className="min-w-0"><p className="truncate font-bold">{value}</p><p className="text-xs text-muted-foreground">{label}</p></div></CardContent></Card>)}
     </div>
     <Tabs defaultValue="negocio" className="settings-center">
       <TabsList className="settings-tabs-list flex-wrap h-auto gap-1">
@@ -2111,7 +2170,7 @@ function SettingsCenter({data,onSave,busy,dark,setDark,setToast,uid,setModal,onE
         <TabsTrigger value="apariencia"><Palette/>Apariencia</TabsTrigger>
         <TabsTrigger value="datos"><Database/>Datos</TabsTrigger>
       </TabsList>
-      <TabsContent value="negocio"><SettingsFormCard title="Identidad del negocio" description="Información de la única sucursal y datos que aparecerán en catálogos y comprobantes." icon={Store} onSubmit={submitSettings} busy={busy}><Field label="Nombre de la zapatería" name="businessName" defaultValue={settings.business_name} required/><Field label="Nombre de la sucursal" name="branchName" defaultValue={settings.branch_name}/><Field label="CUIT" name="taxId" defaultValue={settings.tax_id}/><Field label="Teléfono" name="phone" defaultValue={settings.phone}/><Field label="WhatsApp" name="whatsapp" defaultValue={settings.whatsapp}/><Field label="Correo electrónico" name="email" type="email" defaultValue={settings.email}/><Field label="Dirección" name="address" defaultValue={settings.address}/><Field label="URL del logo" name="logoUrl" defaultValue={settings.logo_url} placeholder="https://…"/><div className="md:col-span-2 flex flex-wrap items-center gap-3 rounded-2xl border bg-muted/30 p-4"><div className="min-w-0 flex-1"><p className="text-sm font-bold">Subir logo a Firebase Storage</p><p className="text-xs text-muted-foreground">PNG, JPG o WebP de hasta 5 MB.</p></div><input ref={logoRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={uploadLogo}/><Button type="button" variant="outline" disabled={uploadingLogo} onClick={()=>logoRef.current?.click()}><Upload/>{uploadingLogo?"Subiendo…":"Elegir imagen"}</Button></div></SettingsFormCard></TabsContent>
+      <TabsContent value="negocio"><SettingsFormCard title="Identidad del negocio" description="Información de la única sucursal y datos que aparecerán en catálogos y comprobantes." icon={Store} onSubmit={submitSettings} busy={busy}><Field label="Nombre del negocio / empresa" name="businessName" defaultValue={settings.business_name} required/><Field label="Nombre de la sucursal" name="branchName" defaultValue={settings.branch_name}/><Field label="CUIT" name="taxId" defaultValue={settings.tax_id}/><Field label="Teléfono" name="phone" defaultValue={settings.phone}/><Field label="WhatsApp" name="whatsapp" defaultValue={settings.whatsapp}/><Field label="Correo electrónico" name="email" type="email" defaultValue={settings.email}/><Field label="Dirección" name="address" defaultValue={settings.address}/><Field label="URL del logo" name="logoUrl" defaultValue={settings.logo_url} placeholder="https://…"/><div className="md:col-span-2 flex flex-wrap items-center gap-3 rounded-2xl border bg-muted/30 p-4"><div className="min-w-0 flex-1"><p className="text-sm font-bold">Subir logo a Firebase Storage</p><p className="text-xs text-muted-foreground">PNG, JPG o WebP de hasta 5 MB.</p></div><input ref={logoRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={uploadLogo}/><Button type="button" variant="outline" disabled={uploadingLogo} onClick={()=>logoRef.current?.click()}><Upload/>{uploadingLogo?"Subiendo…":"Elegir imagen"}</Button></div></SettingsFormCard></TabsContent>
       <TabsContent value="personal">
         <StaffSettingsView
           staff={data.staff || []}
@@ -2140,9 +2199,9 @@ function SettingsCenter({data,onSave,busy,dark,setDark,setToast,uid,setModal,onE
           onTransfer={onTransferModal}
         />
       </TabsContent>
-      <TabsContent value="ventas"><SettingsFormCard title="Ventas y comprobantes X" description="Controlá la numeración, los cobros, descuentos y condiciones mayoristas." icon={FileText} onSubmit={submitSettings} busy={busy}><Field label="Prefijo del comprobante" name="receiptPrefix" defaultValue={settings.receipt_prefix||"X"}/><Field label="Próximo número" name="nextReceiptNumber" type="number" defaultValue={settings.next_receipt_number||1}/><SelectField label="Canal predeterminado" name="defaultChannel" defaultValue={settings.default_channel}><option value="minorista">Minorista</option><option value="mayorista">Mayorista</option></SelectField><Field label="Medios de pago separados por coma" name="paymentMethods" defaultValue={settings.payment_methods}/><Field label="Descuento máximo (%)" name="maxDiscountPercent" type="number" defaultValue={settings.max_discount_percent}/><SelectField label="Redondeo del total" name="roundingMode" defaultValue={settings.rounding_mode}><option value="none">Sin redondeo</option><option value="10">Al múltiplo de $10</option><option value="100">Al múltiplo de $100</option></SelectField><Field label="Cotización 1 Real (R$ BRL) en Pesos ($ ARS)" name="exchangeRateBrl" type="number" step="any" defaultValue={settings.exchange_rate_brl||250} placeholder="Ej: 250"/><Field label="Mínimo mayorista (pares)" name="wholesaleMinQty" type="number" defaultValue={settings.wholesale_min_qty && Number(settings.wholesale_min_qty) !== 6 ? settings.wholesale_min_qty : 12}/><SettingToggle name="allowMixedSale" label="Combinar modelos" description="Permite alcanzar el mínimo mayorista sumando distintos modelos." defaultChecked={Boolean(settings.allow_mixed_sale)}/><div className="md:col-span-2"><TextAreaField label="Condiciones mayoristas" name="wholesaleTerms" defaultValue={settings.wholesale_terms}/></div></SettingsFormCard></TabsContent>
+      <TabsContent value="ventas"><SettingsFormCard title="Ventas y comprobantes X" description="Controlá la numeración, los cobros, descuentos y condiciones mayoristas." icon={FileText} onSubmit={submitSettings} busy={busy}><Field label="Prefijo del comprobante" name="receiptPrefix" defaultValue={settings.receipt_prefix||"X"}/><Field label="Próximo número" name="nextReceiptNumber" type="number" defaultValue={settings.next_receipt_number||1}/><input type="hidden" name="defaultChannel" value="mayorista" /><div className="space-y-1.5"><label className="text-sm font-semibold">Modalidad comercial</label><div className="flex h-10 w-full items-center rounded-xl border bg-muted/40 px-3 text-sm font-medium text-primary">Venta Mayorista (Exclusivo)</div></div><Field label="Medios de pago separados por coma" name="paymentMethods" defaultValue={settings.payment_methods}/><Field label="Descuento máximo (%)" name="maxDiscountPercent" type="number" defaultValue={settings.max_discount_percent}/><SelectField label="Redondeo del total" name="roundingMode" defaultValue={settings.rounding_mode}><option value="none">Sin redondeo</option><option value="10">Al múltiplo de $10</option><option value="100">Al múltiplo de $100</option></SelectField><Field label="Cotización 1 Real (R$ BRL) en Pesos ($ ARS)" name="exchangeRateBrl" type="number" step="any" defaultValue={settings.exchange_rate_brl||250} placeholder="Ej: 250"/><Field label="Mínimo mayorista (pares)" name="wholesaleMinQty" type="number" defaultValue={settings.wholesale_min_qty && Number(settings.wholesale_min_qty) !== 6 ? settings.wholesale_min_qty : 12}/><SettingToggle name="allowMixedSale" label="Combinar modelos" description="Permite alcanzar el mínimo mayorista sumando distintos modelos." defaultChecked={Boolean(settings.allow_mixed_sale)}/><div className="md:col-span-2"><TextAreaField label="Condiciones mayoristas" name="wholesaleTerms" defaultValue={settings.wholesale_terms}/></div></SettingsFormCard></TabsContent>
       <TabsContent value="inventario"><SettingsFormCard title="Reglas de inventario" description="Definí alertas, talles habituales y el comportamiento cuando no hay existencias." icon={Boxes} onSubmit={submitSettings} busy={busy}><Field label="Alerta de stock mínimo" name="lowStockAt" type="number" defaultValue={settings.low_stock_at}/><Field label="Talles predeterminados" name="defaultSizes" defaultValue={settings.default_sizes}/><Field label="Prefijo para códigos propios" name="barcodePrefix" defaultValue={settings.barcode_prefix}/><SettingToggle name="allowNegativeStock" label="Permitir stock negativo" description="Habilita ventas aunque el talle figure sin existencias. Usalo con control." defaultChecked={Boolean(settings.allow_negative_stock)}/><div className="md:col-span-2 rounded-2xl border bg-muted/35 p-4"><p className="font-bold">Estado actual</p><div className="mt-3 grid gap-3 sm:grid-cols-3"><div><p className="text-2xl font-black">{data.stats.productCount}</p><p className="text-xs text-muted-foreground">Modelos activos</p></div><div><p className="text-2xl font-black">{data.stats.lowStock}</p><p className="text-xs text-muted-foreground">Alertas vigentes</p></div><div><p className="text-2xl font-black">{data.products.reduce((sum:number,p:Product)=>sum+p.total_stock,0)}</p><p className="text-xs text-muted-foreground">Pares registrados</p></div></div></div></SettingsFormCard></TabsContent>
-      <TabsContent value="catalogo"><SettingsFormCard title="Catálogos comerciales" description="Elegí qué información se imprime y comparte con clientes." icon={Tags} onSubmit={submitSettings} busy={busy}><SelectField label="Lista de precios predeterminada" name="catalogDefaultPrice" defaultValue={settings.catalog_default_price}><option value="retail">Minorista</option><option value="wholesale">Mayorista</option></SelectField><Field label="Contacto visible" name="catalogContact" defaultValue={settings.catalog_contact} placeholder="WhatsApp, teléfono o Instagram"/><SettingToggle name="catalogInStockOnly" label="Solo productos con stock" description="Oculta automáticamente modelos agotados." defaultChecked={Boolean(settings.catalog_in_stock_only)}/><SettingToggle name="catalogShowBarcode" label="Mostrar códigos de barras" description="Incluye el código en cada ficha impresa." defaultChecked={Boolean(settings.catalog_show_barcode)}/><div className="md:col-span-2"><TextAreaField label="Condiciones al pie del catálogo" name="catalogTerms" defaultValue={settings.catalog_terms}/></div></SettingsFormCard></TabsContent>
+      <TabsContent value="catalogo"><SettingsFormCard title="Catálogos comerciales" description="Elegí qué información se imprime y comparte con clientes." icon={Tags} onSubmit={submitSettings} busy={busy}><input type="hidden" name="catalogDefaultPrice" value="wholesale" /><div className="space-y-1.5"><label className="text-sm font-semibold">Lista de precios predeterminada</label><div className="flex h-10 w-full items-center rounded-xl border bg-muted/40 px-3 text-sm font-medium text-primary">Precios Mayoristas (Exclusivo)</div></div><Field label="Contacto visible" name="catalogContact" defaultValue={settings.catalog_contact} placeholder="WhatsApp, teléfono o Instagram"/><SettingToggle name="catalogInStockOnly" label="Solo productos con stock" description="Oculta automáticamente modelos agotados." defaultChecked={Boolean(settings.catalog_in_stock_only)}/><SettingToggle name="catalogShowBarcode" label="Mostrar códigos de barras" description="Incluye el código en cada ficha impresa." defaultChecked={Boolean(settings.catalog_show_barcode)}/><div className="md:col-span-2"><TextAreaField label="Condiciones al pie del catálogo" name="catalogTerms" defaultValue={settings.catalog_terms}/></div></SettingsFormCard></TabsContent>
       <TabsContent value="lectores"><SettingsFormCard title="Lectores y cámara" description="Configurá y verificá los dispositivos usados en el punto de venta." icon={ScanLine} onSubmit={submitSettings} busy={busy}><SettingToggle name="scanSound" label="Confirmación sonora" description="Reproduce un sonido breve al reconocer un código." defaultChecked={Boolean(settings.scan_sound)}/><SettingToggle name="cameraEnabled" label="Lector con cámara" description="Habilita el escaneo mediante la cámara del dispositivo." defaultChecked={Boolean(settings.camera_enabled)}/><div className="md:col-span-2 grid gap-3 rounded-2xl border bg-muted/30 p-4 md:grid-cols-[1fr_auto_auto]"><div><p className="mb-2 text-sm font-bold">Prueba de lector USB o Bluetooth</p><Input value={readerCode} onChange={e=>setReaderCode(e.target.value)} onKeyDown={e=>e.key==="Enter"&&testReader()} placeholder="Escaneá un código aquí"/><p className="mt-2 text-xs text-muted-foreground">{readerResult||"El lector debe escribir el código y enviar Enter."}</p></div><Button type="button" variant="outline" className="self-end" onClick={testReader}><ScanLine/>Probar lector</Button><Button type="button" variant="outline" className="self-end" onClick={testCamera}><Camera/>Probar cámara</Button></div></SettingsFormCard></TabsContent>
       <TabsContent value="apariencia"><SettingsFormCard title="Apariencia del sistema" description="Personalizá el modo visual sin cambiar los datos del negocio." icon={Palette} onSubmit={submitSettings} busy={busy}><SelectField label="Tema predeterminado" name="themeDefault" defaultValue={settings.theme_default}><option value="system">Según el dispositivo</option><option value="light">Modo claro</option><option value="dark">Modo noche</option></SelectField><SelectField label="Animaciones" name="motionLevel" defaultValue={settings.motion_level}><option value="full">Suaves y completas</option><option value="reduced">Movimiento reducido</option></SelectField><SelectField label="Tamaño de navegación" name="navDensity" defaultValue={settings.nav_density}><option value="normal">Normal</option><option value="compact">Compacta</option></SelectField><div className="flex items-end"><Button type="button" variant="outline" className="w-full" onClick={()=>setDark(!dark)}>{dark?<Sun/>:<Moon/>}Vista previa: {dark?"modo claro":"modo noche"}</Button></div></SettingsFormCard></TabsContent>
       <TabsContent value="datos"><Card className="settings-panel border-0 shadow-sm"><CardHeader className="border-b"><div className="flex items-start gap-3"><span className="settings-panel-icon"><Database className="size-5"/></span><div><CardTitle>Respaldo y seguridad de datos</CardTitle><p className="mt-1 text-sm text-muted-foreground">Descargá copias, exportá registros o restaurá el sistema de forma controlada.</p></div></div></CardHeader><CardContent className="space-y-6 pt-1"><div><p className="mb-3 font-bold">Copias y exportaciones</p><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={exportBackup}><Download/>Respaldo completo</Button><Button variant="outline" onClick={()=>exportCsv("productos",data.products)}><Download/>Productos CSV</Button><Button variant="outline" onClick={()=>exportCsv("ventas",data.sales)}><Download/>Ventas CSV</Button><Button variant="outline" onClick={()=>exportCsv("caja",data.movements)}><Download/>Caja CSV</Button><Button variant="outline" onClick={async()=>{ if(window.confirm("¿Querés cargar calzados y clientes de ejemplo para probar el sistema?")){ await onSave({action:"seed_demo_data"},"Datos de prueba cargados correctamente"); } }}><Boxes className="size-4"/>Cargar datos demo</Button></div></div><div className="grid gap-4 border-t pt-6 md:grid-cols-2"><div className="rounded-2xl border p-5"><Upload className="mb-3 size-7 text-primary"/><p className="font-bold">Restaurar una copia</p><p className="mt-1 text-sm text-muted-foreground">Reemplaza los datos actuales por los contenidos en un respaldo JSON del sistema.</p><input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={importBackup}/><Button variant="outline" className="mt-4" onClick={()=>fileRef.current?.click()}><Upload/>Seleccionar respaldo</Button></div><div className="rounded-2xl border border-red-200 bg-red-50/60 p-5 dark:border-red-900 dark:bg-red-950/20"><ShieldAlert className="mb-3 size-7 text-red-600"/><p className="font-bold text-red-700 dark:text-red-300">Restablecer base de datos</p><p className="mt-1 text-sm text-red-700/75 dark:text-red-300/75">Elimina productos, ventas, clientes, proveedores y movimientos. Conserva la configuración.</p><Button variant="destructive" className="mt-4" onClick={()=>setResetOpen(true)}><ShieldAlert/>Eliminar datos operativos</Button></div></div></CardContent></Card></TabsContent>

@@ -64,7 +64,7 @@ interface CartItem {
 interface PublicStoreProps {
   settings: StoreSettings;
   products: Product[];
-  channel: "mayorista" | "minorista";
+  channel?: "mayorista" | "minorista";
   storeUid: string;
 }
 
@@ -75,13 +75,13 @@ const money = (val: number) =>
     maximumFractionDigits: 0,
   }).format(val || 0);
 
-export function PublicStore({ settings, products, channel, storeUid }: PublicStoreProps) {
-  const isMayorista = channel === "mayorista";
-  const businessName = settings?.business_name || "Zapatería";
+export function PublicStore({ settings, products, channel = "mayorista", storeUid }: PublicStoreProps) {
+  const isMayorista = true;
+  const businessName = settings?.business_name || "CR MAYORISTA";
   const branchName = settings?.branch_name || "";
   const rawWhatsapp = settings?.whatsapp || settings?.phone || "";
   const rawMinQty = Number(settings?.wholesale_min_qty);
-  const minQty = isMayorista ? (rawMinQty && rawMinQty !== 6 ? rawMinQty : 12) : 1;
+  const minQty = rawMinQty && rawMinQty !== 6 ? rawMinQty : 12;
   const wholesaleTerms = settings?.wholesale_terms || "Precios mayoristas por volumen.";
 
   // Sanitize store phone for wa.me
@@ -101,39 +101,26 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
-  // Selected sizes per product card (productId -> size string)
-  const [selectedSizes, setSelectedSizes] = useState<Record<string, string>>({});
+  // Selected quantities per product card (productId -> number, min 12)
+  const [cardQtys, setCardQtys] = useState<Record<string, number>>({});
   const [addedAnimation, setAddedAnimation] = useState<string | null>(null);
 
   // Modal de vista completa del producto
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
-  const [selectedDetailSize, setSelectedDetailSize] = useState<string>("");
-  const [detailWholesaleQty, setDetailWholesaleQty] = useState<number>(1);
+  const [detailWholesaleQty, setDetailWholesaleQty] = useState<number>(12);
   const [modalAddedAnimation, setModalAddedAnimation] = useState(false);
 
   useEffect(() => {
     if (detailProduct) {
-      const firstWithStock = detailProduct.variants?.find((v) => v.stock > 0)?.size || detailProduct.variants?.[0]?.size || "";
-      setSelectedDetailSize(firstWithStock);
-      setDetailWholesaleQty(1);
+      setDetailWholesaleQty(12);
       setModalAddedAnimation(false);
     }
   }, [detailProduct]);
-
-  const selectedDetailVariant = useMemo(() => {
-    if (!detailProduct) return null;
-    return (detailProduct.variants || []).find((v) => String(v.size) === String(selectedDetailSize)) || null;
-  }, [detailProduct, selectedDetailSize]);
-
-  const detailVariantStock = selectedDetailVariant
-    ? Number(selectedDetailVariant.stock || 0)
-    : Number(detailProduct?.total_stock || 0);
 
   // Filters & Search
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedGender, setSelectedGender] = useState<string>("all");
-  const [selectedSizeFilter, setSelectedSizeFilter] = useState<string>("all");
 
   // Checkout Form State
   const [customerName, setCustomerName] = useState("");
@@ -143,7 +130,7 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
   const [customerNotes, setCustomerNotes] = useState("");
   const [formError, setFormError] = useState("");
 
-  // Calculate distinct categories, genders, sizes for filters
+  // Calculate distinct categories, genders for filters
   const categories = useMemo(() => {
     const set = new Set<string>();
     products.forEach((p) => {
@@ -158,20 +145,6 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
       if (p.gender) set.add(p.gender.trim());
     });
     return Array.from(set).sort();
-  }, [products]);
-
-  const availableSizesList = useMemo(() => {
-    const set = new Set<string>();
-    products.forEach((p) => {
-      (p.variants || []).forEach((v) => {
-        if (Number(v.stock || 0) > 0) set.add(String(v.size));
-      });
-    });
-    return Array.from(set).sort((a, b) => {
-      const numA = parseFloat(a);
-      const numB = parseFloat(b);
-      return !isNaN(numA) && !isNaN(numB) ? numA - numB : a.localeCompare(b);
-    });
   }, [products]);
 
   // Filtered products
@@ -199,17 +172,9 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
         return false;
       }
 
-      // Size filter (aplicable tanto en minorista como mayorista)
-      if (selectedSizeFilter !== "all") {
-        const hasSize = (p.variants || []).some(
-          (v) => String(v.size) === selectedSizeFilter && Number(v.stock || 0) > 0
-        );
-        if (!hasSize) return false;
-      }
-
       return true;
     });
-  }, [products, search, selectedCategory, selectedGender, selectedSizeFilter]);
+  }, [products, search, selectedCategory, selectedGender]);
 
   // Cart calculations
   const totalCartPairs = useMemo(() => {
@@ -220,37 +185,25 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
     return cart.reduce((sum, item) => sum + item.qty * item.price, 0);
   }, [cart]);
 
-  const meetsWholesaleMinimum = !isMayorista || totalCartPairs >= minQty;
+  const meetsWholesaleMinimum = totalCartPairs >= minQty;
 
-  // Add to cart helper (permite elegir talle y cantidad en ambos canales)
-  const handleAddToCart = (product: Product, overrideSize?: string, overrideQty?: number) => {
-    const activeVariants = (product.variants || []).filter((v) => Number(v.stock || 0) > 0);
-    const size =
-      overrideSize ||
-      selectedSizes[product.id] ||
-      (activeVariants[0]?.size ?? (product.total_stock > 0 ? "Único" : ""));
+  // Add to cart helper (exclusivo mayorista, mínimo configurado)
+  const handleAddToCart = (product: Product, overrideQty?: number) => {
+    const maxStock = Number(product.total_stock || 0);
 
-    if (!size && activeVariants.length > 0) {
-      alert("Por favor seleccioná un talle disponible.");
+    if (maxStock < minQty) {
+      alert(`Este producto no cuenta con la cantidad requerida para el mínimo mayorista (${minQty} unidades).`);
       return;
     }
 
-    const variant = (product.variants || []).find((v) => String(v.size) === String(size));
-    const maxStock = variant ? Number(variant.stock || 0) : Number(product.total_stock || 0);
-
-    if (maxStock <= 0) {
-      alert("Ese talle no cuenta con stock disponible actualmente.");
-      return;
-    }
-
-    const qtyToAdd = overrideQty !== undefined && overrideQty > 0 ? overrideQty : 1;
+    const qtyToAdd = overrideQty !== undefined && overrideQty >= minQty ? overrideQty : (cardQtys[product.id] || minQty);
     if (qtyToAdd > maxStock) {
-      alert(`Stock máximo disponible para el talle ${size}: ${maxStock} pares.`);
+      alert(`No es posible agregar esa cantidad por disponibilidad de stock.`);
       return;
     }
 
-    const price = Number(isMayorista ? product.wholesale_price : product.retail_price || 0);
-    const cartItemId = size ? `${product.id}_${size}` : `${product.id}_unico`;
+    const price = Number(product.wholesale_price || 0);
+    const cartItemId = product.id;
 
     setCart((prev) => {
       const existing = prev.find((i) => i.id === cartItemId);
@@ -258,7 +211,7 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
         const nextQty = existing.qty + qtyToAdd;
         if (nextQty > maxStock) {
           alert(
-            `Alcanzaste el stock máximo disponible (${maxStock} pares)${size ? ` para el talle ${size}` : ""}. Ya tenés ${existing.qty} en el pedido.`
+            `Alcanzaste el límite de unidades disponibles para este producto. Ya tenés ${existing.qty} en el pedido.`
           );
           return prev;
         }
@@ -271,7 +224,7 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
           productId: product.id,
           name: product.name,
           brand: product.brand || "",
-          size,
+          size: "Surtido / Pack mayorista",
           price,
           qty: qtyToAdd,
           maxStock,
@@ -290,9 +243,12 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
         .map((item) => {
           if (item.id === id) {
             const nextQty = item.qty + delta;
-            if (nextQty <= 0) return null;
+            if (nextQty < minQty) {
+              alert(`La compra mayorista es a partir de ${minQty} unidades por producto. Para remover el producto utilizá el botón de eliminar.`);
+              return item;
+            }
             if (nextQty > item.maxStock) {
-              alert(`Stock máximo disponible: ${item.maxStock} pares.`);
+              alert(`Alcanzaste las unidades disponibles para este producto.`);
               return item;
             }
             return { ...item, qty: nextQty };
@@ -323,7 +279,7 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
     }
 
     if (isMayorista && totalCartPairs < minQty) {
-      setFormError(`El pedido mayorista requiere un mínimo de ${minQty} pares.`);
+      setFormError(`El pedido mayorista requiere un mínimo de ${minQty} unidades.`);
       return;
     }
 
@@ -338,11 +294,11 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
       minute: "2-digit",
     });
 
-    let message = `👟 *NUEVO PEDIDO DE TIENDA - ${isMayorista ? "MAYORISTA" : "MINORISTA"}*\n`;
+    let message = `📦 *NUEVO PEDIDO - ${isMayorista ? "VENTA MAYORISTA" : "MINORISTA"}*\n`;
     message += `📅 *Fecha:* ${nowStr}\n`;
     message += `👤 *Cliente:* ${customerName.trim()}\n`;
     message += `📱 *Teléfono:* ${customerPhone.trim()}\n`;
-    message += `📍 *Entrega:* ${deliveryType === "pickup" ? "Retiro en local / sucursal" : `Envío a domicilio (${customerAddress.trim()})`}\n`;
+    message += `📍 *Entrega:* ${deliveryType === "pickup" ? "Retiro en local / depósito" : `Envío a domicilio (${customerAddress.trim()})`}\n`;
     if (customerNotes.trim()) {
       message += `📝 *Nota:* ${customerNotes.trim()}\n`;
     }
@@ -353,14 +309,14 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
       const itemSubtotal = item.qty * item.price;
       message += `\n${idx + 1}. *${item.name}* ${item.brand ? `(${item.brand})` : ""}\n`;
       if (item.size) {
-        message += `   • Talle: *${item.size}*\n`;
+        message += `   • Variante / Detalle: *${item.size}*\n`;
       }
-      message += `   • Cantidad: *${item.qty}* par${item.qty > 1 ? "es" : ""} x ${money(item.price)}\n`;
+      message += `   • Cantidad: *${item.qty}* unidad${item.qty > 1 ? "es" : ""} x ${money(item.price)}\n`;
       message += `   • Subtotal: *${money(itemSubtotal)}*\n`;
     });
 
     message += `\n━━━━━━━━━━━━━━━━━━━━\n`;
-    message += `📦 *TOTAL DE PARES:* ${totalCartPairs}\n`;
+    message += `📦 *TOTAL DE UNIDADES:* ${totalCartPairs}\n`;
     message += `💰 *TOTAL GENERAL:* *${money(totalCartAmount)}*\n`;
     message += `━━━━━━━━━━━━━━━━━━━━\n\n`;
     message += `_Pedido enviado desde el catálogo online de ${businessName}._`;
@@ -390,7 +346,7 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
         <Sparkles className="w-4 h-4 shrink-0" />
         {isMayorista ? (
           <span>
-            <strong>Catálogo Mayorista:</strong> Compra mínima de <strong>{minQty} pares</strong>. {wholesaleTerms}
+            <strong>Catálogo Mayorista:</strong> Compra mínima de <strong>{minQty} unidades</strong>. {wholesaleTerms}
           </span>
         ) : (
           <span>
@@ -477,7 +433,7 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por calzado, marca, modelo o código..."
+                placeholder="Buscar por producto, marca, modelo o código..."
                 className="pl-10 h-11 bg-slate-50 border-slate-200 focus:bg-white text-sm rounded-xl"
               />
               {search && (
@@ -489,24 +445,6 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
                 </button>
               )}
             </div>
-
-            {/* Quick Size Filter */}
-            {availableSizesList.length > 0 && (
-              <div className="sm:w-48">
-                <select
-                  value={selectedSizeFilter}
-                  onChange={(e) => setSelectedSizeFilter(e.target.value)}
-                  className="w-full h-11 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="all">Todos los talles</option>
-                  {availableSizesList.map((size) => (
-                    <option key={size} value={size}>
-                      Talle {size}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
           </div>
 
           {/* Categories & Gender Pills */}
@@ -572,24 +510,22 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
         {/* Results Counter */}
         <div className="flex items-center justify-between mb-4 text-xs sm:text-sm text-slate-500">
           <span>
-            Mostrando <strong>{filteredProducts.length}</strong> modelos disponibles con stock
+            Mostrando <strong>{filteredProducts.length}</strong> modelos disponibles
           </span>
-          {isMayorista && (
-            <span className="text-amber-700 font-medium hidden sm:inline">
-              Precios válidos llevando {minQty} pares o más
-            </span>
-          )}
+          <span className="text-amber-700 font-semibold hidden sm:inline">
+            Venta mayorista a partir de {minQty} unidades por modelo
+          </span>
         </div>
 
         {/* Product Grid */}
         {filteredProducts.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-2xl border border-slate-200 p-8 shadow-xs">
             <ShoppingBag className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-            <h3 className="text-base font-semibold text-slate-700">No se encontraron calzados</h3>
+            <h3 className="text-base font-semibold text-slate-700">No se encontraron productos</h3>
             <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
-              Intenta cambiar los filtros de búsqueda o categoría para ver otros modelos disponibles.
+              Intenta cambiar los filtros de búsqueda o categoría para ver otros productos disponibles.
             </p>
-            {(search || selectedCategory !== "all" || selectedGender !== "all" || selectedSizeFilter !== "all") && (
+            {(search || selectedCategory !== "all" || selectedGender !== "all") && (
               <Button
                 variant="outline"
                 size="sm"
@@ -597,7 +533,6 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
                   setSearch("");
                   setSelectedCategory("all");
                   setSelectedGender("all");
-                  setSelectedSizeFilter("all");
                 }}
                 className="mt-4"
               >
@@ -608,22 +543,16 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
             {filteredProducts.map((p) => {
-              const activeVariants = (p.variants || []).filter((v) => Number(v.stock || 0) > 0);
-              const selectedSize = selectedSizes[p.id] || (activeVariants[0]?.size ?? "");
-              const selectedVariant = activeVariants.find((v) => String(v.size) === String(selectedSize));
-              const currentStock = selectedVariant
-                ? Number(selectedVariant.stock || 0)
-                : activeVariants.length === 0
-                ? Number(p.total_stock || 0)
-                : 0;
-
-              const displayPrice = isMayorista ? p.wholesale_price : p.retail_price;
-              const secondaryPrice = isMayorista ? p.retail_price : p.wholesale_price;
+              const displayPrice = p.wholesale_price;
+              const secondaryPrice = p.retail_price;
 
               const isJustAdded = addedAnimation === p.id;
               const inCartCount = cart
                 .filter((i) => i.productId === p.id)
                 .reduce((sum, i) => sum + i.qty, 0);
+
+              const currentQty = cardQtys[p.id] || 12;
+              const hasMinStock = Number(p.total_stock || 0) >= 12;
 
               return (
                 <Card
@@ -669,8 +598,9 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
                     </div>
 
                     <div className="absolute top-2.5 right-2.5 pointer-events-none">
-                      <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-600 text-white shadow-xs">
-                        Stock: {p.total_stock}
+                      <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600 text-white shadow-xs flex items-center gap-1.5 backdrop-blur">
+                        <span className="size-1.5 rounded-full bg-white animate-pulse" />
+                        Disponible
                       </span>
                     </div>
                   </div>
@@ -685,8 +615,8 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
 
                       <h3
                         onClick={() => setDetailProduct(p)}
-                        className="font-bold text-slate-900 text-base leading-snug line-clamp-1 group-hover:text-indigo-600 transition-colors cursor-pointer"
-                        title="Ver detalles del calzado"
+                        className="font-bold text-slate-900 text-base leading-snug line-clamp-1 group-hover:text-amber-600 transition-colors cursor-pointer"
+                        title="Ver detalles del producto"
                       >
                         {p.name}
                       </h3>
@@ -697,71 +627,70 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
                           <span className="text-2xl font-black tracking-tight text-slate-900">
                             {money(displayPrice)}
                           </span>
-                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
-                            {isMayorista ? "P. Mayorista" : "Minorista"}
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                            Mayorista
                           </span>
                         </div>
                         {secondaryPrice > 0 && (
-                          <p className="text-xs text-slate-600 mt-0.5">
-                            {isMayorista ? (
-                              <span>Sugerido venta minorista: {money(secondaryPrice)}</span>
-                            ) : (
-                              <span>Mayorista x volumen: {money(secondaryPrice)}</span>
-                            )}
+                          <p className="text-xs text-slate-500 mt-1">
+                            Sugerido venta minorista: <strong>{money(secondaryPrice)}</strong>
                           </p>
                         )}
                       </div>
 
-                      {/* Sizes selection */}
-                      <div className="space-y-1.5 mb-4">
-                        <div className="flex justify-between text-xs">
-                          <span className="font-semibold text-slate-700">Talle:</span>
-                          <span className="text-slate-500">
-                            Disp: <strong>{currentStock}</strong> pares
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {activeVariants.length === 0 ? (
-                            <span className="text-xs text-rose-500 font-medium">Sin talles con stock</span>
-                          ) : (
-                            activeVariants.map((v) => {
-                              const isSelected = String(v.size) === String(selectedSize);
-                              return (
-                                <button
-                                  key={v.size}
-                                  type="button"
-                                  onClick={() =>
-                                    setSelectedSizes((prev) => ({
-                                      ...prev,
-                                      [p.id]: String(v.size),
-                                    }))
-                                  }
-                                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all ${
-                                    isSelected
-                                      ? isMayorista
-                                        ? "bg-amber-600 text-white border-amber-600 shadow-xs scale-105"
-                                        : "bg-indigo-600 text-white border-indigo-600 shadow-xs scale-105"
-                                      : "bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
-                                  }`}
-                                >
-                                  {v.size}
-                                </button>
-                              );
-                            })
-                          )}
+                      {/* Wholesale pack details & quantity selector */}
+                      <div className="space-y-2 mb-4">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
+                          <div className="flex items-center justify-between text-xs text-slate-700">
+                            <span className="font-semibold flex items-center gap-1">
+                              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                              Surtido / Pack mayorista
+                            </span>
+                            <span className="text-[11px] text-slate-500 font-medium">Mín. {minQty} u.</span>
+                          </div>
+
+                          {/* Selector de cantidad */}
+                          <div className="mt-2 flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60">
+                            <span className="text-xs text-slate-600">Unidades a ordenar:</span>
+                            <div className="flex items-center bg-white rounded-lg border border-slate-200 p-0.5 shadow-2xs">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setCardQtys((prev) => ({
+                                    ...prev,
+                                    [p.id]: Math.max(minQty, (prev[p.id] || minQty) - 1),
+                                  }))
+                                }
+                                disabled={currentQty <= minQty}
+                                className="w-6 h-6 rounded flex items-center justify-center text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+                              >
+                                <Minus className="w-3 h-3" />
+                              </button>
+                              <span className="w-8 text-center text-xs font-black text-slate-900">
+                                {currentQty}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setCardQtys((prev) => ({
+                                    ...prev,
+                                    [p.id]: Math.min(p.total_stock, (prev[p.id] || minQty) + 1),
+                                  }))
+                                }
+                                disabled={currentQty >= p.total_stock}
+                                className="w-6 h-6 rounded flex items-center justify-center text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+                              >
+                                <Plus className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
                         </div>
 
                         {inCartCount > 0 && (
-                          <div
-                            className={`mt-2 flex items-center gap-1.5 text-[11px] font-semibold rounded-lg px-2.5 py-1 ${
-                              isMayorista
-                                ? "text-amber-800 bg-amber-50 border border-amber-200/70"
-                                : "text-indigo-800 bg-indigo-50 border border-indigo-200/70"
-                            }`}
-                          >
+                          <div className="flex items-center gap-1.5 text-[11px] font-semibold rounded-lg px-2.5 py-1 text-amber-800 bg-amber-50 border border-amber-200/70">
                             <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
                             <span>
-                              En tu pedido: <strong>{inCartCount}</strong> {inCartCount === 1 ? "par" : "pares"}
+                              En tu pedido: <strong>{inCartCount}</strong> unidades
                             </span>
                           </div>
                         )}
@@ -771,25 +700,25 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
                     {/* Add to order button */}
                     <Button
                       type="button"
-                      disabled={currentStock <= 0}
-                      onClick={() => handleAddToCart(p)}
+                      disabled={!hasMinStock}
+                      onClick={() => handleAddToCart(p, currentQty)}
                       className={`w-full font-bold h-10 rounded-xl transition-all ${
                         isJustAdded
                           ? "bg-emerald-600 text-white"
-                          : isMayorista
-                          ? "bg-amber-600 hover:bg-amber-700 text-white shadow-xs"
-                          : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
+                          : "bg-amber-600 hover:bg-amber-700 text-white shadow-xs"
                       }`}
                     >
                       {isJustAdded ? (
                         <>
                           <CheckCircle2 className="w-4 h-4 mr-1.5 animate-bounce" />
-                          ¡Agregado!
+                          ¡Agregado al pedido!
                         </>
+                      ) : !hasMinStock ? (
+                        <>Stock insuficiente (mín. {minQty} unidades)</>
                       ) : (
                         <>
                           <Plus className="w-4 h-4 mr-1.5" />
-                          Agregar al pedido {selectedSize ? `(Talle ${selectedSize})` : ""}
+                          Agregar {currentQty} unidades ({money((p.wholesale_price || 0) * currentQty)})
                         </>
                       )}
                     </Button>
@@ -812,7 +741,7 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
           >
             <div className="flex items-center gap-2.5">
               <ShoppingBag className="w-5 h-5" />
-              <span>Ver Pedido ({totalCartPairs} pares)</span>
+              <span>Ver Pedido ({totalCartPairs} u.)</span>
             </div>
             <span className="text-base font-black">{money(totalCartAmount)}</span>
           </button>
@@ -833,15 +762,15 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
               </Badge>
             </div>
             <SheetDescription className="text-xs text-slate-500">
-              Revisá tus calzados seleccionados antes de enviar por WhatsApp
+              Revisá tus productos seleccionados antes de enviar por WhatsApp
             </SheetDescription>
 
             {/* Wholesale minimum reminder */}
             {isMayorista && (
               <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
                 <div className="flex items-center justify-between text-xs font-semibold text-amber-900 mb-1.5">
-                  <span>Mínimo mayorista: {minQty} pares</span>
-                  <span>{totalCartPairs} / {minQty} pares</span>
+                  <span>Mínimo mayorista: {minQty} unidades</span>
+                  <span>{totalCartPairs} / {minQty} unidades</span>
                 </div>
                 <Progress
                   value={Math.min(100, (totalCartPairs / minQty) * 100)}
@@ -850,7 +779,7 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
                 {!meetsWholesaleMinimum ? (
                   <p className="text-[11px] text-amber-800 mt-1.5 font-medium flex items-center gap-1">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    Te faltan {minQty - totalCartPairs} pares para alcanzar el mínimo mayorista.
+                    Te faltan {minQty - totalCartPairs} unidades para alcanzar el mínimo mayorista.
                   </p>
                 ) : (
                   <p className="text-[11px] text-emerald-700 mt-1.5 font-bold flex items-center gap-1">
@@ -887,13 +816,9 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
 
                   <div className="min-w-0 flex-1">
                     <h4 className="text-xs font-bold text-slate-900 truncate">{item.name}</h4>
-                    {item.size ? (
-                      <p className="text-[11px] text-slate-500">
-                        {item.brand ? `${item.brand} • ` : ""}Talle: <strong>{item.size}</strong>
-                      </p>
-                    ) : item.brand ? (
-                      <p className="text-[11px] text-slate-500">{item.brand}</p>
-                    ) : null}
+                    <p className="text-[11px] text-amber-700 font-semibold">
+                      Surtido / Pack mayorista
+                    </p>
                     <p className="text-xs font-black text-slate-900 mt-0.5">
                       {money(item.price)} <span className="text-[10px] font-normal text-slate-400">c/u</span>
                     </p>
@@ -902,11 +827,13 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       onClick={() => updateCartQty(item.id, -1)}
-                      className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-100"
+                      disabled={item.qty <= minQty}
+                      className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+                      title={`Mínimo ${minQty} unidades por producto`}
                     >
                       <Minus className="w-3 h-3" />
                     </button>
-                    <span className="w-6 text-center text-xs font-bold text-slate-900">{item.qty}</span>
+                    <span className="w-7 text-center text-xs font-black text-slate-900">{item.qty}</span>
                     <button
                       onClick={() => updateCartQty(item.id, 1)}
                       className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-100"
@@ -916,6 +843,7 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
                     <button
                       onClick={() => removeFromCart(item.id)}
                       className="w-7 h-7 rounded-lg text-rose-500 hover:bg-rose-50 flex items-center justify-center ml-1"
+                      title="Quitar modelo del pedido"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -930,8 +858,8 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
             <div className="p-4 border-t border-slate-200 bg-slate-50 space-y-3">
               <div className="space-y-1 text-sm">
                 <div className="flex justify-between text-slate-600 text-xs">
-                  <span>Total pares:</span>
-                  <span className="font-bold text-slate-900">{totalCartPairs} pares</span>
+                  <span>Total unidades:</span>
+                  <span className="font-bold text-slate-900">{totalCartPairs} unidades</span>
                 </div>
                 <div className="flex justify-between text-base font-black text-slate-900 pt-1 border-t border-slate-200">
                   <span>Total estimado:</span>
@@ -958,248 +886,255 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
         </SheetContent>
       </Sheet>
 
-      {/* Modal de Detalle de Producto con Foto Completa */}
+      {/* Modal de Detalle de Producto con Foto Arriba e Información Prolija Abajo */}
       <Dialog open={Boolean(detailProduct)} onOpenChange={(open) => !open && setDetailProduct(null)}>
         {detailProduct && (
-          <DialogContent className="max-w-3xl bg-white rounded-3xl p-0 overflow-hidden border-0 shadow-2xl max-h-[90vh] flex flex-col sm:flex-row">
-            {/* Columna Izquierda: Foto Completa */}
-            <div className="relative sm:w-1/2 bg-slate-50 flex items-center justify-center p-4 sm:p-6 border-b sm:border-b-0 sm:border-r border-slate-100 min-h-[260px] sm:min-h-[460px]">
+          <DialogContent className="max-w-xl w-full bg-white rounded-3xl p-0 overflow-hidden border-0 shadow-2xl max-h-[92vh] flex flex-col">
+            {/* PARTE SUPERIOR: Foto Completa */}
+            <div className="relative w-full bg-gradient-to-b from-slate-100/90 via-slate-50 to-white flex items-center justify-center p-4 sm:p-6 border-b border-slate-100 h-64 sm:h-72 shrink-0">
               {detailProduct.image_url ? (
                 <img
                   src={detailProduct.image_url}
                   alt={detailProduct.name}
-                  className="max-h-[300px] sm:max-h-[420px] w-full object-contain rounded-2xl drop-shadow-md transition-all hover:scale-102"
+                  className="max-h-full max-w-full object-contain rounded-2xl drop-shadow-md transition-all hover:scale-105 duration-300"
                 />
               ) : (
                 <div className="flex flex-col items-center justify-center text-slate-300 p-8">
-                  <Store className="w-20 h-20 stroke-[1.2] mb-2" />
+                  <Store className="w-16 h-16 stroke-[1.2] mb-2" />
                   <span className="text-xs font-semibold text-slate-400">Sin foto disponible</span>
                 </div>
               )}
 
               {/* Badges sobre la foto */}
-              <div className="absolute top-3 left-3 flex flex-col gap-1.5">
-                {detailProduct.brand && (
-                  <span className="px-2.5 py-1 rounded-lg text-xs font-black bg-white/95 text-slate-800 shadow-xs uppercase tracking-wider backdrop-blur">
-                    {detailProduct.brand}
+              <div className="absolute top-3.5 left-3.5 flex flex-wrap items-center gap-1.5 pointer-events-none">
+                {detailProduct.category && (
+                  <span className="px-3 py-1 rounded-xl text-xs font-bold bg-slate-900/90 text-white shadow-xs backdrop-blur">
+                    {detailProduct.category}
                   </span>
                 )}
-                {detailProduct.category && (
-                  <span className="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-900/85 text-white shadow-xs backdrop-blur">
-                    {detailProduct.category}
+                {detailProduct.brand && (
+                  <span className="px-3 py-1 rounded-xl text-xs font-black bg-white/95 text-slate-800 shadow-xs uppercase tracking-wider backdrop-blur border border-slate-200/60">
+                    {detailProduct.brand}
                   </span>
                 )}
               </div>
 
-              <div className="absolute top-3 right-3">
-                <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 text-white shadow-xs">
-                  Stock: {detailProduct.total_stock} pares
+              <div className="absolute top-3.5 right-3.5 pointer-events-none">
+                <span className="px-3 py-1 rounded-xl text-xs font-bold bg-emerald-600 text-white shadow-xs flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-white animate-pulse" />
+                  En stock
                 </span>
               </div>
             </div>
 
-            {/* Columna Derecha: Información completa y compra */}
-            <div className="sm:w-1/2 p-6 flex flex-col justify-between overflow-y-auto">
-              <div className="space-y-4">
-                {/* Categoría / Género / Color */}
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  {detailProduct.gender && <span>{detailProduct.gender}</span>}
-                  {detailProduct.gender && detailProduct.color && <span>•</span>}
-                  {detailProduct.color && <span>Color: {detailProduct.color}</span>}
-                  {detailProduct.sku && (
-                    <>
-                      <span>•</span>
-                      <span className="font-mono text-[11px] text-slate-400">SKU: {detailProduct.sku}</span>
-                    </>
-                  )}
-                </div>
+            {/* PARTE INFERIOR: Información completa y compra bien prolija */}
+            <div className="flex-1 overflow-y-auto p-5 sm:p-7 space-y-4 text-slate-800">
+              {/* Categoría / Género / Color / SKU */}
+              <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                {detailProduct.gender && detailProduct.gender !== "No aplica" && (
+                  <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
+                    {detailProduct.gender}
+                  </span>
+                )}
+                {detailProduct.color && (
+                  <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
+                    Color: {detailProduct.color}
+                  </span>
+                )}
+                {detailProduct.sku && (
+                  <span className="font-mono text-[11px] text-slate-400">
+                    SKU: {detailProduct.sku}
+                  </span>
+                )}
+              </div>
 
-                {/* Nombre del modelo */}
-                <div>
-                  <DialogTitle className="text-2xl font-black text-slate-900 leading-tight">
-                    {detailProduct.name}
-                  </DialogTitle>
-                  {detailProduct.description && (
-                    <DialogDescription className="text-xs text-slate-600 mt-1 leading-relaxed">
-                      {detailProduct.description}
-                    </DialogDescription>
-                  )}
-                </div>
+              {/* Título y descripción */}
+              <div>
+                <DialogTitle className="text-2xl sm:text-3xl font-black text-slate-900 leading-tight">
+                  {detailProduct.name}
+                </DialogTitle>
+                {detailProduct.description && (
+                  <DialogDescription className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    {detailProduct.description}
+                  </DialogDescription>
+                )}
+              </div>
 
-                {/* Bloque de precios */}
-                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+              {/* Bloque de precios ordenado */}
+              <div className="bg-slate-50/90 rounded-2xl p-4 border border-slate-200/70 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-baseline gap-2">
                     <span className="text-3xl font-black tracking-tight text-slate-900">
                       {money(isMayorista ? detailProduct.wholesale_price : detailProduct.retail_price)}
                     </span>
-                    <Badge className="bg-indigo-600 text-white font-bold text-xs uppercase px-2 py-0.5">
+                    <Badge className="bg-orange-600 text-white font-extrabold text-xs uppercase px-2.5 py-0.5">
                       {isMayorista ? "Precio Mayorista" : "Precio Minorista"}
                     </Badge>
                   </div>
-                  {isMayorista ? (
-                    detailProduct.retail_price > 0 && (
-                      <p className="text-xs text-slate-500 mt-1 font-medium">
-                        Precio sugerido de reventa al público: <strong>{money(detailProduct.retail_price)}</strong>
-                      </p>
-                    )
-                  ) : (
-                    detailProduct.wholesale_price > 0 && (
-                      <p className="text-xs text-slate-500 mt-1 font-medium">
-                        Precio mayorista por bulto/curva: <strong>{money(detailProduct.wholesale_price)}</strong> (mín. {minQty} pares)
-                      </p>
-                    )
-                  )}
                 </div>
 
-                {/* Selección de talle */}
-                <div className="space-y-2">
+                {isMayorista ? (
+                  detailProduct.retail_price > 0 && (
+                    <p className="text-xs text-slate-500 font-medium pt-1 border-t border-slate-200/60">
+                      Precio sugerido de reventa al público: <strong className="text-slate-800">{money(detailProduct.retail_price)}</strong>
+                    </p>
+                  )
+                ) : (
+                  detailProduct.wholesale_price > 0 && (
+                    <p className="text-xs text-slate-500 font-medium pt-1 border-t border-slate-200/60">
+                      Precio mayorista por volumen: <strong className="text-slate-800">{money(detailProduct.wholesale_price)}</strong> (mín. {minQty} unidades)
+                    </p>
+                  )
+                )}
+              </div>
+
+              {/* Variantes y opciones disponibles */}
+              {detailProduct.variants && detailProduct.variants.length > 0 && !(detailProduct.variants.length === 1 && ["Único", "Unico", "General", "Estándar"].includes(detailProduct.variants[0].size)) ? (
+                <div className="space-y-2 pt-1">
                   <div className="flex justify-between items-center text-xs font-semibold text-slate-700">
-                    <span>Elegí tu talle:</span>
-                    <span className="text-slate-500">
-                      {selectedDetailSize ? `Talle ${selectedDetailSize} seleccionado` : "Seleccioná un talle"}
+                    <span>Opciones disponibles:</span>
+                    <span className="text-emerald-700 font-bold flex items-center gap-1">
+                      <CheckCircle2 className="size-3.5" />
+                      Disponibles para armado de pedido
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {(detailProduct.variants || []).map((v) => {
+                    {detailProduct.variants.map((v) => {
                       const hasStock = v.stock > 0;
-                      const isSelected = selectedDetailSize === v.size;
                       return (
-                        <button
+                        <div
                           key={v.size}
-                          type="button"
-                          disabled={!hasStock}
-                          onClick={() => {
-                            setSelectedDetailSize(v.size);
-                            setDetailWholesaleQty(1);
-                          }}
-                          className={`min-w-12 h-10 px-3 rounded-xl border text-xs font-bold transition-all flex flex-col items-center justify-center ${
-                            isSelected
-                              ? isMayorista
-                                ? "bg-amber-600 text-white border-amber-600 shadow-sm scale-105"
-                                : "bg-indigo-600 text-white border-indigo-600 shadow-sm scale-105"
-                              : hasStock
-                              ? "bg-white hover:border-indigo-400 text-slate-800 border-slate-200 hover:bg-slate-50"
-                              : "bg-slate-100 text-slate-400 border-transparent cursor-not-allowed opacity-40 line-through"
+                          className={`min-w-12 px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 ${
+                            hasStock
+                              ? "bg-amber-50/70 border-amber-300/80 text-slate-800"
+                              : "bg-slate-100 text-slate-400 border-transparent opacity-40 line-through"
                           }`}
                         >
                           <span>{v.size}</span>
-                          <span className="text-[9px] font-normal opacity-80">
-                            {hasStock ? `${v.stock} disp.` : "Agotado"}
-                          </span>
-                        </button>
+                          {hasStock && (
+                            <span className="size-1.5 rounded-full bg-emerald-500" />
+                          )}
+                        </div>
                       );
                     })}
                   </div>
                 </div>
+              ) : (
+                <div className="rounded-xl bg-emerald-50/70 border border-emerald-200/70 px-3.5 py-2.5 flex items-center justify-between text-xs">
+                  <span className="font-semibold text-emerald-900 flex items-center gap-1.5">
+                    <CheckCircle2 className="size-4 text-emerald-600" />
+                    Disponibilidad para entrega
+                  </span>
+                  <strong className="text-emerald-700 font-bold">En stock</strong>
+                </div>
+              )}
 
-                {/* Cantidad para el talle seleccionado (permite pedir varias unidades si hay stock) */}
-                {detailVariantStock > 1 && (
-                  <div className="space-y-1.5 pt-1">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="font-semibold text-slate-700">
-                        Cantidad de pares {selectedDetailSize ? `(Talle ${selectedDetailSize})` : ""}:
-                      </span>
-                      <span className="text-slate-500">
-                        Disp: <strong>{detailVariantStock}</strong> pares
-                      </span>
-                    </div>
+              {/* Selector de cantidad mayorista */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-bold text-slate-800">Unidades a ordenar:</span>
+                  <span className="text-slate-500 text-[11px]">
+                    Mínimo del pedido: <strong>{minQty} unidades</strong>
+                  </span>
+                </div>
 
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center border border-slate-200 rounded-xl bg-slate-50 p-1">
-                        <button
-                          type="button"
-                          onClick={() => setDetailWholesaleQty((prev) => Math.max(1, prev - 1))}
-                          disabled={detailWholesaleQty <= 1}
-                          className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-700 font-bold hover:bg-slate-100 flex items-center justify-center transition-colors disabled:opacity-40"
-                        >
-                          <Minus className="w-3.5 h-3.5" />
-                        </button>
-                        <input
-                          type="number"
-                          min={1}
-                          max={detailVariantStock}
-                          value={detailWholesaleQty}
-                          onChange={(e) =>
-                            setDetailWholesaleQty(
-                              Math.max(1, Math.min(detailVariantStock, Number(e.target.value) || 1))
-                            )
-                          }
-                          className="w-16 text-center font-bold text-base bg-transparent outline-none text-slate-900"
-                        />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDetailWholesaleQty((prev) => Math.min(detailVariantStock, prev + 1))
-                          }
-                          disabled={detailWholesaleQty >= detailVariantStock}
-                          className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-700 font-bold hover:bg-slate-100 flex items-center justify-center transition-colors disabled:opacity-40"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                      <span className="text-xs text-slate-500">
-                        Subtotal: <strong>{money((isMayorista ? detailProduct.wholesale_price : detailProduct.retail_price) * detailWholesaleQty)}</strong>
-                      </span>
-                    </div>
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
+                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => setDetailWholesaleQty((prev) => Math.max(minQty, prev - 1))}
+                      disabled={detailWholesaleQty <= minQty}
+                      className="size-8 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-bold hover:bg-slate-100 flex items-center justify-center transition-colors disabled:opacity-30"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    <input
+                      type="number"
+                      min={minQty}
+                      max={detailProduct.total_stock}
+                      value={detailWholesaleQty}
+                      onChange={(e) =>
+                        setDetailWholesaleQty(
+                          Math.max(minQty, Math.min(detailProduct.total_stock, Number(e.target.value) || minQty))
+                        )
+                      }
+                      className="w-14 text-center font-black text-base bg-transparent outline-none text-slate-900"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setDetailWholesaleQty((prev) => Math.min(detailProduct.total_stock, prev + 1))}
+                      disabled={detailWholesaleQty >= detailProduct.total_stock}
+                      className="size-8 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-bold hover:bg-slate-100 flex items-center justify-center transition-colors disabled:opacity-30"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
 
-                    {isMayorista && detailVariantStock >= 6 && (
-                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                        <span className="text-[11px] text-slate-500 font-medium mr-1">Rápidos:</span>
-                        <button
-                          type="button"
-                          onClick={() => setDetailWholesaleQty(1)}
-                          className={`px-2 py-0.5 rounded-md border text-xs font-semibold transition ${detailWholesaleQty === 1 ? "bg-amber-600 text-white border-amber-600" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"}`}
-                        >
-                          1 par
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDetailWholesaleQty(6)}
-                          className={`px-2 py-0.5 rounded-md border text-xs font-semibold transition ${detailWholesaleQty === 6 ? "bg-amber-600 text-white border-amber-600" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"}`}
-                        >
-                          6 pares
-                        </button>
-                        {detailVariantStock >= 12 && (
-                          <button
-                            type="button"
-                            onClick={() => setDetailWholesaleQty(12)}
-                            className={`px-2 py-0.5 rounded-md border text-xs font-semibold transition ${detailWholesaleQty === 12 ? "bg-amber-600 text-white border-amber-600" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"}`}
-                          >
-                            12 pares (Mínimo)
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setDetailWholesaleQty(detailVariantStock)}
-                          className={`px-2 py-0.5 rounded-md border text-xs font-semibold transition ${detailWholesaleQty === detailVariantStock ? "bg-amber-600 text-white border-amber-600" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"}`}
-                        >
-                          Todo ({detailVariantStock})
-                        </button>
-                      </div>
+                  <div className="text-right">
+                    <span className="text-[11px] text-slate-500 block">Subtotal estimado:</span>
+                    <strong className="text-lg font-black text-slate-900">
+                      {money((detailProduct.wholesale_price || 0) * detailWholesaleQty)}
+                    </strong>
+                  </div>
+                </div>
+
+                {detailProduct.total_stock > minQty && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <span className="text-[11px] text-slate-500 font-medium mr-1">Rápidos:</span>
+                    <button
+                      type="button"
+                      onClick={() => setDetailWholesaleQty(minQty)}
+                      className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
+                        detailWholesaleQty === minQty
+                          ? "bg-amber-600 text-white border-amber-600 shadow-2xs"
+                          : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      {minQty} u. (Mínimo)
+                    </button>
+                    {detailProduct.total_stock >= minQty * 2 && (
+                      <button
+                        type="button"
+                        onClick={() => setDetailWholesaleQty(minQty * 2)}
+                        className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
+                          detailWholesaleQty === minQty * 2
+                            ? "bg-amber-600 text-white border-amber-600 shadow-2xs"
+                            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                        }`}
+                      >
+                        {minQty * 2} unidades
+                      </button>
+                    )}
+                    {detailProduct.total_stock >= minQty * 3 && (
+                      <button
+                        type="button"
+                        onClick={() => setDetailWholesaleQty(minQty * 3)}
+                        className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
+                          detailWholesaleQty === minQty * 3
+                            ? "bg-amber-600 text-white border-amber-600 shadow-2xs"
+                            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                        }`}
+                      >
+                        {minQty * 3} unidades
+                      </button>
                     )}
                   </div>
                 )}
               </div>
 
-              {/* Botones de acción al pie del modal */}
-              <div className="pt-6 space-y-2.5 border-t border-slate-100 mt-6">
+              {/* Botones de acción al pie */}
+              <div className="pt-3 space-y-2.5 border-t border-slate-100">
                 <Button
                   onClick={() => {
-                    handleAddToCart(detailProduct, selectedDetailSize, detailWholesaleQty);
+                    handleAddToCart(detailProduct, detailWholesaleQty);
                     setModalAddedAnimation(true);
                     setTimeout(() => setModalAddedAnimation(false), 1500);
                   }}
-                  disabled={
-                    detailProduct.total_stock <= 0 ||
-                    !selectedDetailSize ||
-                    detailVariantStock <= 0
-                  }
+                  disabled={detailProduct.total_stock < minQty}
                   className={`w-full h-12 rounded-xl text-sm font-bold shadow-md transition-all flex items-center justify-center gap-2 ${
                     modalAddedAnimation
                       ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                      : isMayorista
-                      ? "bg-amber-600 hover:bg-amber-700 text-white"
-                      : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                      : "bg-amber-600 hover:bg-amber-700 text-white"
                   }`}
                 >
                   {modalAddedAnimation ? (
@@ -1207,10 +1142,12 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
                       <Check className="w-4 h-4" />
                       ¡Agregado al pedido!
                     </>
+                  ) : detailProduct.total_stock < minQty ? (
+                    <>Stock insuficiente (mínimo {minQty} unidades)</>
                   ) : (
                     <>
                       <ShoppingBag className="w-4 h-4" />
-                      Agregar al pedido (Talle {selectedDetailSize}{detailWholesaleQty > 1 ? ` • ${detailWholesaleQty} pares` : ""})
+                      Agregar {detailWholesaleQty} unidades ({money((detailProduct.wholesale_price || 0) * detailWholesaleQty)})
                     </>
                   )}
                 </Button>
@@ -1220,15 +1157,9 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
                     variant="outline"
                     onClick={() => {
                       const textMsg = encodeURIComponent(
-                        isMayorista
-                          ? `Hola ${businessName}! Quisiera consultar por el calzado *${detailProduct.name}* ${
-                              detailProduct.brand ? `(${detailProduct.brand})` : ""
-                            } - Modalidad Mayorista - Talle: ${selectedDetailSize || "a consultar"}${
-                              detailWholesaleQty > 1 ? ` (${detailWholesaleQty} pares)` : ""
-                            }. ¿Tienen disponibilidad?`
-                          : `Hola ${businessName}! Quisiera consultar por el calzado *${detailProduct.name}* ${
-                              detailProduct.brand ? `(${detailProduct.brand})` : ""
-                            } - Talle: ${selectedDetailSize || "a consultar"}. ¿Tienen stock?`
+                        `Hola ${businessName}! Quisiera consultar por el producto *${detailProduct.name}* ${
+                          detailProduct.brand ? `(${detailProduct.brand})` : ""
+                        } - Pedido Mayorista (${detailWholesaleQty} unidades). ¿Tienen disponibilidad?`
                       );
                       window.open(`https://wa.me/${storePhone}?text=${textMsg}`, "_blank");
                     }}
@@ -1354,7 +1285,7 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
             {/* Quick summary recap */}
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 flex justify-between items-center">
               <span>
-                Total: <strong>{totalCartPairs} pares</strong>
+                Total: <strong>{totalCartPairs} unidades</strong>
               </span>
               <span className="text-sm font-black text-slate-900">{money(totalCartAmount)}</span>
             </div>
@@ -1383,7 +1314,7 @@ export function PublicStore({ settings, products, channel, storeUid }: PublicSto
             {isMayorista ? "Catálogo y pedidos de venta mayorista" : "Catálogo y pedidos de venta minorista"}
           </p>
           <p className="text-slate-400 text-[11px] pt-2">
-            Desarrollado con Sistema de Gestión de Zapatería
+            Desarrollado con Sistema de Gestión Mayorista
           </p>
         </div>
       </footer>
