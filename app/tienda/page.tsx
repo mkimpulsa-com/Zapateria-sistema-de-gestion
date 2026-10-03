@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 function TiendaView() {
   const searchParams = useSearchParams();
   const [storeUid, setStoreUid] = useState<string>("");
-  const [channel, setChannel] = useState<"mayorista" | "minorista">("mayorista");
+  const [channel, setChannel] = useState<"mayorista" | "minorista">("minorista");
   const [storeData, setStoreData] = useState<{ settings: any; products: any[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");
@@ -18,19 +18,25 @@ function TiendaView() {
   useEffect(() => {
     // Read params from searchParams or fallback to window.location
     let uid = searchParams.get("store") || searchParams.get("uid") || searchParams.get("id");
+    let paramChannel = searchParams.get("channel")?.toLowerCase();
 
     if (!uid && typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
       uid = urlParams.get("store") || urlParams.get("uid") || urlParams.get("id");
+      if (!paramChannel) {
+        paramChannel = urlParams.get("channel")?.toLowerCase();
+      }
     }
 
     const cleanUid = String(uid || "").trim();
-
     setStoreUid(cleanUid);
-    setChannel("mayorista");
+
+    if (paramChannel === "mayorista" || paramChannel === "minorista") {
+      setChannel(paramChannel as "mayorista" | "minorista");
+    }
 
     if (!cleanUid) {
-      setError("No se indicó el identificador del catálogo mayorista en el enlace (parámetro ?store=...).");
+      setError("No se indicó el identificador de la tienda en el enlace (parámetro ?store=...).");
       setLoading(false);
       return;
     }
@@ -41,11 +47,14 @@ function TiendaView() {
     loadPublicStore(cleanUid)
       .then((res) => {
         setStoreData({ settings: res.settings, products: res.products });
+        if (!paramChannel && res.settings?.default_channel) {
+          setChannel(res.settings.default_channel === "mayorista" ? "mayorista" : "minorista");
+        }
         setLoading(false);
       })
       .catch((err) => {
         console.error("Error cargando tienda:", err);
-        setError("No se pudo cargar el catálogo mayorista. Verificá que el enlace sea correcto.");
+        setError("No se pudo cargar el catálogo de la tienda. Verificá que el enlace sea correcto.");
         setLoading(false);
       });
   }, [searchParams]);

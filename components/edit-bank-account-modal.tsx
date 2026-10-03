@@ -134,8 +134,9 @@ export function EditBankAccountModal({
                 onChange={(e) => setCurrency(e.target.value)}
                 className="h-10 rounded-xl border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary font-bold"
               >
+                <option value="BRL">🇧🇷 BRL (R$ - Reales Brasileños) [Predeterminada]</option>
                 <option value="ARS">🇦🇷 ARS ($ - Pesos Argentinos)</option>
-                <option value="BRL">🇧🇷 BRL (R$ - Reales Brasileños)</option>
+                <option value="USD">🇺🇸 USD (US$ - Dólares Estadounidenses)</option>
               </select>
             </div>
           </div>

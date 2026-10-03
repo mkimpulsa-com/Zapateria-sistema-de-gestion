@@ -26,19 +26,12 @@ interface SaleInvoiceModalProps {
   onNewSale?: () => void;
 }
 
-const money = (value: number) =>
-  new Intl.NumberFormat("es-AR", {
-    style: "currency",
-    currency: "ARS",
-    maximumFractionDigits: 0,
-  }).format(value || 0);
+import { formatMoney } from "@/lib/currency";
 
-const moneyBrl = (value: number) =>
-  new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    minimumFractionDigits: 2,
-  }).format(value || 0);
+const money = (value: number, curr: "BRL" | "ARS" | "USD" = "ARS") => formatMoney(value, curr);
+const moneyBrl = (value: number) => formatMoney(value, "BRL");
+const moneyUsd = (value: number) => formatMoney(value, "USD");
+const moneyArs = (value: number) => formatMoney(value, "ARS");
 
 const dateFmt = (value?: string) => {
   if (!value) return "—";
@@ -124,51 +117,47 @@ export function SaleInvoiceModal({
   const paymentMethod = sale.payment_method || "Efectivo";
   const channel = (sale.channel || "mayorista").toUpperCase();
 
-  const isBrl = sale.currency === "BRL";
-  const brlRate = Number(sale.exchange_rate) || 250;
+  const curr = (sale.currency || (sale.total_brl !== undefined ? "BRL" : "ARS")) as "BRL" | "ARS" | "USD";
+  const isBrl = curr === "BRL";
+  const isUsd = curr === "USD";
+  const isArs = curr === "ARS";
+  const brlRate = Number(sale.exchange_rate_ars || sale.exchange_rate) || 250;
+  const usdRate = Number(sale.exchange_rate_usd) || 5.70;
 
-  // Total en ARS
-  let totalArs = Number(sale.total_ars ?? rawTotal);
-  if (isBrl && sale.total_ars === undefined && subtotal > 0 && totalArs <= subtotal / 10) {
-    totalArs = Math.round(totalArs * brlRate);
-  }
-  if (totalArs === 0 && subtotal > 0) {
-    totalArs = Math.max(0, subtotal - discount + Number(sale.additional_charge || 0));
-  }
-  const total = totalArs;
-
-  // Total en Reales (BRL)
+  // Totales en las 3 monedas
   const totalBrl = sale.total_brl !== undefined
     ? Number(sale.total_brl)
-    : Math.round((totalArs / brlRate) * 100) / 100;
+    : isBrl ? rawTotal : Math.round(((isArs ? rawTotal / brlRate : rawTotal * usdRate)) * 100) / 100;
 
-  // Monto abonado en Reales y en Pesos
-  let paidBrl = 0;
-  if (isBrl) {
-    if (sale.paid_amount_brl !== undefined) {
-      paidBrl = Number(sale.paid_amount_brl);
-    } else if (sale.paid_amount_in_currency !== undefined) {
-      paidBrl = Number(sale.paid_amount_in_currency);
-    } else if (Number(sale.paid_amount || 0) <= totalBrl) {
-      paidBrl = Number(sale.paid_amount || 0);
-    } else {
-      paidBrl = Math.round((Number(sale.paid_amount || 0) / brlRate) * 100) / 100;
-    }
-  }
+  const totalArs = sale.total_ars !== undefined
+    ? Number(sale.total_ars)
+    : isArs ? rawTotal : Math.round(totalBrl * brlRate);
 
-  let paidArs = 0;
-  if (isBrl) {
-    if (sale.paid_amount_ars !== undefined) {
-      paidArs = Number(sale.paid_amount_ars);
-    } else {
-      paidArs = Math.round(paidBrl * brlRate);
-    }
-  } else {
-    paidArs = Number(sale.paid_amount ?? (sale.status === "con_deuda" ? 0 : totalArs));
-  }
+  const totalUsd = sale.total_usd !== undefined
+    ? Number(sale.total_usd)
+    : isUsd ? rawTotal : Math.round((totalBrl / usdRate) * 100) / 100;
+
+  const total = isBrl ? totalBrl : isUsd ? totalUsd : totalArs;
+
+  // Montos abonados
+  const paidBrl = sale.paid_amount_brl !== undefined
+    ? Number(sale.paid_amount_brl)
+    : isBrl ? Number(sale.paid_amount || 0) : Math.round(((isArs ? Number(sale.paid_amount || 0) / brlRate : Number(sale.paid_amount || 0) * usdRate)) * 100) / 100;
+
+  const paidArs = sale.paid_amount_ars !== undefined
+    ? Number(sale.paid_amount_ars)
+    : isArs ? Number(sale.paid_amount || 0) : Math.round(paidBrl * brlRate);
+
+  const paidUsd = sale.paid_amount_usd !== undefined
+    ? Number(sale.paid_amount_usd)
+    : isUsd ? Number(sale.paid_amount || 0) : Math.round((paidBrl / usdRate) * 100) / 100;
+
+  const paidCur = isBrl ? paidBrl : isUsd ? paidUsd : paidArs;
 
   const debtBrl = Math.max(0, Math.round((totalBrl - paidBrl) * 100) / 100);
-  const debtArs = Math.max(0, totalArs - paidArs);
+  const debtArs = Math.max(0, Math.round(totalArs - paidArs));
+  const debtUsd = Math.max(0, Math.round((totalUsd - paidUsd) * 100) / 100);
+  const debtCur = isBrl ? debtBrl : isUsd ? debtUsd : debtArs;
 
   // Dedicated Print function
   const handlePrint = () => {
@@ -290,28 +279,30 @@ export function SaleInvoiceModal({
         `💳 *Forma de pago:* ${paymentMethod}\n` +
         (isBrl
           ? `🇧🇷 *Moneda de cobro:* Reales (R$ BRL)\n` +
-            `💱 *Cotización aplicada:* 1 R$ = ${money(brlRate)}\n`
-          : "") +
+            `💱 *Cotizaciones:* 1 R$ = $${brlRate.toLocaleString("es-AR")} ARS · 1 US$ = R$ ${usdRate.toFixed(2)}\n`
+          : isUsd
+          ? `🇺🇸 *Moneda de cobro:* Dólares (US$ USD)\n` +
+            `💱 *Cotización:* 1 US$ = R$ ${usdRate.toFixed(2)} BRL\n`
+          : `🇦🇷 *Moneda de cobro:* Pesos ($ ARS)\n` +
+            `💱 *Cotización:* 1 R$ = $${brlRate.toLocaleString("es-AR")} ARS\n`) +
         `━━━━━━━━━━━━━━━━━━━━━━\n` +
         `*Artículos:*\n${itemsText}\n` +
         `━━━━━━━━━━━━━━━━━━━━━━\n` +
         (discount > 0
-          ? `Subtotal: ${money(subtotal)}\nDescuento${sale.discount_percent ? ` (${sale.discount_percent}%)` : ""}: -${money(discount)}\n`
+          ? `Subtotal: ${formatMoney(subtotal, curr)}\nDescuento${sale.discount_percent ? ` (${sale.discount_percent}%)` : ""}: -${formatMoney(discount, curr)}\n`
           : "") +
         (Number(sale.additional_charge || 0) > 0
-          ? `Cargo Adicional${sale.additional_charge_description ? ` (${sale.additional_charge_description})` : ""}: +${money(Number(sale.additional_charge))}\n`
+          ? `Cargo Adicional${sale.additional_charge_description ? ` (${sale.additional_charge_description})` : ""}: +${formatMoney(Number(sale.additional_charge), curr)}\n`
           : "") +
-        `*TOTAL DE LA VENTA:* ${money(total)}\n` +
-        (isBrl ? `🇧🇷 *TOTAL EN REALES:* ${moneyBrl(totalBrl)}\n` : "") +
+        `*TOTAL DE LA VENTA:* ${formatMoney(total, curr)}\n` +
         (isBrl
-          ? `💰 *Abonado en Reales:* ${moneyBrl(paidBrl)} (Equiv. ${money(paidArs)})\n` +
-            (debtBrl > 0 ? `⚠️ *Saldo Pendiente (Deuda):* ${moneyBrl(debtBrl)} (Equiv. ${money(debtArs)})\n` : "") +
-            `📌 *Estado:* ${sale.status === "pago_parcial" ? "Pago Parcial" : sale.status === "con_deuda" ? "Con Deuda" : "Pagada Total"}\n\n`
-          : (sale.status === "pago_parcial" || sale.status === "con_deuda"
-            ? `💰 *Monto Abonado:* ${money(paidArs)}\n` +
-              `⚠️ *Saldo Pendiente (Deuda):* ${money(debtArs)}\n` +
-              `📌 *Estado:* ${sale.status === "pago_parcial" ? "Pago Parcial" : "Con Deuda"}\n\n`
-            : `✅ *Estado:* Totalmente Pagada\n\n`)) +
+          ? `💵 *Equivalencias:* $${totalArs.toLocaleString("es-AR")} ARS · US$ ${totalUsd.toFixed(2)}\n`
+          : isUsd
+          ? `💵 *Equivalencias:* R$ ${totalBrl.toFixed(2)} BRL · $${totalArs.toLocaleString("es-AR")} ARS\n`
+          : `💵 *Equivalencias:* R$ ${totalBrl.toFixed(2)} BRL · US$ ${totalUsd.toFixed(2)}\n`) +
+        `💰 *Monto Abonado:* ${formatMoney(paidCur, curr)}\n` +
+        (debtCur > 0 ? `⚠️ *Saldo Pendiente (Deuda):* ${formatMoney(debtCur, curr)}\n` : "") +
+        `📌 *Estado:* ${sale.status === "pago_parcial" ? "Pago Parcial" : sale.status === "con_deuda" ? "Con Deuda" : "Pagada Total"}\n\n` +
         `¡Muchas gracias por tu compra! Conservá este comprobante ante cambios o garantías.`
     );
 
@@ -777,48 +768,46 @@ export function SaleInvoiceModal({
                     </div>
                   )}
                   <div className="flex justify-between font-bold border-t border-slate-200 pt-1 text-slate-900">
-                    <span>Total Venta ($ ARS)</span>
-                    <span className="font-mono">{money(total)}</span>
+                    <span>Total Venta ({curr === "BRL" ? "R$ BRL" : curr === "USD" ? "US$ USD" : "$ ARS"})</span>
+                    <span className="font-mono">{formatMoney(total, curr)}</span>
                   </div>
 
-                  {isBrl && (
-                    <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-2 my-1 space-y-1 text-emerald-950">
-                      <div className="flex justify-between font-bold text-xs text-emerald-800">
-                        <span>Moneda de cobro</span>
-                        <span>🇧🇷 Reales (R$ BRL)</span>
-                      </div>
-                      <div className="flex justify-between text-[11px] text-emerald-700">
-                        <span>Cotización</span>
-                        <span>1 R$ = {money(brlRate)}</span>
-                      </div>
-                      <div className="flex justify-between text-xs font-black text-emerald-900 border-t border-emerald-200/60 pt-1">
-                        <span>Total en Reales</span>
-                        <span className="font-mono">{moneyBrl(totalBrl)}</span>
-                      </div>
-                      <div className="flex justify-between text-xs font-bold text-emerald-700">
-                        <span>Abonado en Reales</span>
-                        <span className="font-mono">{moneyBrl(paidBrl)}</span>
-                      </div>
-                      {debtBrl > 0 && (
-                        <div className="flex justify-between text-xs font-bold text-red-600">
-                          <span>Deuda en Reales</span>
-                          <span className="font-mono">{moneyBrl(debtBrl)}</span>
-                        </div>
-                      )}
+                  <div className="rounded-lg bg-slate-50 border border-slate-200 p-2 my-1 space-y-1 text-slate-800">
+                    <div className="flex justify-between font-bold text-xs">
+                      <span>Moneda de cobro</span>
+                      <span>{curr === "BRL" ? "🇧🇷 Reales (R$ BRL)" : curr === "USD" ? "🇺🇸 Dólares (US$ USD)" : "🇦🇷 Pesos ($ ARS)"}</span>
                     </div>
-                  )}
+                    <div className="flex justify-between text-[11px] text-slate-600">
+                      <span>Cotización aplicada</span>
+                      <span>
+                        {curr === "USD"
+                          ? `1 US$ = R$ ${usdRate.toFixed(2)} BRL`
+                          : `1 R$ = $${brlRate.toLocaleString("es-AR")} ARS`}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-[11px] text-slate-600 border-t border-slate-200 pt-1">
+                      <span>Equivalencias</span>
+                      <span className="font-mono font-medium">
+                        {curr === "BRL"
+                          ? `${moneyArs(totalArs)} · ${moneyUsd(totalUsd)}`
+                          : curr === "USD"
+                          ? `${moneyBrl(totalBrl)} · ${moneyArs(totalArs)}`
+                          : `${moneyBrl(totalBrl)} · ${moneyUsd(totalUsd)}`}
+                      </span>
+                    </div>
+                  </div>
 
                   <div className="flex justify-between text-emerald-700 font-bold">
                     <span>Monto Abonado</span>
                     <span className="font-mono">
-                      {isBrl ? `${moneyBrl(paidBrl)} (Eq. ${money(paidArs)})` : money(paidArs)}
+                      {formatMoney(paidCur, curr)}
                     </span>
                   </div>
-                  {debtArs > 0 && (
+                  {debtCur > 0 && (
                     <div className="flex justify-between text-red-600 font-black border-t border-dashed border-red-200 pt-1">
                       <span>Saldo Deudor (Deuda)</span>
                       <span className="font-mono">
-                        {isBrl ? `${moneyBrl(debtBrl)} (Eq. ${money(debtArs)})` : money(debtArs)}
+                        {formatMoney(debtCur, curr)}
                       </span>
                     </div>
                   )}
@@ -838,19 +827,22 @@ export function SaleInvoiceModal({
                         ? "VENTA A DEUDA"
                         : "PAGADA TOTAL"}
                     </span>
-                    {isBrl && (
-                      <span className="text-[10px] opacity-80 font-mono">
-                        Cobro en Reales (BRL)
-                      </span>
-                    )}
+                    <span className="text-[10px] opacity-80 font-mono">
+                      Cobro en {curr === "BRL" ? "Reales (BRL)" : curr === "USD" ? "Dólares (USD)" : "Pesos (ARS)"}
+                    </span>
                   </div>
                   <div className="text-right">
                     <span className="text-xl font-black tracking-tight font-mono block">
-                      {isBrl ? moneyBrl(paidBrl) : money(paidArs)}
+                      {formatMoney(paidCur, curr)}
                     </span>
-                    {isBrl && (
+                    {curr !== "BRL" && (
                       <span className="text-[10px] opacity-80 font-mono">
-                        Eq. {money(paidArs)}
+                        Base: {moneyBrl(paidBrl)}
+                      </span>
+                    )}
+                    {curr === "BRL" && (
+                      <span className="text-[10px] opacity-80 font-mono">
+                        Eq. {moneyArs(paidArs)}
                       </span>
                     )}
                   </div>

@@ -25,6 +25,7 @@ import {
   PackageCheck,
 } from "lucide-react";
 import { ProductImageUpload } from "@/components/product-image-upload";
+import { formatMoney } from "@/lib/currency";
 
 interface VariantItem {
   id?: string;
@@ -37,6 +38,7 @@ interface EditProductModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   categories?: Array<any>;
+  settings?: any;
   busy: boolean;
   onSubmit: (payload: any) => Promise<boolean>;
 }
@@ -59,6 +61,7 @@ export function EditProductModal({
   open,
   onOpenChange,
   categories = [],
+  settings,
   busy,
   onSubmit,
 }: EditProductModalProps) {
@@ -353,7 +356,7 @@ export function EditProductModal({
                         : "bg-red-500/10 text-red-600"
                     }`}
                   >
-                    +${marginAmount.toLocaleString("es-AR")} ({marginPercent}%)
+                    {marginAmount >= 0 ? `+${formatMoney(marginAmount, "BRL")}` : formatMoney(marginAmount, "BRL")} ({marginPercent}%)
                   </span>
                 </div>
               )}
@@ -362,14 +365,16 @@ export function EditProductModal({
             <div className="grid gap-3.5 sm:grid-cols-4">
               <div>
                 <label className="grid gap-1.5 text-xs font-semibold text-foreground/90">
-                  <span>Costo de compra ($) *</span>
+                  <span>Costo de compra (R$ BRL) *</span>
                   <Input
                     name="cost"
                     type="number"
                     min={0}
+                    step="any"
                     required
                     value={cost || ""}
                     onChange={(e) => setCost(Number(e.target.value) || 0)}
+                    placeholder="0.00"
                     className="h-10 rounded-xl bg-card border-border/70 focus-visible:ring-primary/20"
                   />
                 </label>
@@ -378,7 +383,7 @@ export function EditProductModal({
               <div>
                 <label className="grid gap-1.5 text-xs font-semibold text-foreground/90">
                   <span className="flex items-center justify-between text-orange-600 dark:text-orange-400">
-                    <span>Precio Mayorista ($) *</span>
+                    <span>Precio Mayorista (R$ BRL) *</span>
                     <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-orange-400 text-orange-600">
                       Venta
                     </Badge>
@@ -387,9 +392,11 @@ export function EditProductModal({
                     name="wholesalePrice"
                     type="number"
                     min={0}
+                    step="any"
                     required
                     value={wholesalePrice || ""}
                     onChange={(e) => setWholesalePrice(Number(e.target.value) || 0)}
+                    placeholder="0.00"
                     className="h-10 rounded-xl font-bold bg-card border-orange-400/60 text-orange-600 dark:text-orange-400 focus-visible:ring-orange-400/20"
                   />
                 </label>
@@ -397,13 +404,15 @@ export function EditProductModal({
 
               <div>
                 <label className="grid gap-1.5 text-xs font-semibold text-foreground/90">
-                  <span>PVP Sugerido ($)</span>
+                  <span>PVP Sugerido (R$ BRL)</span>
                   <Input
                     name="retailPrice"
                     type="number"
                     min={0}
+                    step="any"
                     value={retailPrice || ""}
                     onChange={(e) => setRetailPrice(Number(e.target.value) || 0)}
+                    placeholder="0.00"
                     className="h-10 rounded-xl bg-card border-border/70 focus-visible:ring-primary/20"
                   />
                 </label>
@@ -422,6 +431,18 @@ export function EditProductModal({
                 </label>
               </div>
             </div>
+
+            {wholesalePrice > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-muted/40 border border-border/60 px-3 py-2 text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">Equivalencia mayorista estimada:</span>
+                <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30 font-bold">
+                  🇦🇷 $ {Math.round(wholesalePrice * (Number(settings?.exchange_rate_ars || settings?.exchange_rate_brl) || 250)).toLocaleString("es-AR")} ARS
+                </Badge>
+                <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold">
+                  🇺🇸 US$ {(wholesalePrice / (Number(settings?.exchange_rate_usd) || 5.70)).toFixed(2)} USD
+                </Badge>
+              </div>
+            )}
           </div>
 
           {/* SECCIÓN 3: GESTIÓN DE INVENTARIO */}

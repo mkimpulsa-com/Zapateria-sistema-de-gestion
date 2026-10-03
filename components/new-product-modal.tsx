@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { cleanBarcodeScan, isValidEan13, generateValidEan13 } from "@/lib/barcode";
 import { ProductImageUpload } from "@/components/product-image-upload";
+import { formatMoney } from "@/lib/currency";
 
 interface VariantItem {
   size: string;
@@ -38,6 +39,7 @@ interface NewProductModalProps {
   defaultSizes?: string;
   categories?: Array<any>;
   onNewCategory?: (name: string) => Promise<any>;
+  settings?: any;
   busy: boolean;
   onSubmit: (data: any) => Promise<boolean>;
 }
@@ -77,6 +79,7 @@ export function NewProductModal({
   defaultSizes = "35,36,37,38,39,40",
   categories = [],
   onNewCategory,
+  settings,
   busy,
   onSubmit,
 }: NewProductModalProps) {
@@ -565,15 +568,16 @@ export function NewProductModal({
             <div className="grid gap-3.5 sm:grid-cols-4">
               <div>
                 <label className="grid gap-1 text-xs font-semibold">
-                  <span>Costo de compra ($) *</span>
+                  <span>Costo de compra (R$ BRL) *</span>
                   <Input
                     name="cost"
                     type="number"
                     min={0}
+                    step="any"
                     required
                     value={cost || ""}
                     onChange={(e) => setCost(Number(e.target.value) || 0)}
-                    placeholder="0"
+                    placeholder="0.00"
                     className="h-10 rounded-xl"
                   />
                 </label>
@@ -582,7 +586,7 @@ export function NewProductModal({
               <div>
                 <label className="grid gap-1 text-xs font-semibold">
                   <span className="flex items-center justify-between text-orange-600 dark:text-orange-400">
-                    <span>Precio Mayorista ($) *</span>
+                    <span>Precio Mayorista (R$ BRL) *</span>
                     <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-orange-400 text-orange-600">
                       Venta
                     </Badge>
@@ -591,10 +595,11 @@ export function NewProductModal({
                     name="wholesalePrice"
                     type="number"
                     min={0}
+                    step="any"
                     required
                     value={wholesalePrice || ""}
                     onChange={(e) => setWholesalePrice(Number(e.target.value) || 0)}
-                    placeholder="0"
+                    placeholder="0.00"
                     className="h-10 rounded-xl font-bold border-orange-400/60 text-orange-600 dark:text-orange-400"
                   />
                 </label>
@@ -603,16 +608,17 @@ export function NewProductModal({
               <div>
                 <label className="grid gap-1 text-xs font-semibold">
                   <span className="flex items-center justify-between">
-                    <span>PVP Sugerido ($)</span>
+                    <span>PVP Sugerido (R$ BRL)</span>
                     <span className="text-[10px] font-normal text-muted-foreground">Minorista</span>
                   </span>
                   <Input
                     name="retailPrice"
                     type="number"
                     min={0}
+                    step="any"
                     value={retailPrice || ""}
                     onChange={(e) => setRetailPrice(Number(e.target.value) || 0)}
-                    placeholder="0"
+                    placeholder="0.00"
                     className="h-10 rounded-xl"
                   />
                 </label>
@@ -631,6 +637,18 @@ export function NewProductModal({
                 </label>
               </div>
             </div>
+
+            {wholesalePrice > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-muted/40 border border-border/60 px-3 py-2 text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">Equivalencia mayorista estimada:</span>
+                <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30 font-bold">
+                  🇦🇷 $ {Math.round(wholesalePrice * (Number(settings?.exchange_rate_ars || settings?.exchange_rate_brl) || 250)).toLocaleString("es-AR")} ARS
+                </Badge>
+                <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold">
+                  🇺🇸 US$ {(wholesalePrice / (Number(settings?.exchange_rate_usd) || 5.70)).toFixed(2)} USD
+                </Badge>
+              </div>
+            )}
           </div>
 
           {/* SECCIÓN 3: GESTIÓN DE INVENTARIO SEGÚN TIPO */}
@@ -699,7 +717,7 @@ export function NewProductModal({
                 <div className="flex items-center justify-between text-xs pt-2 text-muted-foreground">
                   <span>Valor en costo de este inventario:</span>
                   <strong className="font-bold text-foreground text-sm">
-                    ${new Intl.NumberFormat("es-AR").format(totalCost)}
+                    {formatMoney(totalCost, "BRL")}
                   </strong>
                 </div>
               )}
@@ -904,7 +922,7 @@ export function NewProductModal({
                       Inversión en stock:
                     </span>
                     <strong className="text-sm font-black text-emerald-800 dark:text-emerald-300">
-                      ${new Intl.NumberFormat("es-AR").format(totalCost)}
+                      {formatMoney(totalCost, "BRL")}
                     </strong>
                   </div>
                 )}

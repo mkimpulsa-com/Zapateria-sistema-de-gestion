@@ -9,15 +9,10 @@ interface BankAccountSelectFieldProps {
   bankAccountId: string;
   setBankAccountId: (id: string) => void;
   onNewAccount: () => void;
-  currency?: "ARS" | "BRL";
+  currency?: "BRL" | "ARS" | "USD" | string;
 }
 
-const formatMoney = (val: number, currency: "ARS" | "BRL" = "ARS") => {
-  if (currency === "BRL") {
-    return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2 }).format(val || 0);
-  }
-  return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(val || 0);
-};
+import { formatMoney } from "@/lib/currency";
 
 export function BankAccountSelectField({
   accounts = [],

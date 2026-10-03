@@ -15,6 +15,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Progress } from "@/components/ui/progress";
 
+import { formatMoney } from "@/lib/currency";
+
 interface Variant {
   size: string;
   stock: number;
@@ -47,6 +49,7 @@ interface StoreSettings {
   wholesale_min_qty?: number;
   wholesale_terms?: string;
   logo_url?: string;
+  currency?: string;
 }
 
 interface CartItem {
@@ -68,20 +71,25 @@ interface PublicStoreProps {
   storeUid: string;
 }
 
-const money = (val: number) =>
-  new Intl.NumberFormat("es-AR", {
-    style: "currency",
-    currency: "ARS",
-    maximumFractionDigits: 0,
-  }).format(val || 0);
+export function PublicStore({ settings, products, channel = "minorista", storeUid }: PublicStoreProps) {
+  const [activeChannel, setActiveChannel] = useState<"mayorista" | "minorista">(channel || "minorista");
+  const isMayorista = activeChannel === "mayorista";
 
-export function PublicStore({ settings, products, channel = "mayorista", storeUid }: PublicStoreProps) {
-  const isMayorista = true;
-  const businessName = settings?.business_name || "CR MAYORISTA";
+  useEffect(() => {
+    if (channel) {
+      setActiveChannel(channel);
+    }
+  }, [channel]);
+
+  const currency = settings?.currency || "BRL";
+  const money = (val: number) => formatMoney(val, currency);
+
+  const businessName = settings?.business_name || (isMayorista ? "CR MAYORISTA" : "CR CALZADOS");
   const branchName = settings?.branch_name || "";
   const rawWhatsapp = settings?.whatsapp || settings?.phone || "";
   const rawMinQty = Number(settings?.wholesale_min_qty);
-  const minQty = rawMinQty && rawMinQty !== 6 ? rawMinQty : 12;
+  const wholesaleMinQty = rawMinQty && rawMinQty !== 6 ? rawMinQty : 12;
+  const minQty = isMayorista ? wholesaleMinQty : 1;
   const wholesaleTerms = settings?.wholesale_terms || "Precios mayoristas por volumen.";
 
   // Sanitize store phone for wa.me
@@ -101,21 +109,41 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
-  // Selected quantities per product card (productId -> number, min 12)
+  // Selected quantities per product card (productId -> number)
   const [cardQtys, setCardQtys] = useState<Record<string, number>>({});
   const [addedAnimation, setAddedAnimation] = useState<string | null>(null);
 
   // Modal de vista completa del producto
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
-  const [detailWholesaleQty, setDetailWholesaleQty] = useState<number>(12);
+  const [detailQty, setDetailQty] = useState<number>(isMayorista ? wholesaleMinQty : 1);
   const [modalAddedAnimation, setModalAddedAnimation] = useState(false);
 
   useEffect(() => {
     if (detailProduct) {
-      setDetailWholesaleQty(12);
+      setDetailQty(isMayorista ? wholesaleMinQty : 1);
       setModalAddedAnimation(false);
     }
-  }, [detailProduct]);
+  }, [detailProduct, isMayorista, wholesaleMinQty]);
+
+  // Channel switch handler that preserves cart and recalculates prices
+  const handleSwitchChannel = (newChannel: "minorista" | "mayorista") => {
+    if (newChannel === activeChannel) return;
+    setActiveChannel(newChannel);
+    setCart((prev) =>
+      prev.map((item) => {
+        const prod = products.find((p) => p.id === item.productId);
+        if (!prod) return item;
+        const newPrice = newChannel === "mayorista"
+          ? Number(prod.wholesale_price || 0)
+          : Number(prod.retail_price || prod.wholesale_price || 0);
+        return {
+          ...item,
+          price: newPrice,
+          size: newChannel === "mayorista" ? "Surtido / Pack mayorista" : "Venta individual",
+        };
+      })
+    );
+  };
 
   // Filters & Search
   const [search, setSearch] = useState("");
@@ -185,24 +213,35 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
     return cart.reduce((sum, item) => sum + item.qty * item.price, 0);
   }, [cart]);
 
-  const meetsWholesaleMinimum = totalCartPairs >= minQty;
+  const meetsWholesaleMinimum = !isMayorista || totalCartPairs >= minQty;
 
-  // Add to cart helper (exclusivo mayorista, mínimo configurado)
+  // Add to cart helper (minorista por unidad o mayorista por pack/volumen)
   const handleAddToCart = (product: Product, overrideQty?: number) => {
     const maxStock = Number(product.total_stock || 0);
 
-    if (maxStock < minQty) {
+    if (maxStock < 1) {
+      alert("Este producto no cuenta con stock disponible actualmente.");
+      return;
+    }
+
+    if (isMayorista && maxStock < minQty) {
       alert(`Este producto no cuenta con la cantidad requerida para el mínimo mayorista (${minQty} unidades).`);
       return;
     }
 
-    const qtyToAdd = overrideQty !== undefined && overrideQty >= minQty ? overrideQty : (cardQtys[product.id] || minQty);
+    const defaultInitialQty = isMayorista ? minQty : 1;
+    const qtyToAdd = overrideQty !== undefined && overrideQty >= (isMayorista ? minQty : 1)
+      ? overrideQty
+      : (cardQtys[product.id] || defaultInitialQty);
+
     if (qtyToAdd > maxStock) {
       alert(`No es posible agregar esa cantidad por disponibilidad de stock.`);
       return;
     }
 
-    const price = Number(product.wholesale_price || 0);
+    const price = isMayorista
+      ? Number(product.wholesale_price || 0)
+      : Number(product.retail_price || product.wholesale_price || 0);
     const cartItemId = product.id;
 
     setCart((prev) => {
@@ -215,7 +254,7 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
           );
           return prev;
         }
-        return prev.map((i) => (i.id === cartItemId ? { ...i, qty: nextQty } : i));
+        return prev.map((i) => (i.id === cartItemId ? { ...i, qty: nextQty, price } : i));
       }
       return [
         ...prev,
@@ -224,7 +263,7 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
           productId: product.id,
           name: product.name,
           brand: product.brand || "",
-          size: "Surtido / Pack mayorista",
+          size: isMayorista ? "Surtido / Pack mayorista" : "Venta individual",
           price,
           qty: qtyToAdd,
           maxStock,
@@ -243,8 +282,13 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
         .map((item) => {
           if (item.id === id) {
             const nextQty = item.qty + delta;
-            if (nextQty < minQty) {
-              alert(`La compra mayorista es a partir de ${minQty} unidades por producto. Para remover el producto utilizá el botón de eliminar.`);
+            const itemMin = isMayorista ? minQty : 1;
+            if (nextQty < itemMin) {
+              if (isMayorista) {
+                alert(`La compra mayorista es a partir de ${minQty} unidades por producto. Para remover el producto utilizá el botón de eliminar.`);
+              } else {
+                alert(`La cantidad mínima es 1 unidad. Para remover el calzado utilizá el botón de eliminar.`);
+              }
               return item;
             }
             if (nextQty > item.maxStock) {
@@ -399,8 +443,35 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
             </div>
           </div>
 
-          {/* Floating / Header Cart Trigger */}
+          {/* Channel Selector Toggle & Cart Trigger */}
           <div className="flex items-center gap-2">
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => handleSwitchChannel("minorista")}
+                className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                  !isMayorista
+                    ? "bg-indigo-600 text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+                title="Ver catálogo con precios minoristas por unidad"
+              >
+                <span>Minorista</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSwitchChannel("mayorista")}
+                className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                  isMayorista
+                    ? "bg-amber-600 text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+                title={`Ver catálogo con precios mayoristas (mín. ${wholesaleMinQty} unidades)`}
+              >
+                <span>Mayorista</span>
+              </button>
+            </div>
+
             <Button
               onClick={() => setIsCartOpen(true)}
               className={`relative shadow-md font-semibold transition-all duration-200 ${
@@ -512,8 +583,10 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
           <span>
             Mostrando <strong>{filteredProducts.length}</strong> modelos disponibles
           </span>
-          <span className="text-amber-700 font-semibold hidden sm:inline">
-            Venta mayorista a partir de {minQty} unidades por modelo
+          <span className={`font-semibold hidden sm:inline ${isMayorista ? "text-amber-700" : "text-indigo-700"}`}>
+            {isMayorista
+              ? `Venta mayorista a partir de ${minQty} unidades por modelo`
+              : "Venta minorista por unidad (sin mínimo)"}
           </span>
         </div>
 
@@ -543,16 +616,16 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
             {filteredProducts.map((p) => {
-              const displayPrice = p.wholesale_price;
-              const secondaryPrice = p.retail_price;
+              const displayPrice = isMayorista ? p.wholesale_price : (p.retail_price || p.wholesale_price);
+              const secondaryPrice = isMayorista ? p.retail_price : p.wholesale_price;
 
               const isJustAdded = addedAnimation === p.id;
               const inCartCount = cart
                 .filter((i) => i.productId === p.id)
                 .reduce((sum, i) => sum + i.qty, 0);
 
-              const currentQty = cardQtys[p.id] || 12;
-              const hasMinStock = Number(p.total_stock || 0) >= 12;
+              const currentQty = cardQtys[p.id] || (isMayorista ? minQty : 1);
+              const hasMinStock = isMayorista ? Number(p.total_stock || 0) >= minQty : Number(p.total_stock || 0) >= 1;
 
               return (
                 <Card
@@ -615,7 +688,9 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
 
                       <h3
                         onClick={() => setDetailProduct(p)}
-                        className="font-bold text-slate-900 text-base leading-snug line-clamp-1 group-hover:text-amber-600 transition-colors cursor-pointer"
+                        className={`font-bold text-slate-900 text-base leading-snug line-clamp-1 transition-colors cursor-pointer ${
+                          isMayorista ? "group-hover:text-amber-600" : "group-hover:text-indigo-600"
+                        }`}
                         title="Ver detalles del producto"
                       >
                         {p.name}
@@ -627,26 +702,36 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
                           <span className="text-2xl font-black tracking-tight text-slate-900">
                             {money(displayPrice)}
                           </span>
-                          <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                            Mayorista
+                          <span className={`text-[11px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                            isMayorista
+                              ? "text-amber-700 bg-amber-50 border-amber-200"
+                              : "text-indigo-700 bg-indigo-50 border-indigo-200"
+                          }`}>
+                            {isMayorista ? "Mayorista" : "Minorista"}
                           </span>
                         </div>
                         {secondaryPrice > 0 && (
                           <p className="text-xs text-slate-500 mt-1">
-                            Sugerido venta minorista: <strong>{money(secondaryPrice)}</strong>
+                            {isMayorista ? (
+                              <>Sugerido venta minorista: <strong>{money(secondaryPrice)}</strong></>
+                            ) : (
+                              <>Precio por mayor: <strong>{money(secondaryPrice)}</strong> (mín. {wholesaleMinQty} u.)</>
+                            )}
                           </p>
                         )}
                       </div>
 
-                      {/* Wholesale pack details & quantity selector */}
+                      {/* Pack details & quantity selector */}
                       <div className="space-y-2 mb-4">
                         <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
                           <div className="flex items-center justify-between text-xs text-slate-700">
                             <span className="font-semibold flex items-center gap-1">
-                              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                              Surtido / Pack mayorista
+                              <Sparkles className={`w-3.5 h-3.5 ${isMayorista ? "text-amber-600" : "text-indigo-600"}`} />
+                              {isMayorista ? "Surtido / Pack mayorista" : "Compra individual (unidad)"}
                             </span>
-                            <span className="text-[11px] text-slate-500 font-medium">Mín. {minQty} u.</span>
+                            <span className="text-[11px] text-slate-500 font-medium">
+                              {isMayorista ? `Mín. ${minQty} u.` : "Desde 1 u."}
+                            </span>
                           </div>
 
                           {/* Selector de cantidad */}
@@ -658,10 +743,10 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
                                 onClick={() =>
                                   setCardQtys((prev) => ({
                                     ...prev,
-                                    [p.id]: Math.max(minQty, (prev[p.id] || minQty) - 1),
+                                    [p.id]: Math.max(isMayorista ? minQty : 1, (prev[p.id] || (isMayorista ? minQty : 1)) - 1),
                                   }))
                                 }
-                                disabled={currentQty <= minQty}
+                                disabled={currentQty <= (isMayorista ? minQty : 1)}
                                 className="w-6 h-6 rounded flex items-center justify-center text-slate-600 hover:bg-slate-100 disabled:opacity-30"
                               >
                                 <Minus className="w-3 h-3" />
@@ -674,7 +759,7 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
                                 onClick={() =>
                                   setCardQtys((prev) => ({
                                     ...prev,
-                                    [p.id]: Math.min(p.total_stock, (prev[p.id] || minQty) + 1),
+                                    [p.id]: Math.min(p.total_stock, (prev[p.id] || (isMayorista ? minQty : 1)) + 1),
                                   }))
                                 }
                                 disabled={currentQty >= p.total_stock}
@@ -687,10 +772,14 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
                         </div>
 
                         {inCartCount > 0 && (
-                          <div className="flex items-center gap-1.5 text-[11px] font-semibold rounded-lg px-2.5 py-1 text-amber-800 bg-amber-50 border border-amber-200/70">
+                          <div className={`flex items-center gap-1.5 text-[11px] font-semibold rounded-lg px-2.5 py-1 ${
+                            isMayorista
+                              ? "text-amber-800 bg-amber-50 border border-amber-200/70"
+                              : "text-indigo-800 bg-indigo-50 border border-indigo-200/70"
+                          }`}>
                             <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
                             <span>
-                              En tu pedido: <strong>{inCartCount}</strong> unidades
+                              En tu pedido: <strong>{inCartCount}</strong> {inCartCount === 1 ? "unidad" : "unidades"}
                             </span>
                           </div>
                         )}
@@ -705,7 +794,9 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
                       className={`w-full font-bold h-10 rounded-xl transition-all ${
                         isJustAdded
                           ? "bg-emerald-600 text-white"
-                          : "bg-amber-600 hover:bg-amber-700 text-white shadow-xs"
+                          : isMayorista
+                            ? "bg-amber-600 hover:bg-amber-700 text-white shadow-xs"
+                            : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
                       }`}
                     >
                       {isJustAdded ? (
@@ -714,11 +805,11 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
                           ¡Agregado al pedido!
                         </>
                       ) : !hasMinStock ? (
-                        <>Stock insuficiente (mín. {minQty} unidades)</>
+                        <>{isMayorista ? `Stock insuficiente (mín. ${minQty} u.)` : "Sin stock disponible"}</>
                       ) : (
                         <>
                           <Plus className="w-4 h-4 mr-1.5" />
-                          Agregar {currentQty} unidades ({money((p.wholesale_price || 0) * currentQty)})
+                          Agregar {currentQty} {currentQty === 1 ? "unidad" : "unidades"} ({money(displayPrice * currentQty)})
                         </>
                       )}
                     </Button>
@@ -757,16 +848,23 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
                 <ShoppingBag className="w-5 h-5 text-slate-800" />
                 <SheetTitle className="text-lg font-bold text-slate-900">Tu Pedido</SheetTitle>
               </div>
-              <Badge variant="outline" className="text-xs font-bold uppercase">
-                {channel}
+              <Badge
+                variant={isMayorista ? "secondary" : "default"}
+                className={
+                  isMayorista
+                    ? "bg-amber-100 text-amber-900 border-amber-300 font-semibold uppercase text-[10px]"
+                    : "bg-indigo-100 text-indigo-900 border-indigo-300 font-semibold uppercase text-[10px]"
+                }
+              >
+                {isMayorista ? "Mayorista" : "Minorista"}
               </Badge>
             </div>
             <SheetDescription className="text-xs text-slate-500">
               Revisá tus productos seleccionados antes de enviar por WhatsApp
             </SheetDescription>
 
-            {/* Wholesale minimum reminder */}
-            {isMayorista && (
+            {/* Wholesale minimum reminder or retail info */}
+            {isMayorista ? (
               <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
                 <div className="flex items-center justify-between text-xs font-semibold text-amber-900 mb-1.5">
                   <span>Mínimo mayorista: {minQty} unidades</span>
@@ -787,6 +885,14 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
                     ¡Mínimo mayorista alcanzado! Podés finalizar tu pedido.
                   </p>
                 )}
+              </div>
+            ) : (
+              <div className="mt-3 p-3 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-between text-xs">
+                <span className="font-semibold text-indigo-900 flex items-center gap-1.5">
+                  <CheckCircle2 className="size-4 text-emerald-600" />
+                  Pedido minorista por unidad
+                </span>
+                <span className="font-bold text-indigo-700">{totalCartPairs} {totalCartPairs === 1 ? "unidad" : "unidades"}</span>
               </div>
             )}
           </SheetHeader>
@@ -816,8 +922,8 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
 
                   <div className="min-w-0 flex-1">
                     <h4 className="text-xs font-bold text-slate-900 truncate">{item.name}</h4>
-                    <p className="text-[11px] text-amber-700 font-semibold">
-                      Surtido / Pack mayorista
+                    <p className={`text-[11px] font-semibold ${isMayorista ? "text-amber-700" : "text-indigo-700"}`}>
+                      {item.size || (isMayorista ? "Surtido / Pack mayorista" : "Venta individual")}
                     </p>
                     <p className="text-xs font-black text-slate-900 mt-0.5">
                       {money(item.price)} <span className="text-[10px] font-normal text-slate-400">c/u</span>
@@ -827,9 +933,9 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       onClick={() => updateCartQty(item.id, -1)}
-                      disabled={item.qty <= minQty}
+                      disabled={item.qty <= (isMayorista ? minQty : 1)}
                       className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-100 disabled:opacity-30"
-                      title={`Mínimo ${minQty} unidades por producto`}
+                      title={isMayorista ? `Mínimo ${minQty} unidades por producto` : "Mínimo 1 unidad"}
                     >
                       <Minus className="w-3 h-3" />
                     </button>
@@ -1029,12 +1135,16 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
                 </div>
               )}
 
-              {/* Selector de cantidad mayorista */}
+              {/* Selector de cantidad */}
               <div className="space-y-2 pt-2 border-t border-slate-100">
                 <div className="flex justify-between items-center text-xs">
                   <span className="font-bold text-slate-800">Unidades a ordenar:</span>
                   <span className="text-slate-500 text-[11px]">
-                    Mínimo del pedido: <strong>{minQty} unidades</strong>
+                    {isMayorista ? (
+                      <>Mínimo del pedido: <strong>{minQty} unidades</strong></>
+                    ) : (
+                      <>Venta individual: <strong>desde 1 unidad</strong></>
+                    )}
                   </span>
                 </div>
 
@@ -1042,28 +1152,28 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
                   <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-2xs">
                     <button
                       type="button"
-                      onClick={() => setDetailWholesaleQty((prev) => Math.max(minQty, prev - 1))}
-                      disabled={detailWholesaleQty <= minQty}
+                      onClick={() => setDetailQty((prev) => Math.max(isMayorista ? minQty : 1, prev - 1))}
+                      disabled={detailQty <= (isMayorista ? minQty : 1)}
                       className="size-8 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-bold hover:bg-slate-100 flex items-center justify-center transition-colors disabled:opacity-30"
                     >
                       <Minus className="w-3.5 h-3.5" />
                     </button>
                     <input
                       type="number"
-                      min={minQty}
+                      min={isMayorista ? minQty : 1}
                       max={detailProduct.total_stock}
-                      value={detailWholesaleQty}
+                      value={detailQty}
                       onChange={(e) =>
-                        setDetailWholesaleQty(
-                          Math.max(minQty, Math.min(detailProduct.total_stock, Number(e.target.value) || minQty))
+                        setDetailQty(
+                          Math.max(isMayorista ? minQty : 1, Math.min(detailProduct.total_stock, Number(e.target.value) || (isMayorista ? minQty : 1)))
                         )
                       }
                       className="w-14 text-center font-black text-base bg-transparent outline-none text-slate-900"
                     />
                     <button
                       type="button"
-                      onClick={() => setDetailWholesaleQty((prev) => Math.min(detailProduct.total_stock, prev + 1))}
-                      disabled={detailWholesaleQty >= detailProduct.total_stock}
+                      onClick={() => setDetailQty((prev) => Math.min(detailProduct.total_stock, prev + 1))}
+                      disabled={detailQty >= detailProduct.total_stock}
                       className="size-8 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-bold hover:bg-slate-100 flex items-center justify-center transition-colors disabled:opacity-30"
                     >
                       <Plus className="w-3.5 h-3.5" />
@@ -1073,52 +1183,74 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
                   <div className="text-right">
                     <span className="text-[11px] text-slate-500 block">Subtotal estimado:</span>
                     <strong className="text-lg font-black text-slate-900">
-                      {money((detailProduct.wholesale_price || 0) * detailWholesaleQty)}
+                      {money((isMayorista ? (detailProduct.wholesale_price || 0) : (detailProduct.retail_price || detailProduct.wholesale_price || 0)) * detailQty)}
                     </strong>
                   </div>
                 </div>
 
-                {detailProduct.total_stock > minQty && (
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    <span className="text-[11px] text-slate-500 font-medium mr-1">Rápidos:</span>
-                    <button
-                      type="button"
-                      onClick={() => setDetailWholesaleQty(minQty)}
-                      className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
-                        detailWholesaleQty === minQty
-                          ? "bg-amber-600 text-white border-amber-600 shadow-2xs"
-                          : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                      }`}
-                    >
-                      {minQty} u. (Mínimo)
-                    </button>
-                    {detailProduct.total_stock >= minQty * 2 && (
+                {isMayorista ? (
+                  detailProduct.total_stock > minQty && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                      <span className="text-[11px] text-slate-500 font-medium mr-1">Rápidos:</span>
                       <button
                         type="button"
-                        onClick={() => setDetailWholesaleQty(minQty * 2)}
+                        onClick={() => setDetailQty(minQty)}
                         className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
-                          detailWholesaleQty === minQty * 2
+                          detailQty === minQty
                             ? "bg-amber-600 text-white border-amber-600 shadow-2xs"
                             : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
                         }`}
                       >
-                        {minQty * 2} unidades
+                        {minQty} u. (Mínimo)
                       </button>
-                    )}
-                    {detailProduct.total_stock >= minQty * 3 && (
-                      <button
-                        type="button"
-                        onClick={() => setDetailWholesaleQty(minQty * 3)}
-                        className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
-                          detailWholesaleQty === minQty * 3
-                            ? "bg-amber-600 text-white border-amber-600 shadow-2xs"
-                            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                        }`}
-                      >
-                        {minQty * 3} unidades
-                      </button>
-                    )}
-                  </div>
+                      {detailProduct.total_stock >= minQty * 2 && (
+                        <button
+                          type="button"
+                          onClick={() => setDetailQty(minQty * 2)}
+                          className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
+                            detailQty === minQty * 2
+                              ? "bg-amber-600 text-white border-amber-600 shadow-2xs"
+                              : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                          }`}
+                        >
+                          {minQty * 2} unidades
+                        </button>
+                      )}
+                      {detailProduct.total_stock >= minQty * 3 && (
+                        <button
+                          type="button"
+                          onClick={() => setDetailQty(minQty * 3)}
+                          className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
+                            detailQty === minQty * 3
+                              ? "bg-amber-600 text-white border-amber-600 shadow-2xs"
+                              : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                          }`}
+                        >
+                          {minQty * 3} unidades
+                        </button>
+                      )}
+                    </div>
+                  )
+                ) : (
+                  detailProduct.total_stock > 1 && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                      <span className="text-[11px] text-slate-500 font-medium mr-1">Rápidos:</span>
+                      {[1, 2, 3, 6].filter((q) => q <= detailProduct.total_stock).map((q) => (
+                        <button
+                          key={q}
+                          type="button"
+                          onClick={() => setDetailQty(q)}
+                          className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
+                            detailQty === q
+                              ? "bg-indigo-600 text-white border-indigo-600 shadow-2xs"
+                              : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                          }`}
+                        >
+                          {q} {q === 1 ? "unidad" : "unidades"}
+                        </button>
+                      ))}
+                    </div>
+                  )
                 )}
               </div>
 
@@ -1126,15 +1258,17 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
               <div className="pt-3 space-y-2.5 border-t border-slate-100">
                 <Button
                   onClick={() => {
-                    handleAddToCart(detailProduct, detailWholesaleQty);
+                    handleAddToCart(detailProduct, detailQty);
                     setModalAddedAnimation(true);
                     setTimeout(() => setModalAddedAnimation(false), 1500);
                   }}
-                  disabled={detailProduct.total_stock < minQty}
+                  disabled={detailProduct.total_stock < (isMayorista ? minQty : 1)}
                   className={`w-full h-12 rounded-xl text-sm font-bold shadow-md transition-all flex items-center justify-center gap-2 ${
                     modalAddedAnimation
                       ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                      : "bg-amber-600 hover:bg-amber-700 text-white"
+                      : isMayorista
+                        ? "bg-amber-600 hover:bg-amber-700 text-white"
+                        : "bg-indigo-600 hover:bg-indigo-700 text-white"
                   }`}
                 >
                   {modalAddedAnimation ? (
@@ -1142,12 +1276,12 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
                       <Check className="w-4 h-4" />
                       ¡Agregado al pedido!
                     </>
-                  ) : detailProduct.total_stock < minQty ? (
-                    <>Stock insuficiente (mínimo {minQty} unidades)</>
+                  ) : detailProduct.total_stock < (isMayorista ? minQty : 1) ? (
+                    <>{isMayorista ? `Stock insuficiente (mínimo ${minQty} unidades)` : "Sin stock disponible"}</>
                   ) : (
                     <>
                       <ShoppingBag className="w-4 h-4" />
-                      Agregar {detailWholesaleQty} unidades ({money((detailProduct.wholesale_price || 0) * detailWholesaleQty)})
+                      Agregar {detailQty} {detailQty === 1 ? "unidad" : "unidades"} ({money((isMayorista ? (detailProduct.wholesale_price || 0) : (detailProduct.retail_price || detailProduct.wholesale_price || 0)) * detailQty)})
                     </>
                   )}
                 </Button>
@@ -1156,10 +1290,11 @@ export function PublicStore({ settings, products, channel = "mayorista", storeUi
                   <Button
                     variant="outline"
                     onClick={() => {
+                      const modeLabel = isMayorista ? `Mayorista (${detailQty} unidades)` : `Minorista (${detailQty} unidad${detailQty > 1 ? "es" : ""})`;
                       const textMsg = encodeURIComponent(
                         `Hola ${businessName}! Quisiera consultar por el producto *${detailProduct.name}* ${
                           detailProduct.brand ? `(${detailProduct.brand})` : ""
-                        } - Pedido Mayorista (${detailWholesaleQty} unidades). ¿Tienen disponibilidad?`
+                        } - Pedido ${modeLabel}. ¿Tienen disponibilidad?`
                       );
                       window.open(`https://wa.me/${storePhone}?text=${textMsg}`, "_blank");
                     }}

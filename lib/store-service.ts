@@ -21,7 +21,8 @@ const number = (value: unknown, fallback=0) => value===undefined ? fallback : Nu
 
 const defaultSettings = {
   business_name:"CR MAYORISTA", branch_name:"Sucursal principal", tax_id:"", email:"", whatsapp:"", logo_url:"",
-  receipt_type:"X", receipt_prefix:"X", next_receipt_number:1, currency:"ARS", secondary_currency:"BRL", exchange_rate_brl:250, default_channel:"mayorista",
+  receipt_type:"X", receipt_prefix:"X", next_receipt_number:1, currency:"BRL", secondary_currency:"ARS",
+  exchange_rate_brl:250, exchange_rate_ars:250, exchange_rate_usd:5.70, default_channel:"mayorista",
   payment_methods:"Efectivo,Transferencia,Tarjeta,Mercado Pago,Cuenta corriente", max_discount_percent:20, rounding_mode:"none",
   wholesale_min_qty:12, allow_mixed_sale:true, wholesale_terms:"Precios mayoristas desde el mínimo indicado.",
   low_stock_at:3, default_sizes:"35,36,37,38,39,40", allow_negative_stock:false, barcode_prefix:"",
@@ -249,11 +250,14 @@ export async function loadStore(uid?: string) {
   const today = new Date().toISOString().slice(0,10);
   const todaySales = sales.filter((sale:any)=>String(sale.created_at).slice(0,10)===today);
   return {settings,products,customers,suppliers,sales,movements,stockMoves,customerMoves,supplierMoves,bankAccounts,bankMoves,categories,staff,stats:{
-    revenueToday:todaySales.reduce((sum:number,sale:any)=>sum+Number(sale.total_ars||sale.total||0),0), salesToday:todaySales.length,
+    revenueToday:todaySales.reduce((sum:number,sale:any)=>sum+Number(sale.total_brl !== undefined ? sale.total_brl : (sale.total || 0)),0),
+    salesToday:todaySales.length,
     stockValue:products.reduce((sum:number,product:any)=>sum+Number(product.cost||0)*Number(product.total_stock||0),0),
     cashBalance:movements.reduce((sum:number,movement:any)=>sum+(movement.type==="ingreso"?Number(movement.amount||0):-Number(movement.amount||0)),0),
-    bankBalance:bankAccounts.filter((acc:any)=>acc.currency!=="BRL").reduce((sum:number,acc:any)=>sum+Number(acc.balance||0),0),
-    bankBalanceBrl:bankAccounts.filter((acc:any)=>acc.currency==="BRL").reduce((sum:number,acc:any)=>sum+Number(acc.balance||0),0),
+    bankBalance:bankAccounts.filter((acc:any)=>acc.currency==="ARS").reduce((sum:number,acc:any)=>sum+Number(acc.balance||0),0),
+    bankBalanceArs:bankAccounts.filter((acc:any)=>acc.currency==="ARS").reduce((sum:number,acc:any)=>sum+Number(acc.balance||0),0),
+    bankBalanceBrl:bankAccounts.filter((acc:any)=>acc.currency==="BRL" || !acc.currency).reduce((sum:number,acc:any)=>sum+Number(acc.balance||0),0),
+    bankBalanceUsd:bankAccounts.filter((acc:any)=>acc.currency==="USD").reduce((sum:number,acc:any)=>sum+Number(acc.balance||0),0),
     lowStock:products.filter((product:any)=>Number(product.total_stock)<=Number(settings.low_stock_at||3)).length, productCount:products.length,
   }};
 }
@@ -553,7 +557,7 @@ export async function runStoreAction(body: any, uid?: string) {
     const balance = number(body.balance, 0);
     const customerRef = await addDoc(userCol("customers", userId), {
       name: text(body.name),
-      type: "mayorista",
+      type: text(body.type, "minorista"),
       phone: text(body.phone),
       email: text(body.email),
       document: text(body.document || body.dni || body.cuit),
@@ -581,7 +585,7 @@ export async function runStoreAction(body: any, uid?: string) {
     (store as any).createdCustomer = {
       id: customerRef.id,
       name: text(body.name),
-      type: "mayorista",
+      type: text(body.type, "minorista"),
     };
     return store;
   } else if (action === "edit_customer") {
@@ -597,7 +601,7 @@ export async function runStoreAction(body: any, uid?: string) {
 
     await updateDoc(customerRef, {
       name,
-      type: "mayorista",
+      type: body.type !== undefined ? text(body.type) : (current.type || "minorista"),
       phone: body.phone !== undefined ? text(body.phone) : (current.phone || ""),
       email: body.email !== undefined ? text(body.email) : (current.email || ""),
       document: body.document !== undefined ? text(body.document) : (body.dni !== undefined ? text(body.dni) : (current.document || "")),
@@ -983,11 +987,28 @@ export async function runStoreAction(body: any, uid?: string) {
       const toBalBefore = number(toData.balance, 0);
 
       if (fromBalBefore < amount) {
-        throw new Error(`Saldo insuficiente en "${fromData.name}". Saldo disponible: $${fromBalBefore.toLocaleString("es-AR")}`);
+        throw new Error(`Saldo insuficiente en "${fromData.name}". Saldo disponible: ${fromBalBefore}`);
+      }
+
+      const fromCurr = fromData.currency || "BRL";
+      const toCurr = toData.currency || "BRL";
+      let toAmount = amount;
+
+      if (body.destinationAmount !== undefined && Number(body.destinationAmount) > 0) {
+        toAmount = Number(body.destinationAmount);
+      } else if (fromCurr !== toCurr) {
+        const rateArs = Math.max(0.0001, Number(body.exchangeRateArs || body.exchangeRate || 250));
+        const rateUsd = Math.max(0.0001, Number(body.exchangeRateUsd || 5.70));
+        if (fromCurr === "BRL" && toCurr === "ARS") toAmount = Math.round(amount * rateArs);
+        else if (fromCurr === "ARS" && toCurr === "BRL") toAmount = Math.round((amount / rateArs) * 100) / 100;
+        else if (fromCurr === "USD" && toCurr === "BRL") toAmount = Math.round((amount * rateUsd) * 100) / 100;
+        else if (fromCurr === "BRL" && toCurr === "USD") toAmount = Math.round((amount / rateUsd) * 100) / 100;
+        else if (fromCurr === "USD" && toCurr === "ARS") toAmount = Math.round(amount * rateUsd * rateArs);
+        else if (fromCurr === "ARS" && toCurr === "USD") toAmount = Math.round(((amount / rateArs) / rateUsd) * 100) / 100;
       }
 
       const fromBalAfter = fromBalBefore - amount;
-      const toBalAfter = toBalBefore + amount;
+      const toBalAfter = toBalBefore + toAmount;
       const time = now();
 
       transaction.update(fromRef, { balance: fromBalAfter, updated_at: time });
@@ -999,6 +1020,7 @@ export async function runStoreAction(body: any, uid?: string) {
         type: "egreso",
         category: "Transferencia enviada",
         amount,
+        currency: fromCurr,
         balance_before: fromBalBefore,
         balance_after: fromBalAfter,
         destination_account_id: toId,
@@ -1013,7 +1035,8 @@ export async function runStoreAction(body: any, uid?: string) {
         account_name: toData.name,
         type: "ingreso",
         category: "Transferencia recibida",
-        amount,
+        amount: toAmount,
+        currency: toCurr,
         balance_before: toBalBefore,
         balance_after: toBalAfter,
         origin_account_id: fromId,
@@ -1035,16 +1058,25 @@ export async function runStoreAction(body: any, uid?: string) {
       catalogInStockOnly: "catalog_in_stock_only", catalogShowBarcode: "catalog_show_barcode", catalogContact: "catalog_contact",
       catalogTerms: "catalog_terms", themeDefault: "theme_default", motionLevel: "motion_level", navDensity: "nav_density",
       scanSound: "scan_sound", cameraEnabled: "camera_enabled",
+      currency: "currency",
+      exchangeRateArs: "exchange_rate_ars",
+      exchangeRateUsd: "exchange_rate_usd",
       exchangeRateBrl: "exchange_rate_brl",
     };
     const changes: any = { updated_at: now() };
     for (const [source, target] of Object.entries(map) as Array<[string, string]>) {
       if (body[source] !== undefined) changes[target] = body[source];
     }
+    // Sincronizar exchange_rate_brl y exchange_rate_ars por compatibilidad
+    if (changes.exchange_rate_ars !== undefined && changes.exchange_rate_brl === undefined) {
+      changes.exchange_rate_brl = changes.exchange_rate_ars;
+    } else if (changes.exchange_rate_brl !== undefined && changes.exchange_rate_ars === undefined) {
+      changes.exchange_rate_ars = changes.exchange_rate_brl;
+    }
     for (const key of ["allow_mixed_sale", "allow_negative_stock", "catalog_in_stock_only", "catalog_show_barcode", "scan_sound", "camera_enabled"]) {
       if (changes[key] !== undefined) changes[key] = bool(changes[key]);
     }
-    for (const key of ["next_receipt_number", "max_discount_percent", "wholesale_min_qty", "low_stock_at", "exchange_rate_brl"]) {
+    for (const key of ["next_receipt_number", "max_discount_percent", "wholesale_min_qty", "low_stock_at", "exchange_rate_brl", "exchange_rate_ars", "exchange_rate_usd"]) {
       if (changes[key] !== undefined) changes[key] = number(changes[key]);
     }
     changes.receipt_prefix = changes.receipt_prefix === undefined ? current.receipt_prefix : text(changes.receipt_prefix, "X").toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 8) || "X";
@@ -1124,29 +1156,62 @@ export async function runStoreAction(body: any, uid?: string) {
       const rounding = settings.rounding_mode === "100" ? 100 : settings.rounding_mode === "10" ? 10 : 0;
       if (rounding) total = Math.round(total / rounding) * rounding;
 
-      const saleCurrency = body.currency === "BRL" ? "BRL" : "ARS";
-      const exchangeRate = Math.max(0.01, Number(body.exchangeRate || settings.exchange_rate_brl || 250));
-      const totalBrl = Math.round((total / exchangeRate) * 100) / 100;
+      const saleCurrency = ["BRL", "ARS", "USD"].includes(String(body.currency || "").toUpperCase())
+        ? String(body.currency).toUpperCase()
+        : (settings.currency || "BRL");
+
+      const rateArs = Math.max(0.0001, Number(body.exchangeRateArs || settings.exchange_rate_ars || settings.exchange_rate_brl || 250));
+      const rateUsd = Math.max(0.0001, Number(body.exchangeRateUsd || settings.exchange_rate_usd || 5.70));
+
+      let totalBrl = total;
+      let totalArs = Math.round(total * rateArs);
+      let totalUsd = Math.round((total / rateUsd) * 100) / 100;
+
+      if (saleCurrency === "ARS" && body.isDirectArs) {
+        totalArs = total;
+        totalBrl = Math.round((total / rateArs) * 100) / 100;
+        totalUsd = Math.round((totalBrl / rateUsd) * 100) / 100;
+      } else if (saleCurrency === "USD" && body.isDirectUsd) {
+        totalUsd = total;
+        totalBrl = Math.round((total * rateUsd) * 100) / 100;
+        totalArs = Math.round(totalBrl * rateArs);
+      }
+
       let paidAmountBrl = 0;
       let pendingAmountBrl = 0;
-      let paidAmount = 0;
-      let pendingAmount = 0;
+      let paidAmountArs = 0;
+      let pendingAmountArs = 0;
+      let paidAmountUsd = 0;
+      let pendingAmountUsd = 0;
 
-      // Cálculo de pagos parciales y saldos pendientes
       if (saleCurrency === "BRL") {
-        const rawPaidBrl = body.paidAmountBrl !== undefined ? Number(body.paidAmountBrl) : (body.paidAmount !== undefined ? Number(body.paidAmount) : totalBrl);
-        paidAmountBrl = Math.max(0, isNaN(rawPaidBrl) ? totalBrl : rawPaidBrl);
-        const paidEquivalentArs = Math.round(paidAmountBrl * exchangeRate);
-        paidAmount = Math.min(total, paidEquivalentArs);
-        pendingAmount = Math.max(0, total - paidAmount);
+        const rawPaid = body.paidAmountBrl !== undefined ? Number(body.paidAmountBrl) : (body.paidAmount !== undefined ? Number(body.paidAmount) : totalBrl);
+        paidAmountBrl = Math.max(0, Math.min(totalBrl, isNaN(rawPaid) ? totalBrl : rawPaid));
         pendingAmountBrl = Math.max(0, Math.round((totalBrl - paidAmountBrl) * 100) / 100);
+        paidAmountArs = Math.round(paidAmountBrl * rateArs);
+        pendingAmountArs = Math.round(pendingAmountBrl * rateArs);
+        paidAmountUsd = Math.round((paidAmountBrl / rateUsd) * 100) / 100;
+        pendingAmountUsd = Math.round((pendingAmountBrl / rateUsd) * 100) / 100;
+      } else if (saleCurrency === "ARS") {
+        const rawPaid = body.paidAmountArs !== undefined ? Number(body.paidAmountArs) : (body.paidAmount !== undefined ? Number(body.paidAmount) : totalArs);
+        paidAmountArs = Math.max(0, Math.min(totalArs, isNaN(rawPaid) ? totalArs : rawPaid));
+        pendingAmountArs = Math.max(0, totalArs - paidAmountArs);
+        paidAmountBrl = Math.round((paidAmountArs / rateArs) * 100) / 100;
+        pendingAmountBrl = Math.round((pendingAmountArs / rateArs) * 100) / 100;
+        paidAmountUsd = Math.round((paidAmountBrl / rateUsd) * 100) / 100;
+        pendingAmountUsd = Math.round((pendingAmountBrl / rateUsd) * 100) / 100;
       } else {
-        const rawPaid = body.paidAmount !== undefined ? Number(body.paidAmount) : total;
-        paidAmount = Math.max(0, Math.min(total, isNaN(rawPaid) ? total : rawPaid));
-        pendingAmount = Math.max(0, total - paidAmount);
-        paidAmountBrl = Math.round((paidAmount / exchangeRate) * 100) / 100;
-        pendingAmountBrl = Math.round((pendingAmount / exchangeRate) * 100) / 100;
+        const rawPaid = body.paidAmountUsd !== undefined ? Number(body.paidAmountUsd) : (body.paidAmount !== undefined ? Number(body.paidAmount) : totalUsd);
+        paidAmountUsd = Math.max(0, Math.min(totalUsd, isNaN(rawPaid) ? totalUsd : rawPaid));
+        pendingAmountUsd = Math.max(0, Math.round((totalUsd - paidAmountUsd) * 100) / 100);
+        paidAmountBrl = Math.round((paidAmountUsd * rateUsd) * 100) / 100;
+        pendingAmountBrl = Math.round((pendingAmountUsd * rateUsd) * 100) / 100;
+        paidAmountArs = Math.round(paidAmountBrl * rateArs);
+        pendingAmountArs = Math.round(pendingAmountBrl * rateArs);
       }
+
+      const paidAmount = saleCurrency === "BRL" ? paidAmountBrl : (saleCurrency === "ARS" ? paidAmountArs : paidAmountUsd);
+      const pendingAmount = saleCurrency === "BRL" ? pendingAmountBrl : (saleCurrency === "ARS" ? pendingAmountArs : pendingAmountUsd);
 
       const saleStatus: "pagada" | "pago_parcial" | "con_deuda" =
         pendingAmount === 0 ? "pagada" : paidAmount > 0 ? "pago_parcial" : "con_deuda";
@@ -1188,23 +1253,28 @@ export async function runStoreAction(body: any, uid?: string) {
         customer_phone: customerData?.phone || "",
         customer_address: customerData?.address || "",
         customer_city: customerData?.city || "",
-        customer_type: customerData?.type || "mayorista",
-        channel: "mayorista",
+        customer_type: customerData?.type || (body.channel === "minorista" ? "minorista" : "mayorista"),
+        channel: body.channel || "minorista",
         subtotal,
         discount,
         discount_percent: Math.round(discountPercent * 100) / 100,
         additional_charge: additionalCharge,
         additional_charge_description: additionalChargeDescription,
         currency: saleCurrency,
-        exchange_rate: exchangeRate,
+        exchange_rate: rateArs,
+        exchange_rate_ars: rateArs,
+        exchange_rate_usd: rateUsd,
         total_brl: totalBrl,
         paid_amount_brl: paidAmountBrl,
         pending_amount_brl: pendingAmountBrl,
         debt_amount_brl: pendingAmountBrl,
-        total_ars: total,
-        paid_amount_ars: paidAmount,
-        pending_amount_ars: pendingAmount,
-        total: total,
+        total_ars: totalArs,
+        paid_amount_ars: paidAmountArs,
+        pending_amount_ars: pendingAmountArs,
+        total_usd: totalUsd,
+        paid_amount_usd: paidAmountUsd,
+        pending_amount_usd: pendingAmountUsd,
+        total: totalBrl,
         paid_amount: paidAmount,
         debt_amount: pendingAmount,
         pending_amount: pendingAmount,
@@ -1232,7 +1302,11 @@ export async function runStoreAction(body: any, uid?: string) {
       }));
 
       // El monto abonado ingresa a la cuenta bancaria seleccionada si fue provista
-      const depositAmount = saleCurrency === "BRL" ? paidAmountBrl : paidAmount;
+      let depositAmount = paidAmountBrl;
+      if (bankAccountData?.currency === "ARS") depositAmount = paidAmountArs;
+      else if (bankAccountData?.currency === "USD") depositAmount = paidAmountUsd;
+      else depositAmount = paidAmountBrl;
+
       if (depositAmount > 0) {
         if (bankAccountRef && bankAccountData) {
           const prevAccBal = number(bankAccountData.balance, 0);
@@ -1249,23 +1323,23 @@ export async function runStoreAction(body: any, uid?: string) {
             category: "Venta",
             amount: depositAmount,
             currency: bankAccountData.currency || saleCurrency,
-            exchange_rate: saleCurrency === "BRL" ? exchangeRate : 1,
+            exchange_rate: saleCurrency === "BRL" ? rateArs : 1,
             balance_before: prevAccBal,
             balance_after: nextAccBal,
             reference: receiptNo,
-            description: `Venta comprobante ${receiptNo} (${saleStatus === "pago_parcial" ? "Cobro parcial" : "Cobro total"} - ${saleCurrency === "BRL" ? `R$ ${paidAmountBrl.toFixed(2)}` : `$${paidAmount}`} - ${body.paymentMethod || "Efectivo"})`,
+            description: `Venta comprobante ${receiptNo} (${saleStatus === "pago_parcial" ? "Cobro parcial" : "Cobro total"} - ${saleCurrency === "BRL" ? `R$ ${paidAmountBrl.toFixed(2)}` : (saleCurrency === "USD" ? `US$ ${paidAmountUsd.toFixed(2)}` : `$${paidAmountArs}`)} - ${body.paymentMethod || "Efectivo"})`,
             created_at: createdAt,
           });
         }
 
-        // Siempre se registra el movimiento de caja para el arqueo / control
+        // Registro de movimiento en caja consolidado en BRL (moneda base)
         transaction.set(doc(userCol("cashMovements", userId)), {
           type: "ingreso",
           category: "Venta",
-          amount: paidAmount, // Consolidado en pesos ARS
+          amount: paidAmountBrl,
           currency: saleCurrency,
           amount_currency: depositAmount,
-          description: `Venta mayorista (${saleCurrency === "BRL" ? `R$ ${paidAmountBrl.toFixed(2)} BRL (Equiv: $${paidAmount} ARS)` : `$${paidAmount} ARS`}) · ${bankAccountName}`,
+          description: `Venta ${body.channel === "minorista" ? "minorista" : "mayorista"} (${saleCurrency === "BRL" ? `R$ ${paidAmountBrl.toFixed(2)}` : (saleCurrency === "USD" ? `US$ ${paidAmountUsd.toFixed(2)}` : `$${paidAmountArs} ARS`)}) · ${bankAccountName || "Caja general"}`,
           reference: receiptNo,
           created_at: createdAt,
         });
@@ -1277,7 +1351,7 @@ export async function runStoreAction(body: any, uid?: string) {
           throw new Error("Para ventas con saldo pendiente / deuda es obligatorio seleccionar un cliente registrado.");
         }
         const prevBal = number(customerData.balance, 0);
-        const nextBal = prevBal + pendingAmount;
+        const nextBal = prevBal + pendingAmountBrl;
         transaction.update(customerRef, {
           balance: nextBal,
           updated_at: createdAt,
@@ -1286,15 +1360,14 @@ export async function runStoreAction(body: any, uid?: string) {
           customer_id: customerId,
           customer_name: customerName,
           type: "cargo",
-          amount: pendingAmount,
+          amount: pendingAmountBrl,
+          amount_ars: pendingAmountArs,
+          amount_usd: pendingAmountUsd,
+          currency: "BRL",
           balance_before: prevBal,
           balance_after: nextBal,
           payment_method: text(body.paymentMethod, "Cuenta corriente"),
-          note: saleCurrency === "BRL"
-            ? `Saldo pendiente venta ${receiptNo} (Total: R$ ${totalBrl.toFixed(2)}, Abonó: R$ ${paidAmountBrl.toFixed(2)}, Deuda: $${pendingAmount} ARS)`
-            : (saleStatus === "pago_parcial"
-              ? `Saldo pendiente venta ${receiptNo} (Total: $${total}, Abonó: $${paidAmount})`
-              : `Deuda total venta ${receiptNo}`),
+          note: `Saldo pendiente venta ${receiptNo} (Total: R$ ${totalBrl.toFixed(2)} · Abonó: ${saleCurrency === "BRL" ? `R$ ${paidAmountBrl.toFixed(2)}` : (saleCurrency === "USD" ? `US$ ${paidAmountUsd.toFixed(2)}` : `$${paidAmountArs} ARS`)} · Deuda: R$ ${pendingAmountBrl.toFixed(2)} / $${pendingAmountArs} ARS)`,
           receipt_no: receiptNo,
           sale_id: saleRef.id,
           created_at: createdAt,

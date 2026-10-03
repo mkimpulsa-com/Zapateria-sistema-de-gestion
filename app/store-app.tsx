@@ -46,20 +46,21 @@ import { ProductBarcodeModal } from "@/components/product-barcode-modal";
 import { BarcodeView } from "@/components/barcode-view";
 import { StaffSettingsView } from "@/components/staff-settings-view";
 import { cleanBarcodeScan, isBarcodeMatch } from "@/lib/barcode";
+import { formatMoney, formatNumber, convertAmount, getCurrencyEquivalents, CURRENCIES } from "@/lib/currency";
 
 type Variant = { id:number; product_id:number; size:string; stock:number };
 type Product = { id:number; sku:string; barcode:string; name:string; brand:string; category:string; color:string; gender:string; cost:number; retail_price:number; wholesale_price:number; min_stock:number; total_stock:number; image_url?:string; variants:Variant[] };
 type Party = { id:number; name:string; type?:string; phone:string; email?:string; balance:number; credit_limit?:number; contact?:string; document?:string; city?:string; address?:string; notes?:string; created_at?:string; bank_info?:string; category?:string };
-type Sale = { id:number; receipt_no:string; customer_id?:string; customer_name?:string; channel:string; total:number; paid_amount?:number; debt_amount?:number; pending_amount?:number; payment_method:string; status:string; created_at:string; bank_account_id?:string; bank_account_name?:string; subtotal?:number; discount?:number; discount_percent?:number; additional_charge?:number; additional_charge_description?:string; cashier_id?:string; cashier_name?:string };
+type Sale = { id:number; receipt_no:string; customer_id?:string; customer_name?:string; channel:string; total:number; paid_amount?:number; debt_amount?:number; pending_amount?:number; payment_method:string; status:string; created_at:string; bank_account_id?:string; bank_account_name?:string; subtotal?:number; discount?:number; discount_percent?:number; additional_charge?:number; additional_charge_description?:string; cashier_id?:string; cashier_name?:string; currency?:string };
 type Movement = { id:number|string; type:"ingreso"|"egreso"; category:string; amount:number; description:string; reference:string; created_at:string };
-type StoreData = { settings:any; products:Product[]; customers:Party[]; suppliers:Party[]; sales:Sale[]; movements:Movement[]; stockMoves:any[]; customerMoves:any[]; supplierMoves:any[]; bankAccounts:any[]; bankMoves:any[]; categories:any[]; staff?:any[]; stats:{revenueToday:number;salesToday:number;stockValue:number;cashBalance:number;bankBalance:number;lowStock:number;productCount:number} };
+type StoreData = { settings:any; products:Product[]; customers:Party[]; suppliers:Party[]; sales:Sale[]; movements:Movement[]; stockMoves:any[]; customerMoves:any[]; supplierMoves:any[]; bankAccounts:any[]; bankMoves:any[]; categories:any[]; staff?:any[]; stats:{revenueToday:number;salesToday:number;stockValue:number;cashBalance:number;bankBalance:number;bankBalanceArs?:number;bankBalanceBrl?:number;bankBalanceUsd?:number;lowStock:number;productCount:number} };
 type CartItem = { productId:number; variantId:number; name:string; size:string; quantity:number; unitPrice:number; max:number };
 
 const nav = [
   ["resumen", "Resumen", LayoutDashboard], ["ventas", "Punto de venta", ShoppingCart],
   ["productos", "Productos", ShoppingBag], ["inventario", "Inventario", Boxes],
   ["clientes", "Clientes", Users], ["proveedores", "Proveedores", Truck],
-  ["caja", "Caja e ingresos", WalletCards], ["tienda", "Tienda Mayorista", Store],
+  ["caja", "Caja e ingresos", WalletCards], ["tienda", "Tienda Online", Store],
   ["catalogos", "Catálogos", FileText],
   ["reportes", "Reportes", BarChart3], ["configuracion", "Configuración", Settings],
 ] as const;
@@ -72,7 +73,7 @@ const cashierNav = [
   ["catalogos", "Catálogos", FileText],
 ] as const;
 
-const money = (value:number) => new Intl.NumberFormat("es-AR", { style:"currency", currency:"ARS", maximumFractionDigits:0 }).format(value || 0);
+const money = (value: number, curr = "BRL") => formatMoney(value, curr);
 const date = (value:string) => new Intl.DateTimeFormat("es-AR", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" }).format(new Date(value));
 
 function Field({ label, name, defaultValue, type="text", placeholder, required=false, step }: {label:string;name:string;defaultValue?:string|number;type?:string;placeholder?:string;required?:boolean;step?:string}) {
@@ -141,7 +142,7 @@ export default function StoreApp({
   const uid = targetUid;
   const [data,setData]=useState<StoreData|null>(null); const [error,setError]=useState(""); const [busy,setBusy]=useState(false);
   const [section,setSection]=useState<string>(isCashier ? "ventas" : "resumen"); const [query,setQuery]=useState(""); const [dark,setDark]=useState(false);
-  const [modal,setModal]=useState(""); const [toast,setToast]=useState(""); const [channel,setChannel]=useState<"mayorista">("mayorista");
+  const [modal,setModal]=useState(""); const [toast,setToast]=useState(""); const [channel,setChannel]=useState<"mayorista"|"minorista">("minorista");
   const [adjustTarget,setAdjustTarget]=useState<{v:Variant;p:Product}|null>(null);
   const [editingProduct,setEditingProduct]=useState<Product|null>(null);
   const [adjustingProduct,setAdjustingProduct]=useState<Product|null>(null);
@@ -167,12 +168,23 @@ export default function StoreApp({
   const [additionalChargeDescription,setAdditionalChargeDescription]=useState("");
   const [payment,setPayment]=useState("Efectivo");
   const [customerId,setCustomerId]=useState("");
-  const [scan,setScan]=useState(""); const [catalogPrice,setCatalogPrice]=useState<"wholesale">("wholesale"); const [invoiceSale,setInvoiceSale]=useState<any|null>(null); const videoRef=useRef<HTMLVideoElement>(null);
+  const [scan,setScan]=useState(""); const [catalogPrice,setCatalogPrice]=useState<"wholesale"|"retail"|"both">("both"); const [invoiceSale,setInvoiceSale]=useState<any|null>(null); const videoRef=useRef<HTMLVideoElement>(null);
 
   const load=async()=>{try{const storeData=await loadStore(uid) as StoreData;setData(storeData);if(!bankAccountId&&storeData?.bankAccounts?.length){setBankAccountId(String(storeData.bankAccounts[0].id));}setError("");}catch(e:any){setError(e.message||"No se pudo cargar");}};
   useEffect(()=>{load();},[uid]);
   useEffect(()=>{document.documentElement.classList.toggle("dark",dark);},[dark]);
-  useEffect(()=>{if(!data?.settings)return;const theme=data.settings.theme_default;if(theme==="dark")setDark(true);else if(theme==="light")setDark(false);else setDark(window.matchMedia?.("(prefers-color-scheme: dark)").matches??false);setChannel("mayorista");setCatalogPrice("wholesale");const methods=String(data.settings.payment_methods||"Efectivo").split(",").map((x:string)=>x.trim()).filter(Boolean);if(methods.length&&!methods.includes(payment))setPayment(methods[0]);},[data?.settings?.theme_default,data?.settings?.default_channel,data?.settings?.catalog_default_price,data?.settings?.payment_methods]);
+  useEffect(()=>{
+    if(!data?.settings)return;
+    const theme=data.settings.theme_default;
+    if(theme==="dark")setDark(true);
+    else if(theme==="light")setDark(false);
+    else setDark(window.matchMedia?.("(prefers-color-scheme: dark)").matches??false);
+    const defChannel = (data.settings.default_channel as "mayorista" | "minorista") || "minorista";
+    setChannel(defChannel);
+    setCatalogPrice((data.settings.catalog_default_price as any) || "both");
+    const methods=String(data.settings.payment_methods||"Efectivo").split(",").map((x:string)=>x.trim()).filter(Boolean);
+    if(methods.length&&!methods.includes(payment))setPayment(methods[0]);
+  },[data?.settings?.theme_default,data?.settings?.default_channel,data?.settings?.catalog_default_price,data?.settings?.payment_methods]);
   useEffect(()=>{
     if(data?.bankAccounts?.length && (!bankAccountId || !data.bankAccounts.some((a:any)=>String(a.id)===String(bankAccountId)))){
       setBankAccountId(String(data.bankAccounts[0].id));
@@ -182,18 +194,40 @@ export default function StoreApp({
   useEffect(()=>{
     const ctx=(document as any).modelContext;if(!ctx?.registerTool)return;const life=new AbortController();
     Promise.resolve(ctx.registerTool({name:"search_inventory",title:"Buscar inventario",description:"Busca productos por nombre, SKU, marca o código y devuelve stock por talle.",inputSchema:{type:"object",properties:{query:{type:"string"}},required:["query"],additionalProperties:false},annotations:{readOnlyHint:true,untrustedContentHint:false},execute:({query:q}:any)=>{const term=String(q).toLowerCase();return {products:(data?.products??[]).filter(p=>[p.name,p.sku,p.brand,p.barcode].join(" ").toLowerCase().includes(term)).slice(0,12).map(p=>({name:p.name,sku:p.sku,stock:p.total_stock,sizes:p.variants.filter(v=>v.stock>0).map(v=>`${v.size}:${v.stock}`)}))};}},{signal:life.signal})).catch(()=>{});
-    Promise.resolve(ctx.registerTool({name:"start_new_sale",title:"Iniciar venta",description:"Abre el punto de venta mayorista.",inputSchema:{type:"object",properties:{},additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false},execute:()=>{setChannel("mayorista");setSection("ventas");return {status:"ready",channel:"mayorista"};}},{signal:life.signal})).catch(()=>{});
+    Promise.resolve(ctx.registerTool({name:"start_new_sale",title:"Iniciar venta",description:"Abre el punto de venta (minorista o mayorista).",inputSchema:{type:"object",properties:{channel:{type:"string",enum:["minorista","mayorista"]}},additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false},execute:({channel:ch}:any)=>{if(ch==="mayorista"||ch==="minorista")setChannel(ch);setSection("ventas");return {status:"ready",channel:ch||channel};}},{signal:life.signal})).catch(()=>{});
     return()=>life.abort();
-  },[data]);
+  },[data,channel]);
 
-  const action=async(body:any,success:string)=>{setBusy(true);try{const nextData:any=await runStoreAction(body,uid);setData(nextData as StoreData);setToast(success);if(body.action!=="create_category")setModal("");if(nextData?.createdCustomer?.id){setCustomerId(String(nextData.createdCustomer.id));setChannel("mayorista");}if(nextData?.createdBankAccount?.id){setBankAccountId(String(nextData.createdBankAccount.id));}return nextData;}catch(e:any){setToast(e.message||"No se pudo guardar");return false;}finally{setBusy(false);}};
+  const action=async(body:any,success:string)=>{setBusy(true);try{const nextData:any=await runStoreAction(body,uid);setData(nextData as StoreData);setToast(success);if(body.action!=="create_category")setModal("");if(nextData?.createdCustomer?.id){setCustomerId(String(nextData.createdCustomer.id));if(nextData.createdCustomer.type==="mayorista")setChannel("mayorista");}if(nextData?.createdBankAccount?.id){setBankAccountId(String(nextData.createdBankAccount.id));}return nextData;}catch(e:any){setToast(e.message||"No se pudo guardar");return false;}finally{setBusy(false);}};
   const fromForm=(e:FormEvent<HTMLFormElement>)=>Object.fromEntries(new FormData(e.currentTarget).entries());
   const filtered=useMemo(()=>{
     const q=cleanBarcodeScan(query).toLowerCase();
     return (data?.products??[]).filter(p=>!q||isBarcodeMatch(p.barcode, q)||[p.name,p.sku,p.barcode,p.brand,p.category,p.color].join(" ").toLowerCase().includes(q));
   },[data,query]);
   const cartTotal=Math.max(0, cart.reduce((s,i)=>s+i.unitPrice*i.quantity,0)-discount+(Number(additionalCharge)||0));
-  const addVariant=(p:Product,v:Variant)=>{const allowNegative=Boolean(data?.settings?.allow_negative_stock);if(v.stock<=0&&!allowNegative)return;const price=p.wholesale_price;setCart(c=>{const found=c.find(i=>i.variantId===v.id);const max=allowNegative?9999:v.stock;return found?c.map(i=>i.variantId===v.id?{...i,quantity:Math.min(i.quantity+1,max),max}:i):[...c,{productId:p.id,variantId:v.id,name:p.name,size:v.size,quantity:1,unitPrice:price,max}]});setToast(`${p.name} · talle ${v.size}`);};
+  const addVariant=(p:Product,v:Variant)=>{
+    const allowNegative=Boolean(data?.settings?.allow_negative_stock);
+    if(v.stock<=0&&!allowNegative)return;
+    const price=channel==="mayorista"?p.wholesale_price:(p.retail_price || p.wholesale_price);
+    setCart(c=>{
+      const found=c.find(i=>i.variantId===v.id);
+      const max=allowNegative?9999:v.stock;
+      return found?c.map(i=>i.variantId===v.id?{...i,quantity:Math.min(i.quantity+1,max),max,unitPrice:price}:i):[...c,{productId:p.id,variantId:v.id,name:p.name,size:v.size,quantity:1,unitPrice:price,max}];
+    });
+    setToast(`${p.name} · talle ${v.size}`);
+  };
+
+  const handleChannelChange = (newChannel: "minorista" | "mayorista") => {
+    setChannel(newChannel);
+    setCart(prevCart =>
+      prevCart.map(item => {
+        const prod = data?.products.find(p => p.id === item.productId);
+        if (!prod) return item;
+        const newPrice = newChannel === "mayorista" ? prod.wholesale_price : (prod.retail_price || prod.wholesale_price);
+        return { ...item, unitPrice: newPrice };
+      })
+    );
+  };
   const scanProduct = (code = scan) => {
     const value = cleanBarcodeScan(code);
     // Limpiar siempre de inmediato para evitar que el siguiente disparo de la pistola concatene códigos
@@ -234,7 +268,7 @@ export default function StoreApp({
       setToast(`Código "${value}" no encontrado`);
     }
   };
-  const closeSale=async(paidAmountOverride?:number, options?: { discount?: number; discountPercent?: number; additionalCharge?: number; additionalChargeDescription?: string; currency?: "ARS" | "BRL"; exchangeRate?: number })=>{
+  const closeSale=async(paidAmountOverride?:number, options?: { discount?: number; discountPercent?: number; additionalCharge?: number; additionalChargeDescription?: string; currency?: "BRL" | "ARS" | "USD" | string; exchangeRate?: number; exchangeRateArs?: number; exchangeRateUsd?: number })=>{
     const finalDiscount = options?.discount !== undefined ? options.discount : discount;
     const finalDiscountPercent = options?.discountPercent !== undefined ? options.discountPercent : discountPercent;
     const finalAdditionalCharge = options?.additionalCharge !== undefined ? options.additionalCharge : additionalCharge;
@@ -249,13 +283,15 @@ export default function StoreApp({
       additionalChargeDescription: finalAdditionalChargeDescription,
       paymentMethod:payment,
       customerId,
-      channel: "mayorista",
+      channel: channel,
       bankAccountId,
       paidAmount: paidAmountOverride,
       cashierId: isCashier ? user?.uid : null,
       cashierName: isCashier ? (staffProfile?.name || user?.email || "Cajera") : "Administrador",
-      currency: options?.currency || "ARS",
+      currency: options?.currency || data?.settings?.currency || "BRL",
       exchangeRate: options?.exchangeRate,
+      exchangeRateArs: options?.exchangeRateArs,
+      exchangeRateUsd: options?.exchangeRateUsd,
     },"Venta registrada exitosamente");
     if(res){
       if(res.createdSale){
@@ -280,7 +316,7 @@ export default function StoreApp({
 
   useEffect(()=>{ if(modal!=="scanner")return; let stream:MediaStream|undefined; let frame=0; let cancelled=false; (async()=>{try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}const Detector=(window as any).BarcodeDetector;if(!Detector)throw new Error("La cámara no admite lectura automática en este navegador.");const detector=new Detector({formats:["ean_13","ean_8","code_128","code_39"]});const tick=async()=>{if(cancelled||!videoRef.current)return;try{const codes=await detector.detect(videoRef.current);if(codes[0]?.rawValue){const value=cleanBarcodeScan(codes[0].rawValue);setScan("");setModal("");scanProduct(value);return;}}catch{}frame=requestAnimationFrame(tick);};tick();}catch(e:any){setToast(e.message||"No se pudo abrir la cámara");setModal("");}})();return()=>{cancelled=true;cancelAnimationFrame(frame);stream?.getTracks().forEach(t=>t.stop());}; },[modal]);
 
-  if(!data && !error) return <div className="flex min-h-screen items-center justify-center bg-background"><div className="text-center"><div className="mx-auto mb-4 size-12 animate-spin rounded-full border-4 border-primary/20 border-t-primary"/><p className="text-sm text-muted-foreground">Preparando tu sistema mayorista…</p></div></div>;
+  if(!data && !error) return <div className="flex min-h-screen items-center justify-center bg-background"><div className="text-center"><div className="mx-auto mb-4 size-12 animate-spin rounded-full border-4 border-primary/20 border-t-primary"/><p className="text-sm text-muted-foreground">Preparando tu sistema…</p></div></div>;
   if(error) return <div className="flex min-h-screen items-center justify-center p-6"><Card className="max-w-md"><CardContent><h1 className="text-xl font-bold">No pudimos abrir el sistema</h1><p className="mt-2 text-sm text-muted-foreground">{error}</p><Button className="mt-5" onClick={load}>Reintentar</Button></CardContent></Card></div>;
 
   const business=data!.settings?.business_name||"CR MAYORISTA";
@@ -292,7 +328,7 @@ export default function StoreApp({
       <div className="top-brandbar mx-auto flex min-h-20 max-w-[1800px] flex-wrap items-center gap-3 px-4 py-3 sm:flex-nowrap sm:px-7 lg:px-9">
         <button className="brand-block flex shrink-0 items-center gap-3 text-left" onClick={()=>setSection(isCashier ? "ventas" : "resumen")} aria-label="Ir al inicio">
           <span className="brand-orb grid size-11 place-items-center overflow-hidden rounded-2xl text-white">{data!.settings?.logo_url?<img src={data!.settings.logo_url} alt="" className="size-full object-contain"/>:<ShoppingBag className="size-6"/>}</span>
-          <span className="hidden min-w-0 sm:block"><span className="block max-w-52 truncate text-base font-extrabold">{business}</span><span className="block text-xs text-muted-foreground">{data!.settings?.branch_name||"Sucursal principal"} · Sistema Mayorista</span></span>
+          <span className="hidden min-w-0 sm:block"><span className="block max-w-52 truncate text-base font-extrabold">{business}</span><span className="block text-xs text-muted-foreground">{data!.settings?.branch_name||"Sucursal principal"} · Minorista & Mayorista</span></span>
         </button>
         <span className="current-section hidden rounded-full px-3 py-1.5 text-xs font-bold xl:inline-flex">{pageTitle}</span>
         <div className="relative order-3 w-full sm:order-none sm:ml-auto sm:max-w-md"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/><Input value={query} onChange={e=>setQuery(e.target.value)} className="h-11 rounded-xl bg-card pl-9" placeholder="Buscar producto, código, marca…"/></div>
@@ -315,13 +351,13 @@ export default function StoreApp({
             variant={section === "tienda" ? "default" : "outline"}
             className={`hidden h-11 shrink-0 rounded-xl gap-2 font-bold sm:flex ${
               section === "tienda"
-                ? "bg-amber-600 hover:bg-amber-700 text-white shadow-xs"
-                : "border-amber-500/40 text-amber-700 hover:bg-amber-50 dark:text-amber-400"
+                ? "bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
+                : "border-indigo-500/40 text-indigo-700 hover:bg-indigo-50 dark:text-indigo-400"
             }`}
             onClick={() => setSection("tienda")}
           >
             <Store className="size-4" />
-            Tienda Mayorista
+            Tienda Online
           </Button>
         )}
         <Button className="hidden h-11 shrink-0 rounded-xl bg-[#ff7a5c] hover:bg-[#e9684c] sm:flex" onClick={()=>setSection("ventas")}><Plus/>Nueva venta</Button>
@@ -350,7 +386,7 @@ export default function StoreApp({
 
       <main className="glass-grid min-h-[calc(100vh-148px)] p-4 sm:p-7 lg:p-9">
         {!isCashier && section==="resumen"&&<DashboardView data={data!} setSection={setSection} addVariant={addVariant} setModal={setModal}/>} 
-        {section==="ventas"&&<SalesPOSConfigured data={data!} filtered={filtered} channel={channel} setChannel={setChannel} cart={cart} setCart={setCart} addVariant={addVariant} scan={scan} setScan={setScan} scanProduct={scanProduct} setModal={setModal} discount={discount} setDiscount={setDiscount} discountPercent={discountPercent} setDiscountPercent={setDiscountPercent} additionalCharge={additionalCharge} setAdditionalCharge={setAdditionalCharge} additionalChargeDescription={additionalChargeDescription} setAdditionalChargeDescription={setAdditionalChargeDescription} payment={payment} setPayment={setPayment} customerId={customerId} setCustomerId={setCustomerId} bankAccountId={bankAccountId} setBankAccountId={setBankAccountId} cartTotal={cartTotal} closeSale={closeSale} busy={busy}/>}
+        {section==="ventas"&&<SalesPOSConfigured data={data!} filtered={filtered} channel={channel} setChannel={handleChannelChange} cart={cart} setCart={setCart} addVariant={addVariant} scan={scan} setScan={setScan} scanProduct={scanProduct} setModal={setModal} discount={discount} setDiscount={setDiscount} discountPercent={discountPercent} setDiscountPercent={setDiscountPercent} additionalCharge={additionalCharge} setAdditionalCharge={setAdditionalCharge} additionalChargeDescription={additionalChargeDescription} setAdditionalChargeDescription={setAdditionalChargeDescription} payment={payment} setPayment={setPayment} customerId={customerId} setCustomerId={setCustomerId} bankAccountId={bankAccountId} setBankAccountId={setBankAccountId} cartTotal={cartTotal} closeSale={closeSale} busy={busy}/>}
         {!isCashier && section==="productos"&&<Products data={data!} filtered={filtered} setModal={setModal} onEdit={(p:Product)=>setEditingProduct(p)} onAdjust={(p:Product)=>setAdjustingProduct(p)} onDelete={(p:Product)=>setDeletingProduct(p)}/>} 
         {section==="inventario"&&<Inventory data={data!} filtered={filtered} isCashier={isCashier} onAddToCart={(p:Product,v:Variant)=>{addVariant(p,v);setSection("ventas");setToast(`${p.name} (Talle ${v.size}) agregado a la venta`);}} adjust={(v:Variant,p:Product)=>{setAdjustTarget({v,p});setModal("stock");}}/>}
         {section==="clientes"&&<CustomersView customers={data!.customers} sales={data!.sales} customerMoves={data!.customerMoves||[]} isCashier={isCashier} onNewCustomer={()=>setModal("customer")} onEditCustomer={(c:any)=>setEditingCustomer(c)} onAdjustDebt={(c:any)=>setAdjustingCustomer(c)} onViewDetail={(c:any)=>setViewingCustomer(c)} onDeleteCustomer={(c:any)=>setDeletingCustomer(c)}/>} 
@@ -365,6 +401,7 @@ export default function StoreApp({
     <NewProductModal
       open={modal==="product"}
       onOpenChange={v=>!v&&setModal("")}
+      settings={data?.settings}
       defaultSizes={data?.settings?.default_sizes}
       categories={data?.categories || []}
       onNewCategory={async (name: string) => {
@@ -378,6 +415,7 @@ export default function StoreApp({
     <EditProductModal
       open={Boolean(editingProduct)}
       onOpenChange={v=>!v&&setEditingProduct(null)}
+      settings={data?.settings}
       product={editingProduct}
       categories={data?.categories || []}
       busy={busy}
@@ -637,6 +675,7 @@ export default function StoreApp({
       accounts={data?.bankAccounts || []}
       open={transferModalOpen}
       onOpenChange={setTransferModalOpen}
+      settings={data?.settings}
       busy={busy}
       onSubmit={async (payload)=>{
         const ok = await action(payload, "Transferencia realizada con éxito");
@@ -1046,9 +1085,22 @@ function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier}:any){
 
 function Catalog({data,products,price,setPrice}:any){return <div className="print-only-area"><div className="no-print"><SectionTitle eyebrow="Venta visual" title="Generador de catálogos" text="Elegí la lista de precios y compartí o imprimí los productos disponibles." action={<div className="flex gap-2"><Button variant="outline" onClick={()=>window.print()}><Printer/>Imprimir / PDF</Button></div>}/><div className="mb-6 flex items-center gap-2 rounded-2xl border bg-card p-2"><button onClick={()=>setPrice("retail")} className={`rounded-xl px-4 py-2 text-sm font-semibold ${price==="retail"?"bg-primary text-primary-foreground":""}`}>Precio minorista</button><button onClick={()=>setPrice("wholesale")} className={`rounded-xl px-4 py-2 text-sm font-semibold ${price==="wholesale"?"bg-primary text-primary-foreground":""}`}>Precio mayorista</button><Badge variant="outline" className="ml-auto">Solo productos con stock</Badge></div></div><div className="mb-7 hidden print:block"><h1 className="text-3xl font-bold">{data.settings?.business_name}</h1><p>{data.settings?.phone} · {data.settings?.address}</p><p className="mt-2 text-sm">Catálogo {price==="retail"?"minorista":"mayorista"}</p></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{products.filter((p:Product)=>p.total_stock>0).map((p:Product)=><Card key={p.id} className="print-card gap-3 overflow-hidden border-0 py-0 shadow-sm"><div className="flex h-28 items-center justify-center bg-gradient-to-br from-[#e8f0ff] to-[#fff0ec] text-[#0f2137]"><ShoppingBag className="size-14 opacity-70"/></div><CardContent className="px-5 pb-5"><div className="flex justify-between gap-3"><div><p className="text-lg font-bold">{p.name}</p><p className="text-xs text-muted-foreground">{p.brand} · {p.color}</p></div><p className="text-xl font-black text-primary">{money(price==="retail"?p.retail_price:p.wholesale_price)}</p></div><div className="my-4 flex flex-wrap gap-1.5">{p.variants.filter(v=>v.stock>0).map(v=><Badge key={v.id} variant="outline">{v.size}</Badge>)}</div><BarcodeLabel value={p.barcode}/></CardContent></Card>)}</div></div>}
 
-function Reports({data,onSelectSale}:any){const max=Math.max(...data.products.map((p:Product)=>p.total_stock),1);const wholesale=data.sales.reduce((a:number,s:Sale)=>a+s.total,0);const totalPairs=data.sales.reduce((sum:number, s:Sale)=>{if(Array.isArray((s as any).items)){return sum+(s as any).items.reduce((acc:number,it:any)=>acc+Number(it.quantity||1),0);}return sum+1;},0);return <><SectionTitle eyebrow="Inteligencia del negocio" title="Reportes Mayoristas" text="Indicadores de ventas por volumen, rotación de productos y margen comercial."/><div className="grid gap-6 lg:grid-cols-2"><Card className="border-0 shadow-sm"><CardHeader><CardTitle>Stock por producto</CardTitle></CardHeader><CardContent className="space-y-4">{data.products.map((p:Product)=><div key={p.id}><div className="mb-1 flex justify-between text-sm"><span className="font-medium">{p.name}</span><span>{p.total_stock} u.</span></div><div className="h-3 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{width:`${Math.max(4,p.total_stock/max*100)}%`}}/></div></div>)}</CardContent></Card><Card className="border-0 shadow-sm"><CardHeader><CardTitle>Rendimiento Mayorista</CardTitle></CardHeader><CardContent><div className="grid grid-cols-2 gap-4"><div className="rounded-2xl bg-orange-50 p-5 dark:bg-orange-950/30"><p className="text-sm text-muted-foreground font-semibold">Facturación Mayorista</p><p className="mt-2 text-2xl font-black text-orange-600 dark:text-orange-400">{money(wholesale)}</p></div><div className="rounded-2xl bg-emerald-50 p-5 dark:bg-emerald-950/30"><p className="text-sm text-muted-foreground font-semibold">Unidades Vendidas</p><p className="mt-2 text-2xl font-black text-emerald-600 dark:text-emerald-400">{totalPairs}</p></div></div><div className="mt-6 rounded-2xl border p-5"><p className="text-sm font-semibold">Capital en mercadería</p><p className="mt-2 text-3xl font-black">{money(data.stats.stockValue)}</p><p className="mt-2 text-sm text-muted-foreground">Valorizado al costo de compra actual.</p></div></CardContent></Card><Card className="border-0 shadow-sm lg:col-span-2"><CardHeader><CardTitle>Ventas recientes</CardTitle></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Comprobante</TableHead><TableHead>Fecha</TableHead><TableHead>Cliente</TableHead><TableHead>Canal</TableHead><TableHead>Pago</TableHead><TableHead>Estado</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Comprobante</TableHead></TableRow></TableHeader><TableBody>{data.sales.map((s:Sale)=><TableRow key={s.id} className="hover:bg-muted/30"><TableCell className="font-mono font-bold text-primary">{s.receipt_no}</TableCell><TableCell>{date(s.created_at)}</TableCell><TableCell>{s.customer_name||"Cliente mayorista"}</TableCell><TableCell className="capitalize font-semibold text-orange-600 dark:text-orange-400">{s.channel||"Mayorista"}</TableCell><TableCell>{s.payment_method}</TableCell><TableCell><span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-bold ${s.status==="pagada"?"bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40":s.status==="pago_parcial"?"bg-amber-50 text-amber-700 dark:bg-amber-950/40":"bg-red-50 text-red-700 dark:bg-red-950/40"}`}>{s.status==="pagada"?"Pagada":s.status==="pago_parcial"?"Pago Parcial":"Con Deuda"}</span></TableCell><TableCell className="text-right font-bold">{money(s.total)}</TableCell><TableCell className="text-right">{onSelectSale&&<Button variant="outline" size="xs" onClick={()=>onSelectSale(s)} className="h-7 gap-1 rounded-lg text-xs" title="Ver Factura X / Remito"><FileText className="size-3 text-primary"/>Factura X</Button>}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card></div></>}
+function Reports({data,onSelectSale}:any){
+  const max=Math.max(...data.products.map((p:Product)=>p.total_stock),1);
+  const wholesale=data.sales.filter((s:Sale)=>s.channel==="mayorista").reduce((a:number,s:Sale)=>a+s.total,0);
+  const retail=data.sales.filter((s:Sale)=>s.channel!=="mayorista").reduce((a:number,s:Sale)=>a+s.total,0);
+  const totalPairs=data.sales.reduce((sum:number, s:Sale)=>{if(Array.isArray((s as any).items)){return sum+(s as any).items.reduce((acc:number,it:any)=>acc+Number(it.quantity||1),0);}return sum+1;},0);
+  return <><SectionTitle eyebrow="Inteligencia del negocio" title="Reportes Comerciales" text="Indicadores de ventas minoristas y mayoristas, rotación de productos y margen comercial."/><div className="grid gap-6 lg:grid-cols-2"><Card className="border-0 shadow-sm"><CardHeader><CardTitle>Stock por producto</CardTitle></CardHeader><CardContent className="space-y-4">{data.products.map((p:Product)=><div key={p.id}><div className="mb-1 flex justify-between text-sm"><span className="font-medium">{p.name}</span><span>{p.total_stock} u.</span></div><div className="h-3 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{width:`${Math.max(4,p.total_stock/max*100)}%`}}/></div></div>)}</CardContent></Card><Card className="border-0 shadow-sm"><CardHeader><CardTitle>Rendimiento por Canal</CardTitle></CardHeader><CardContent><div className="grid grid-cols-2 gap-3"><div className="rounded-2xl bg-orange-50 p-4 dark:bg-orange-950/30"><p className="text-xs text-muted-foreground font-semibold">Facturación Mayorista</p><p className="mt-1 text-xl font-black text-orange-600 dark:text-orange-400">{money(wholesale)}</p></div><div className="rounded-2xl bg-blue-50 p-4 dark:bg-blue-950/30"><p className="text-xs text-muted-foreground font-semibold">Facturación Minorista</p><p className="mt-1 text-xl font-black text-blue-600 dark:text-blue-400">{money(retail)}</p></div><div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/30"><p className="text-xs text-muted-foreground font-semibold">Unidades Vendidas</p><p className="mt-1 text-xl font-black text-emerald-600 dark:text-emerald-400">{totalPairs}</p></div><div className="rounded-2xl border p-4"><p className="text-xs text-muted-foreground font-semibold">Capital en mercadería</p><p className="mt-1 text-xl font-black">{money(data.stats.stockValue)}</p></div></div></CardContent></Card><Card className="border-0 shadow-sm lg:col-span-2"><CardHeader><CardTitle>Ventas recientes</CardTitle></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Comprobante</TableHead><TableHead>Fecha</TableHead><TableHead>Cliente</TableHead><TableHead>Canal</TableHead><TableHead>Pago</TableHead><TableHead>Estado</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Comprobante</TableHead></TableRow></TableHeader><TableBody>{data.sales.map((s:Sale)=><TableRow key={s.id} className="hover:bg-muted/30"><TableCell className="font-mono font-bold text-primary">{s.receipt_no}</TableCell><TableCell>{date(s.created_at)}</TableCell><TableCell>{s.customer_name||(s.channel==="mayorista"?"Cliente mayorista":"Consumidor final")}</TableCell><TableCell className={`capitalize font-semibold ${s.channel==="mayorista"?"text-orange-600 dark:text-orange-400":"text-primary"}`}>{s.channel||"Minorista"}</TableCell><TableCell>{s.payment_method}</TableCell><TableCell><span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-bold ${s.status==="pagada"?"bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40":s.status==="pago_parcial"?"bg-amber-50 text-amber-700 dark:bg-amber-950/40":"bg-red-50 text-red-700 dark:bg-red-950/40"}`}>{s.status==="pagada"?"Pagada":s.status==="pago_parcial"?"Pago Parcial":"Con Deuda"}</span></TableCell><TableCell className="text-right font-bold">{money(s.total)}</TableCell><TableCell className="text-right">{onSelectSale&&<Button variant="outline" size="xs" onClick={()=>onSelectSale(s)} className="h-7 gap-1 rounded-lg text-xs" title="Ver Factura X / Remito"><FileText className="size-3 text-primary"/>Factura X</Button>}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card></div></>}
 
-function SettingsPage({data,setModal}:any){const rows=[["Nombre personalizable",data.settings?.business_name,Store],["Sucursal","Única",Building2],["Comprobantes","Tipo X · no fiscal",FileText],["Moneda","Pesos argentinos (ARS)",CircleDollarSign],["Mayorista",`Desde ${data.settings?.wholesale_min_qty && Number(data.settings.wholesale_min_qty) !== 6 ? data.settings.wholesale_min_qty : 12} unidades`,Tags]];return <><SectionTitle eyebrow="Administración" title="Configuración" text="Datos generales y reglas de operación del negocio." action={<Button onClick={()=>setModal("settings")}><Settings/>Editar datos</Button>}/><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{rows.map(([label,value,Icon]:any)=><Card key={label} className="gap-3 border-0 py-5 shadow-sm"><CardContent className="flex items-center gap-4 px-5"><span className="grid size-12 place-items-center rounded-2xl bg-primary/10 text-primary"><Icon/></span><div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p><p className="mt-1 font-bold">{value}</p></div></CardContent></Card>)}</div><Card className="mt-6 border-0 shadow-sm"><CardHeader><CardTitle>Capacidades activas</CardTitle></CardHeader><CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{["Inventario por producto, modelo y variante","Lectores USB, Bluetooth y cámara","Precios minoristas y mayoristas","Caja con ingresos y egresos","Clientes y cuentas corrientes","Catálogo imprimible con códigos","Comprobantes internos X","Modo claro y nocturno","Historial de movimientos"].map(x=><div key={x} className="flex items-center gap-2 rounded-xl bg-muted/50 p-3 text-sm"><Check className="size-4 text-emerald-600"/>{x}</div>)}</CardContent></Card></>}
+function SettingsPage({data,setModal}:any){
+  const rows=[
+    ["Nombre personalizable",data.settings?.business_name,Store],
+    ["Sucursal","Única",Building2],
+    ["Comprobantes","Tipo X · no fiscal",FileText],
+    ["Moneda base",data.settings?.currency==="BRL"?"Reales brasileños (R$ BRL)":data.settings?.currency==="USD"?"Dólares (US$ USD)":"Pesos (ARS)",CircleDollarSign],
+    ["Canal predeterminado",data.settings?.default_channel==="mayorista"?"Mayorista":"Minorista",Tags],
+  ];
+  return <><SectionTitle eyebrow="Administración" title="Configuración" text="Datos generales y reglas de operación del negocio." action={<Button onClick={()=>setModal("settings")}><Settings/>Editar datos</Button>}/><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{rows.map(([label,value,Icon]:any)=><Card key={label} className="gap-3 border-0 py-5 shadow-sm"><CardContent className="flex items-center gap-4 px-5"><span className="grid size-12 place-items-center rounded-2xl bg-primary/10 text-primary"><Icon/></span><div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p><p className="mt-1 font-bold">{value}</p></div></CardContent></Card>)}</div><Card className="mt-6 border-0 shadow-sm"><CardHeader><CardTitle>Capacidades activas</CardTitle></CardHeader><CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{["Inventario por producto, modelo y variante","Lectores USB, Bluetooth y cámara","Precios minoristas y mayoristas","Caja con ingresos y egresos","Clientes y cuentas corrientes","Catálogo imprimible con códigos","Comprobantes internos X","Modo claro y nocturno","Historial de movimientos"].map(x=><div key={x} className="flex items-center gap-2 rounded-xl bg-muted/50 p-3 text-sm"><Check className="size-4 text-emerald-600"/>{x}</div>)}</CardContent></Card></>}
 
 function SelectField({label,name,defaultValue,children}:{label:string;name:string;defaultValue?:string;children:any}) {
   return <label className="grid gap-1.5 text-sm font-medium"><span>{label}</span><select name={name} defaultValue={defaultValue} className="h-10 rounded-xl border bg-background px-3 text-sm">{children}</select></label>;
@@ -1132,18 +1184,25 @@ function SalesPOSConfigured({
   const rounding = data.settings?.rounding_mode === "100" ? 100 : data.settings?.rounding_mode === "10" ? 10 : 0;
   const displayTotal = rounding ? Math.round(rawTotal / rounding) * rounding : rawTotal;
 
-  // Multi-moneda: Pesos ($ ARS) vs Reales (R$ BRL)
-  const [saleCurrency, setSaleCurrency] = useState<"ARS" | "BRL">("ARS");
-  const exchangeRate = Number(data.settings?.exchange_rate_brl) || 250;
-  const displayTotalBrl = Math.round((displayTotal / exchangeRate) * 100) / 100;
-  const currentTotal = saleCurrency === "BRL" ? displayTotalBrl : displayTotal;
+  // Multi-moneda: Reales (R$ BRL) [Predeterminada], Pesos ($ ARS), Dólares (US$ USD)
+  const defaultCurr = (data.settings?.currency || "BRL") as "BRL" | "ARS" | "USD";
+  const [saleCurrency, setSaleCurrency] = useState<"BRL" | "ARS" | "USD">(defaultCurr);
+  const rateArs = Number(data.settings?.exchange_rate_ars || data.settings?.exchange_rate_brl) || 250;
+  const rateUsd = Number(data.settings?.exchange_rate_usd) || 5.70;
 
-  const handleCurrencyChange = (newCur: "ARS" | "BRL") => {
+  // El total base está en Reales (BRL)
+  const displayTotalBrl = displayTotal;
+  const displayTotalArs = Math.round(displayTotal * rateArs);
+  const displayTotalUsd = Math.round((displayTotal / rateUsd) * 100) / 100;
+
+  const currentTotal = saleCurrency === "BRL" ? displayTotalBrl : (saleCurrency === "ARS" ? displayTotalArs : displayTotalUsd);
+
+  const handleCurrencyChange = (newCur: "BRL" | "ARS" | "USD") => {
     setSaleCurrency(newCur);
     setIsCustomPaid(false);
-    const matching = (data.bankAccounts || []).filter((a: any) => (a.currency || "ARS") === newCur);
+    const matching = (data.bankAccounts || []).filter((a: any) => (a.currency || "BRL") === newCur);
     const currentAcc = (data.bankAccounts || []).find((a: any) => String(a.id) === String(bankAccountId));
-    if (!currentAcc || (currentAcc.currency || "ARS") !== newCur) {
+    if (!currentAcc || (currentAcc.currency || "BRL") !== newCur) {
       if (matching.length > 0) {
         setBankAccountId(String(matching[0].id));
       } else {
@@ -1158,22 +1217,17 @@ function SalesPOSConfigured({
 
   useEffect(() => {
     if (!isCustomPaid) {
-      setPaidInput(saleCurrency === "BRL" ? String(displayTotalBrl) : String(displayTotal));
+      setPaidInput(saleCurrency === "BRL" ? String(displayTotalBrl) : (saleCurrency === "USD" ? String(displayTotalUsd) : String(displayTotalArs)));
     }
-  }, [displayTotal, displayTotalBrl, saleCurrency, isCustomPaid]);
+  }, [displayTotalBrl, displayTotalArs, displayTotalUsd, saleCurrency, isCustomPaid]);
 
   const parsedPaid = Number(paidInput);
   const paidAmount = isNaN(parsedPaid) ? 0 : Math.max(0, Math.min(currentTotal, parsedPaid));
-  const pendingAmount = Math.max(0, currentTotal - paidAmount);
+  const pendingAmount = Math.max(0, Math.round((currentTotal - paidAmount) * 100) / 100);
   const saleStatus: "pagada" | "pago_parcial" | "con_deuda" =
     pendingAmount === 0 ? "pagada" : paidAmount > 0 ? "pago_parcial" : "con_deuda";
 
-  const formatCurr = (val: number) => {
-    if (saleCurrency === "BRL") {
-      return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2 }).format(val || 0);
-    }
-    return money(val);
-  };
+  const formatCurr = (val: number) => formatMoney(val, saleCurrency);
 
   const [showAllCatalog, setShowAllCatalog] = useState(false);
   const searchTrim = scan.trim().toLowerCase();
@@ -1220,9 +1274,31 @@ function SalesPOSConfigured({
         {cameraEnabled ? "Usar cámara" : "Cámara off"}
       </Button>
 
-      <div className="flex items-center gap-2 rounded-xl bg-orange-500/10 border border-orange-500/30 px-3.5 h-12 text-sm font-bold text-orange-700 dark:text-orange-300">
-        <Tags className="size-4 text-orange-600 dark:text-orange-400" />
-        <span>Venta Mayorista</span>
+      <div className="flex items-center rounded-xl bg-muted/80 p-1 border border-border/50 h-12">
+        <button
+          type="button"
+          onClick={() => setChannel("minorista")}
+          className={`rounded-lg px-3.5 h-10 text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 ${
+            channel === "minorista"
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <ShoppingBag className="size-3.5" />
+          Minorista
+        </button>
+        <button
+          type="button"
+          onClick={() => setChannel("mayorista")}
+          className={`rounded-lg px-3.5 h-10 text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 ${
+            channel === "mayorista"
+              ? "bg-orange-600 text-white shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Tags className="size-3.5" />
+          Mayorista
+        </button>
       </div>
 
       <Button
@@ -1235,10 +1311,17 @@ function SalesPOSConfigured({
       </Button>
     </div>
 
-    <div className="mb-5 flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-50/80 px-4 py-3 text-sm text-orange-900 dark:border-orange-900/50 dark:bg-orange-950/30 dark:text-orange-200">
-      <Tags className="size-4 text-orange-600 dark:text-orange-400"/>
-      <span>Precios mayoristas aplicados · Mínimo sugerido: {data.settings?.wholesale_min_qty && Number(data.settings.wholesale_min_qty) !== 6 ? data.settings.wholesale_min_qty : 12} unidades {data.settings?.allow_mixed_sale ? "combinando modelos" : "por modelo"}.</span>
-    </div>
+    {channel === "mayorista" ? (
+      <div className="mb-5 flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-50/80 px-4 py-3 text-sm text-orange-900 dark:border-orange-900/50 dark:bg-orange-950/30 dark:text-orange-200">
+        <Tags className="size-4 text-orange-600 dark:text-orange-400 shrink-0"/>
+        <span>Precios mayoristas aplicados · Mínimo sugerido: {data.settings?.wholesale_min_qty && Number(data.settings.wholesale_min_qty) !== 6 ? data.settings.wholesale_min_qty : 12} unidades {data.settings?.allow_mixed_sale ? "combinando modelos" : "por modelo"}.</span>
+      </div>
+    ) : (
+      <div className="mb-5 flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50/80 px-4 py-3 text-sm text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">
+        <ShoppingBag className="size-4 text-blue-600 dark:text-blue-400 shrink-0"/>
+        <span>Precios minoristas al consumidor final · Venta unitaria libre sin mínimo de unidades.</span>
+      </div>
+    )}
 
     <div className="grid gap-6 xl:grid-cols-[1fr_390px]">
       {/* Columna Principal Izquierda */}
@@ -1293,16 +1376,22 @@ function SalesPOSConfigured({
                           <Badge variant="outline" className="shrink-0 text-[10px]">{p.total_stock} u.</Badge>
                         </div>
                         <div className="flex items-baseline gap-1.5 mb-2">
-                          <p className="text-lg font-extrabold text-orange-600 dark:text-orange-400">
-                            {money(p.wholesale_price)}
+                          <p className={`text-lg font-extrabold ${channel === "mayorista" ? "text-orange-600 dark:text-orange-400" : "text-primary"}`}>
+                            {money(channel === "mayorista" ? p.wholesale_price : (p.retail_price || p.wholesale_price))}
                           </p>
-                          <span className="text-[10px] uppercase font-bold text-muted-foreground">Mayorista</span>
+                          <span className="text-[10px] uppercase font-bold text-muted-foreground">{channel === "mayorista" ? "Mayorista" : "Minorista"}</span>
+                          {channel === "mayorista" && p.retail_price > 0 && (
+                            <span className="text-[11px] text-muted-foreground ml-auto">PVP: {money(p.retail_price)}</span>
+                          )}
+                          {channel === "minorista" && p.wholesale_price > 0 && (
+                            <span className="text-[11px] text-muted-foreground ml-auto">May: {money(p.wholesale_price)}</span>
+                          )}
                         </div>
                       </div>
                       <div>
                         {p.variants.length === 1 && ["Único", "Unico", "General", "Estándar"].includes(p.variants[0].size) ? (
                           <Button
-                            className="w-full h-8 text-xs font-bold gap-1 rounded-xl bg-orange-600 hover:bg-orange-700 text-white"
+                            className={`w-full h-8 text-xs font-bold gap-1 rounded-xl text-white ${channel === "mayorista" ? "bg-orange-600 hover:bg-orange-700" : "bg-primary hover:bg-primary/90"}`}
                             disabled={!allowNegative && !p.variants[0].stock}
                             onClick={() => addVariant(p, p.variants[0])}
                           >
@@ -1371,14 +1460,22 @@ function SalesPOSConfigured({
                         <Badge variant="outline">{p.total_stock} u.</Badge>
                       </div>
                       <div className="flex items-baseline gap-2 mb-3">
-                        <p className="text-xl font-black text-orange-600 dark:text-orange-400">{money(p.wholesale_price)}</p>
-                        <span className="text-[10px] uppercase font-bold text-muted-foreground">Mayorista</span>
+                        <p className={`text-xl font-black ${channel === "mayorista" ? "text-orange-600 dark:text-orange-400" : "text-primary"}`}>
+                          {money(channel === "mayorista" ? p.wholesale_price : (p.retail_price || p.wholesale_price))}
+                        </p>
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground">{channel === "mayorista" ? "Mayorista" : "Minorista"}</span>
+                        {channel === "mayorista" && p.retail_price > 0 && (
+                          <span className="text-xs text-muted-foreground ml-auto">PVP: {money(p.retail_price)}</span>
+                        )}
+                        {channel === "minorista" && p.wholesale_price > 0 && (
+                          <span className="text-xs text-muted-foreground ml-auto">Mayorista: {money(p.wholesale_price)}</span>
+                        )}
                       </div>
                     </div>
                     <div>
                       {p.variants.length === 1 && ["Único", "Unico", "General", "Estándar"].includes(p.variants[0].size) ? (
                         <Button
-                          className="w-full h-8 text-xs font-bold gap-1 rounded-xl bg-orange-600 hover:bg-orange-700 text-white"
+                          className={`w-full h-8 text-xs font-bold gap-1 rounded-xl text-white ${channel === "mayorista" ? "bg-orange-600 hover:bg-orange-700" : "bg-primary hover:bg-primary/90"}`}
                           disabled={!allowNegative && !p.variants[0].stock}
                           onClick={() => addVariant(p, p.variants[0])}
                         >
@@ -1782,6 +1879,17 @@ function SalesPOSConfigured({
             <div className="flex rounded-lg bg-background border p-0.5 shadow-xs">
               <button
                 type="button"
+                onClick={() => handleCurrencyChange("BRL")}
+                className={`rounded-md px-2.5 py-1 text-xs font-bold transition-all ${
+                  saleCurrency === "BRL"
+                    ? "bg-emerald-600 text-white shadow"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                🇧🇷 R$ BRL
+              </button>
+              <button
+                type="button"
                 onClick={() => handleCurrencyChange("ARS")}
                 className={`rounded-md px-2.5 py-1 text-xs font-bold transition-all ${
                   saleCurrency === "ARS"
@@ -1793,23 +1901,36 @@ function SalesPOSConfigured({
               </button>
               <button
                 type="button"
-                onClick={() => handleCurrencyChange("BRL")}
+                onClick={() => handleCurrencyChange("USD")}
                 className={`rounded-md px-2.5 py-1 text-xs font-bold transition-all ${
-                  saleCurrency === "BRL"
-                    ? "bg-emerald-600 text-white shadow"
+                  saleCurrency === "USD"
+                    ? "bg-blue-600 text-white shadow"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                🇧🇷 R$ BRL
+                🇺🇸 US$ USD
               </button>
             </div>
           </div>
-          {saleCurrency === "BRL" && (
-            <div className="flex items-center justify-between rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 px-2.5 py-1.5 text-xs text-emerald-800 dark:text-emerald-300">
-              <span>Cotización: <strong>1 R$ = {money(exchangeRate)}</strong></span>
-              <span className="font-extrabold">Total: R$ {displayTotalBrl.toFixed(2)}</span>
-            </div>
-          )}
+          
+          <div className="flex items-center justify-between rounded-lg bg-muted/60 border border-border/60 px-2.5 py-1.5 text-xs text-muted-foreground">
+            {saleCurrency === "BRL" ? (
+              <>
+                <span>Base: <strong>1 R$ = ${rateArs.toLocaleString("es-AR")} ARS</strong> · 1 US$ = R$ {rateUsd.toFixed(2)}</span>
+                <span className="font-extrabold text-foreground">{formatCurr(displayTotalBrl)}</span>
+              </>
+            ) : saleCurrency === "ARS" ? (
+              <>
+                <span>Cotización: <strong>1 R$ = ${rateArs.toLocaleString("es-AR")} ARS</strong></span>
+                <span className="font-extrabold text-foreground">{formatCurr(displayTotalArs)}</span>
+              </>
+            ) : (
+              <>
+                <span>Cotización: <strong>1 US$ = R$ {rateUsd.toFixed(2)} BRL</strong></span>
+                <span className="font-extrabold text-foreground">{formatCurr(displayTotalUsd)}</span>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Medio de pago */}
@@ -1858,19 +1979,27 @@ function SalesPOSConfigured({
           )}
           <div className="mt-2 flex items-end justify-between border-t pt-2">
             <div>
-              <span className="font-bold text-sm sm:text-base">Total</span>
-              {saleCurrency === "BRL" && (
-                <p className="text-[11px] text-muted-foreground font-medium">Equiv. {money(displayTotal)} ARS</p>
-              )}
+              <span className="font-bold text-sm sm:text-base">Total a cobrar</span>
+              <p className="text-[11px] text-muted-foreground font-medium">
+                {saleCurrency === "BRL" ? (
+                  <>Eq. ${displayTotalArs.toLocaleString("es-AR")} ARS · US$ {displayTotalUsd.toFixed(2)}</>
+                ) : saleCurrency === "ARS" ? (
+                  <>Eq. R$ {displayTotalBrl.toFixed(2)} BRL · US$ {displayTotalUsd.toFixed(2)}</>
+                ) : (
+                  <>Eq. R$ {displayTotalBrl.toFixed(2)} BRL · ${displayTotalArs.toLocaleString("es-AR")} ARS</>
+                )}
+              </p>
             </div>
             <div className="text-right">
-              {saleCurrency === "BRL" ? (
-                <span className="text-3xl font-black tracking-tight text-emerald-600 dark:text-emerald-400">
-                  R$ {displayTotalBrl.toFixed(2)}
-                </span>
-              ) : (
-                <span className="text-3xl font-black tracking-tight">{money(displayTotal)}</span>
-              )}
+              <span className={`text-3xl font-black tracking-tight ${
+                saleCurrency === "BRL"
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : saleCurrency === "USD"
+                  ? "text-blue-600 dark:text-blue-400"
+                  : "text-foreground"
+              }`}>
+                {formatCurr(currentTotal)}
+              </span>
             </div>
           </div>
         </div>
@@ -1879,13 +2008,13 @@ function SalesPOSConfigured({
         <div className="rounded-xl border border-border/80 bg-muted/30 p-3 space-y-2.5">
           <div className="flex items-center justify-between">
             <label className="text-xs font-bold text-foreground">
-              Monto Abonado ({saleCurrency === "BRL" ? "R$ BRL" : "$ ARS"}) <span className="text-destructive font-bold">*</span>
+              Monto Abonado ({saleCurrency === "BRL" ? "R$ BRL" : saleCurrency === "USD" ? "US$ USD" : "$ ARS"}) <span className="text-destructive font-bold">*</span>
             </label>
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => {
-                  setPaidInput(saleCurrency === "BRL" ? String(displayTotalBrl) : String(displayTotal));
+                  setPaidInput(String(currentTotal));
                   setIsCustomPaid(false);
                 }}
                 className="text-[11px] font-semibold text-primary hover:underline px-1.5 py-0.5 rounded bg-primary/10"
@@ -1907,12 +2036,12 @@ function SalesPOSConfigured({
 
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground">
-              {saleCurrency === "BRL" ? "R$" : "$"}
+              {saleCurrency === "BRL" ? "R$" : saleCurrency === "USD" ? "US$" : "$"}
             </span>
             <Input
               type="number"
               min={0}
-              step={saleCurrency === "BRL" ? "0.01" : "1"}
+              step={saleCurrency === "ARS" ? "1" : "0.01"}
               max={currentTotal}
               value={paidInput}
               onChange={(e) => {
@@ -1920,7 +2049,7 @@ function SalesPOSConfigured({
                 setPaidInput(e.target.value);
               }}
               placeholder="0"
-              className="pl-9 font-bold text-base h-10"
+              className="pl-12 font-bold text-base h-10"
             />
           </div>
 
@@ -1947,10 +2076,14 @@ function SalesPOSConfigured({
                 Saldo Pendiente (Deuda generada):
               </span>
               <span className="font-black text-amber-700 dark:text-amber-300 text-sm">
-                {saleCurrency === "BRL" ? `R$ ${pendingAmount.toFixed(2)}` : money(pendingAmount)}
-                {saleCurrency === "BRL" && (
+                {formatCurr(pendingAmount)}
+                {saleCurrency !== "BRL" ? (
                   <span className="ml-1 text-[11px] font-normal text-muted-foreground">
-                    (Eq. {money(Math.round(pendingAmount * exchangeRate))})
+                    (Base: R$ {(saleCurrency === "ARS" ? pendingAmount / rateArs : pendingAmount * rateUsd).toFixed(2)})
+                  </span>
+                ) : (
+                  <span className="ml-1 text-[11px] font-normal text-muted-foreground">
+                    (Eq. ${Math.round(pendingAmount * rateArs).toLocaleString("es-AR")} ARS)
                   </span>
                 )}
               </span>
@@ -1973,7 +2106,8 @@ function SalesPOSConfigured({
             additionalCharge: chargeAmount,
             additionalChargeDescription,
             currency: saleCurrency,
-            exchangeRate,
+            exchangeRateArs: rateArs,
+            exchangeRateUsd: rateUsd,
           })}
         >
           {busy
@@ -1981,10 +2115,10 @@ function SalesPOSConfigured({
             : pendingAmount > 0 && !customerId
             ? "Seleccioná cliente para registrar deuda *"
             : paidAmount === 0 && pendingAmount > 0
-            ? `Registrar a Deuda ${saleCurrency === "BRL" ? `R$ ${displayTotalBrl.toFixed(2)}` : money(displayTotal)}`
+            ? `Registrar a Deuda ${formatCurr(currentTotal)}`
             : pendingAmount > 0
-            ? `Cobrar ${saleCurrency === "BRL" ? `R$ ${paidAmount.toFixed(2)}` : money(paidAmount)} (Deuda: ${saleCurrency === "BRL" ? `R$ ${pendingAmount.toFixed(2)}` : money(pendingAmount)})`
-            : `Cobrar ${saleCurrency === "BRL" ? `R$ ${displayTotalBrl.toFixed(2)}` : money(displayTotal)}`}
+            ? `Cobrar ${formatCurr(paidAmount)} (Deuda: ${formatCurr(pendingAmount)})`
+            : `Cobrar ${formatCurr(currentTotal)}`}
         </Button>
         {pendingAmount > 0 && !customerId && cart.length > 0 && (
           <p className="text-center text-xs font-semibold text-destructive">
@@ -2001,6 +2135,9 @@ function SalesPOSConfigured({
 
 function CatalogConfigured({ data, products }: any) {
   const [barcodeProduct, setBarcodeProduct] = useState<Product | null>(null);
+  const [catalogMode, setCatalogMode] = useState<"wholesale" | "retail" | "both">(
+    (data.settings?.catalog_default_price as any) || "both"
+  );
   const visibleProducts = data.settings?.catalog_in_stock_only
     ? products.filter((product: Product) => product.total_stock > 0)
     : products;
@@ -2009,9 +2146,9 @@ function CatalogConfigured({ data, products }: any) {
     <div className="print-only-area">
       <div className="no-print">
         <SectionTitle
-          eyebrow="Venta Mayorista"
-          title="Generador de Catálogos Mayoristas"
-          text="Compartí o imprimí los productos disponibles con precios mayoristas para clientes comerciales."
+          eyebrow="Catálogo Comercial"
+          title="Generador de Catálogos"
+          text="Compartí o imprimí los productos disponibles con precios minoristas, mayoristas o ambos."
           action={
             <Button variant="outline" onClick={() => window.print()} className="rounded-xl">
               <Printer /> Imprimir / PDF
@@ -2019,11 +2156,40 @@ function CatalogConfigured({ data, products }: any) {
           }
         />
         <div className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-2xl border bg-card p-3">
-          <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1.5 rounded-xl bg-orange-500/10 border border-orange-500/30 px-3.5 py-1.5 text-xs font-bold text-orange-700 dark:text-orange-300">
-              <Tags className="size-4 text-orange-600 dark:text-orange-400" />
-              Precios Mayoristas Oficiales
-            </span>
+          <div className="flex items-center gap-1.5 rounded-xl bg-muted p-1 text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => setCatalogMode("wholesale")}
+              className={`rounded-lg px-3 py-1.5 transition-all ${
+                catalogMode === "wholesale"
+                  ? "bg-orange-600 text-white shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Precios Mayoristas
+            </button>
+            <button
+              type="button"
+              onClick={() => setCatalogMode("retail")}
+              className={`rounded-lg px-3 py-1.5 transition-all ${
+                catalogMode === "retail"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Precios Minoristas
+            </button>
+            <button
+              type="button"
+              onClick={() => setCatalogMode("both")}
+              className={`rounded-lg px-3 py-1.5 transition-all ${
+                catalogMode === "both"
+                  ? "bg-card text-foreground shadow-xs font-extrabold"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Ambas Listas
+            </button>
           </div>
           <Badge variant="outline" className="ml-auto">
             {data.settings?.catalog_in_stock_only ? "Solo con stock" : "Todos los productos"}
@@ -2047,7 +2213,7 @@ function CatalogConfigured({ data, products }: any) {
           </div>
         </div>
         <p className="mt-2 text-sm font-semibold">
-          Catálogo Oficial de Precios Mayoristas
+          Catálogo Oficial · {catalogMode === "wholesale" ? "Precios Mayoristas" : (catalogMode === "retail" ? "Precios Minoristas" : "Lista de Precios")}
         </p>
       </div>
 
@@ -2069,14 +2235,34 @@ function CatalogConfigured({ data, products }: any) {
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xl font-black text-orange-600 dark:text-orange-400">
-                      {money(product.wholesale_price)}
-                    </p>
-                    <span className="text-[10px] uppercase font-bold text-muted-foreground">Mayorista</span>
-                    {product.retail_price > 0 && (
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        PVP: {money(product.retail_price)}
-                      </p>
+                    {catalogMode === "wholesale" && (
+                      <>
+                        <p className="text-xl font-black text-orange-600 dark:text-orange-400">
+                          {money(product.wholesale_price)}
+                        </p>
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground">Mayorista</span>
+                      </>
+                    )}
+                    {catalogMode === "retail" && (
+                      <>
+                        <p className="text-xl font-black text-primary">
+                          {money(product.retail_price || product.wholesale_price)}
+                        </p>
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground">Minorista / PVP</span>
+                      </>
+                    )}
+                    {catalogMode === "both" && (
+                      <>
+                        <p className="text-lg font-black text-orange-600 dark:text-orange-400">
+                          {money(product.wholesale_price)}
+                        </p>
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground">Mayorista</span>
+                        {product.retail_price > 0 && (
+                          <p className="text-xs font-semibold text-primary mt-0.5">
+                            PVP: {money(product.retail_price)}
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -2199,9 +2385,9 @@ function SettingsCenter({data,onSave,busy,dark,setDark,setToast,uid,setModal,onE
           onTransfer={onTransferModal}
         />
       </TabsContent>
-      <TabsContent value="ventas"><SettingsFormCard title="Ventas y comprobantes X" description="Controlá la numeración, los cobros, descuentos y condiciones mayoristas." icon={FileText} onSubmit={submitSettings} busy={busy}><Field label="Prefijo del comprobante" name="receiptPrefix" defaultValue={settings.receipt_prefix||"X"}/><Field label="Próximo número" name="nextReceiptNumber" type="number" defaultValue={settings.next_receipt_number||1}/><input type="hidden" name="defaultChannel" value="mayorista" /><div className="space-y-1.5"><label className="text-sm font-semibold">Modalidad comercial</label><div className="flex h-10 w-full items-center rounded-xl border bg-muted/40 px-3 text-sm font-medium text-primary">Venta Mayorista (Exclusivo)</div></div><Field label="Medios de pago separados por coma" name="paymentMethods" defaultValue={settings.payment_methods}/><Field label="Descuento máximo (%)" name="maxDiscountPercent" type="number" defaultValue={settings.max_discount_percent}/><SelectField label="Redondeo del total" name="roundingMode" defaultValue={settings.rounding_mode}><option value="none">Sin redondeo</option><option value="10">Al múltiplo de $10</option><option value="100">Al múltiplo de $100</option></SelectField><Field label="Cotización 1 Real (R$ BRL) en Pesos ($ ARS)" name="exchangeRateBrl" type="number" step="any" defaultValue={settings.exchange_rate_brl||250} placeholder="Ej: 250"/><Field label="Mínimo mayorista (pares)" name="wholesaleMinQty" type="number" defaultValue={settings.wholesale_min_qty && Number(settings.wholesale_min_qty) !== 6 ? settings.wholesale_min_qty : 12}/><SettingToggle name="allowMixedSale" label="Combinar modelos" description="Permite alcanzar el mínimo mayorista sumando distintos modelos." defaultChecked={Boolean(settings.allow_mixed_sale)}/><div className="md:col-span-2"><TextAreaField label="Condiciones mayoristas" name="wholesaleTerms" defaultValue={settings.wholesale_terms}/></div></SettingsFormCard></TabsContent>
+      <TabsContent value="ventas"><SettingsFormCard title="Ventas, Monedas y Comprobantes X" description="Configurá la moneda base (Reales por defecto), cotizaciones en Pesos y Dólares, cobros y condiciones comerciales." icon={FileText} onSubmit={submitSettings} busy={busy}><SelectField label="Moneda base predeterminada" name="currency" defaultValue={settings.currency||"BRL"}><option value="BRL">🇧🇷 Reales Brasileños (R$ BRL) - Predeterminada</option><option value="ARS">🇦🇷 Pesos Argentinos ($ ARS)</option><option value="USD">🇺🇸 Dólares Estadounidenses (US$ USD)</option></SelectField><Field label="Cotización: 1 Real (R$ BRL) en Pesos ($ ARS)" name="exchangeRateArs" type="number" step="any" defaultValue={settings.exchange_rate_ars||settings.exchange_rate_brl||250} placeholder="Ej: 250"/><Field label="Cotización: 1 Dólar (US$ USD) en Reales (R$ BRL)" name="exchangeRateUsd" type="number" step="any" defaultValue={settings.exchange_rate_usd||5.70} placeholder="Ej: 5.70"/><input type="hidden" name="exchangeRateBrl" value={settings.exchange_rate_ars||settings.exchange_rate_brl||250} /><div className="md:col-span-2 rounded-xl bg-muted/40 border p-3 text-xs text-muted-foreground flex flex-wrap items-center justify-between gap-2"><span>Paridades activas: <strong>1 R$ = ${Number(settings.exchange_rate_ars||settings.exchange_rate_brl||250).toLocaleString("es-AR")} ARS</strong> · <strong>1 US$ = R$ {Number(settings.exchange_rate_usd||5.70).toFixed(2)} BRL</strong> · <strong>1 US$ ≈ ${(Number(settings.exchange_rate_usd||5.70) * Number(settings.exchange_rate_ars||settings.exchange_rate_brl||250)).toLocaleString("es-AR")} ARS</strong></span><Badge variant="outline" className="font-mono text-[10px]">Multi-moneda CR</Badge></div><Field label="Prefijo del comprobante" name="receiptPrefix" defaultValue={settings.receipt_prefix||"X"}/><Field label="Próximo número" name="nextReceiptNumber" type="number" defaultValue={settings.next_receipt_number||1}/><SelectField label="Canal de venta predeterminado" name="defaultChannel" defaultValue={settings.default_channel||"minorista"}><option value="minorista">Minorista (Público general / Consumidor final)</option><option value="mayorista">Mayorista (Comercios y revendedores)</option></SelectField><Field label="Medios de pago separados por coma" name="paymentMethods" defaultValue={settings.payment_methods}/><Field label="Descuento máximo (%)" name="maxDiscountPercent" type="number" defaultValue={settings.max_discount_percent}/><SelectField label="Redondeo del total" name="roundingMode" defaultValue={settings.rounding_mode}><option value="none">Sin redondeo</option><option value="10">Al múltiplo de $10</option><option value="100">Al múltiplo de $100</option></SelectField><Field label="Mínimo mayorista (pares)" name="wholesaleMinQty" type="number" defaultValue={settings.wholesale_min_qty && Number(settings.wholesale_min_qty) !== 6 ? settings.wholesale_min_qty : 12}/><SettingToggle name="allowMixedSale" label="Combinar modelos" description="Permite alcanzar el mínimo mayorista sumando distintos modelos." defaultChecked={Boolean(settings.allow_mixed_sale)}/><div className="md:col-span-2"><TextAreaField label="Condiciones mayoristas" name="wholesaleTerms" defaultValue={settings.wholesale_terms}/></div></SettingsFormCard></TabsContent>
       <TabsContent value="inventario"><SettingsFormCard title="Reglas de inventario" description="Definí alertas, talles habituales y el comportamiento cuando no hay existencias." icon={Boxes} onSubmit={submitSettings} busy={busy}><Field label="Alerta de stock mínimo" name="lowStockAt" type="number" defaultValue={settings.low_stock_at}/><Field label="Talles predeterminados" name="defaultSizes" defaultValue={settings.default_sizes}/><Field label="Prefijo para códigos propios" name="barcodePrefix" defaultValue={settings.barcode_prefix}/><SettingToggle name="allowNegativeStock" label="Permitir stock negativo" description="Habilita ventas aunque el talle figure sin existencias. Usalo con control." defaultChecked={Boolean(settings.allow_negative_stock)}/><div className="md:col-span-2 rounded-2xl border bg-muted/35 p-4"><p className="font-bold">Estado actual</p><div className="mt-3 grid gap-3 sm:grid-cols-3"><div><p className="text-2xl font-black">{data.stats.productCount}</p><p className="text-xs text-muted-foreground">Modelos activos</p></div><div><p className="text-2xl font-black">{data.stats.lowStock}</p><p className="text-xs text-muted-foreground">Alertas vigentes</p></div><div><p className="text-2xl font-black">{data.products.reduce((sum:number,p:Product)=>sum+p.total_stock,0)}</p><p className="text-xs text-muted-foreground">Pares registrados</p></div></div></div></SettingsFormCard></TabsContent>
-      <TabsContent value="catalogo"><SettingsFormCard title="Catálogos comerciales" description="Elegí qué información se imprime y comparte con clientes." icon={Tags} onSubmit={submitSettings} busy={busy}><input type="hidden" name="catalogDefaultPrice" value="wholesale" /><div className="space-y-1.5"><label className="text-sm font-semibold">Lista de precios predeterminada</label><div className="flex h-10 w-full items-center rounded-xl border bg-muted/40 px-3 text-sm font-medium text-primary">Precios Mayoristas (Exclusivo)</div></div><Field label="Contacto visible" name="catalogContact" defaultValue={settings.catalog_contact} placeholder="WhatsApp, teléfono o Instagram"/><SettingToggle name="catalogInStockOnly" label="Solo productos con stock" description="Oculta automáticamente modelos agotados." defaultChecked={Boolean(settings.catalog_in_stock_only)}/><SettingToggle name="catalogShowBarcode" label="Mostrar códigos de barras" description="Incluye el código en cada ficha impresa." defaultChecked={Boolean(settings.catalog_show_barcode)}/><div className="md:col-span-2"><TextAreaField label="Condiciones al pie del catálogo" name="catalogTerms" defaultValue={settings.catalog_terms}/></div></SettingsFormCard></TabsContent>
+      <TabsContent value="catalogo"><SettingsFormCard title="Catálogos comerciales" description="Elegí qué información se imprime y comparte con clientes." icon={Tags} onSubmit={submitSettings} busy={busy}><SelectField label="Lista de precios predeterminada en catálogos" name="catalogDefaultPrice" defaultValue={settings.catalog_default_price||"both"}><option value="wholesale">Solo Precios Mayoristas</option><option value="retail">Solo Precios Minoristas</option><option value="both">Ambas listas (Mayorista + PVP)</option></SelectField><Field label="Contacto visible" name="catalogContact" defaultValue={settings.catalog_contact} placeholder="WhatsApp, teléfono o Instagram"/><SettingToggle name="catalogInStockOnly" label="Solo productos con stock" description="Oculta automáticamente modelos agotados." defaultChecked={Boolean(settings.catalog_in_stock_only)}/><SettingToggle name="catalogShowBarcode" label="Mostrar códigos de barras" description="Incluye el código en cada ficha impresa." defaultChecked={Boolean(settings.catalog_show_barcode)}/><div className="md:col-span-2"><TextAreaField label="Condiciones al pie del catálogo" name="catalogTerms" defaultValue={settings.catalog_terms}/></div></SettingsFormCard></TabsContent>
       <TabsContent value="lectores"><SettingsFormCard title="Lectores y cámara" description="Configurá y verificá los dispositivos usados en el punto de venta." icon={ScanLine} onSubmit={submitSettings} busy={busy}><SettingToggle name="scanSound" label="Confirmación sonora" description="Reproduce un sonido breve al reconocer un código." defaultChecked={Boolean(settings.scan_sound)}/><SettingToggle name="cameraEnabled" label="Lector con cámara" description="Habilita el escaneo mediante la cámara del dispositivo." defaultChecked={Boolean(settings.camera_enabled)}/><div className="md:col-span-2 grid gap-3 rounded-2xl border bg-muted/30 p-4 md:grid-cols-[1fr_auto_auto]"><div><p className="mb-2 text-sm font-bold">Prueba de lector USB o Bluetooth</p><Input value={readerCode} onChange={e=>setReaderCode(e.target.value)} onKeyDown={e=>e.key==="Enter"&&testReader()} placeholder="Escaneá un código aquí"/><p className="mt-2 text-xs text-muted-foreground">{readerResult||"El lector debe escribir el código y enviar Enter."}</p></div><Button type="button" variant="outline" className="self-end" onClick={testReader}><ScanLine/>Probar lector</Button><Button type="button" variant="outline" className="self-end" onClick={testCamera}><Camera/>Probar cámara</Button></div></SettingsFormCard></TabsContent>
       <TabsContent value="apariencia"><SettingsFormCard title="Apariencia del sistema" description="Personalizá el modo visual sin cambiar los datos del negocio." icon={Palette} onSubmit={submitSettings} busy={busy}><SelectField label="Tema predeterminado" name="themeDefault" defaultValue={settings.theme_default}><option value="system">Según el dispositivo</option><option value="light">Modo claro</option><option value="dark">Modo noche</option></SelectField><SelectField label="Animaciones" name="motionLevel" defaultValue={settings.motion_level}><option value="full">Suaves y completas</option><option value="reduced">Movimiento reducido</option></SelectField><SelectField label="Tamaño de navegación" name="navDensity" defaultValue={settings.nav_density}><option value="normal">Normal</option><option value="compact">Compacta</option></SelectField><div className="flex items-end"><Button type="button" variant="outline" className="w-full" onClick={()=>setDark(!dark)}>{dark?<Sun/>:<Moon/>}Vista previa: {dark?"modo claro":"modo noche"}</Button></div></SettingsFormCard></TabsContent>
       <TabsContent value="datos"><Card className="settings-panel border-0 shadow-sm"><CardHeader className="border-b"><div className="flex items-start gap-3"><span className="settings-panel-icon"><Database className="size-5"/></span><div><CardTitle>Respaldo y seguridad de datos</CardTitle><p className="mt-1 text-sm text-muted-foreground">Descargá copias, exportá registros o restaurá el sistema de forma controlada.</p></div></div></CardHeader><CardContent className="space-y-6 pt-1"><div><p className="mb-3 font-bold">Copias y exportaciones</p><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={exportBackup}><Download/>Respaldo completo</Button><Button variant="outline" onClick={()=>exportCsv("productos",data.products)}><Download/>Productos CSV</Button><Button variant="outline" onClick={()=>exportCsv("ventas",data.sales)}><Download/>Ventas CSV</Button><Button variant="outline" onClick={()=>exportCsv("caja",data.movements)}><Download/>Caja CSV</Button><Button variant="outline" onClick={async()=>{ if(window.confirm("¿Querés cargar calzados y clientes de ejemplo para probar el sistema?")){ await onSave({action:"seed_demo_data"},"Datos de prueba cargados correctamente"); } }}><Boxes className="size-4"/>Cargar datos demo</Button></div></div><div className="grid gap-4 border-t pt-6 md:grid-cols-2"><div className="rounded-2xl border p-5"><Upload className="mb-3 size-7 text-primary"/><p className="font-bold">Restaurar una copia</p><p className="mt-1 text-sm text-muted-foreground">Reemplaza los datos actuales por los contenidos en un respaldo JSON del sistema.</p><input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={importBackup}/><Button variant="outline" className="mt-4" onClick={()=>fileRef.current?.click()}><Upload/>Seleccionar respaldo</Button></div><div className="rounded-2xl border border-red-200 bg-red-50/60 p-5 dark:border-red-900 dark:bg-red-950/20"><ShieldAlert className="mb-3 size-7 text-red-600"/><p className="font-bold text-red-700 dark:text-red-300">Restablecer base de datos</p><p className="mt-1 text-sm text-red-700/75 dark:text-red-300/75">Elimina productos, ventas, clientes, proveedores y movimientos. Conserva la configuración.</p><Button variant="destructive" className="mt-4" onClick={()=>setResetOpen(true)}><ShieldAlert/>Eliminar datos operativos</Button></div></div></CardContent></Card></TabsContent>

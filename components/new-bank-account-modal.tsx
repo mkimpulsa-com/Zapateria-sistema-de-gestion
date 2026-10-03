@@ -32,7 +32,7 @@ export function NewBankAccountModal({
   const [bankName, setBankName] = useState("");
   const [accountType, setAccountType] = useState("corriente");
   const [accountNumber, setAccountNumber] = useState("");
-  const [currency, setCurrency] = useState("ARS");
+  const [currency, setCurrency] = useState("BRL");
   const [initialBalance, setInitialBalance] = useState("0");
   const [notes, setNotes] = useState("");
 
@@ -42,7 +42,7 @@ export function NewBankAccountModal({
       setBankName("");
       setAccountType("corriente");
       setAccountNumber("");
-      setCurrency("ARS");
+      setCurrency("BRL");
       setInitialBalance("0");
       setNotes("");
     }
@@ -136,8 +136,9 @@ export function NewBankAccountModal({
                 onChange={(e) => setCurrency(e.target.value)}
                 className="h-10 rounded-xl border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary font-bold"
               >
+                <option value="BRL">🇧🇷 BRL (R$ - Reales Brasileños) [Predeterminada]</option>
                 <option value="ARS">🇦🇷 ARS ($ - Pesos Argentinos)</option>
-                <option value="BRL">🇧🇷 BRL (R$ - Reales Brasileños)</option>
+                <option value="USD">🇺🇸 USD (US$ - Dólares Estadounidenses)</option>
               </select>
             </div>
 
@@ -155,18 +156,18 @@ export function NewBankAccountModal({
 
           <div className="grid gap-1.5">
             <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Saldo inicial ({currency === "BRL" ? "R$ Reales" : "$ ARS"})
+              Saldo inicial ({currency === "BRL" ? "R$ Reales" : currency === "USD" ? "US$ Dólares" : "$ ARS"})
             </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-bold">
-                {currency === "BRL" ? "R$" : "$"}
+                {currency === "BRL" ? "R$" : currency === "USD" ? "US$" : "$"}
               </span>
               <Input
                 type="number"
                 min="0"
                 step="any"
                 placeholder="0"
-                className={currency === "BRL" ? "pl-9 font-semibold" : "pl-7 font-semibold"}
+                className={currency === "USD" ? "pl-11 font-semibold" : currency === "BRL" ? "pl-9 font-semibold" : "pl-7 font-semibold"}
                 value={initialBalance}
                 onChange={(e) => setInitialBalance(e.target.value)}
               />

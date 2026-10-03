@@ -21,6 +21,7 @@ import {
   Building,
   CreditCard,
   SlidersHorizontal,
+  UserRound,
 } from "lucide-react";
 
 interface CustomersViewProps {
@@ -54,7 +55,7 @@ export function CustomersView({
   isCashier = false,
 }: CustomersViewProps) {
   const [query, setQuery] = useState("");
-  const [filterTab, setFilterTab] = useState<"todos" | "con_deuda" | "al_dia">("todos");
+  const [filterTab, setFilterTab] = useState<"todos" | "con_deuda" | "al_dia" | "mayoristas" | "minoristas">("todos");
   const [sortBy, setSortBy] = useState<"deuda" | "nombre" | "recientes">("deuda");
 
   // Statistics
@@ -62,6 +63,8 @@ export function CustomersView({
   const withDebt = customers.filter((c: any) => Number(c.balance || 0) > 0);
   const totalDebt = withDebt.reduce((sum: number, c: any) => sum + Number(c.balance || 0), 0);
   const totalCreditLimit = customers.reduce((sum: number, c: any) => sum + Number(c.credit_limit || 0), 0);
+  const wholesalers = customers.filter((c: any) => c.type === "mayorista").length;
+  const retailers = customers.filter((c: any) => c.type !== "mayorista").length;
 
   // Filtered and sorted list
   const filteredCustomers = useMemo(() => {
@@ -89,6 +92,8 @@ export function CustomersView({
         const bal = Number(c.balance || 0);
         if (filterTab === "con_deuda") return bal > 0;
         if (filterTab === "al_dia") return bal <= 0;
+        if (filterTab === "mayoristas") return c.type === "mayorista";
+        if (filterTab === "minoristas") return c.type !== "mayorista";
 
         return true;
       })
@@ -111,19 +116,19 @@ export function CustomersView({
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[.16em] text-orange-600 dark:text-orange-400">
+          <p className="text-xs font-bold uppercase tracking-[.16em] text-primary">
             Relaciones comerciales
           </p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
-            Clientes Mayoristas y Cuentas Corrientes
+            Clientes y Cuentas Corrientes
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Control de saldos, cobranzas, límites de crédito y pedidos de clientes comerciales.
+            Control de saldos, cobranzas, límites de crédito para clientes minoristas y mayoristas.
           </p>
         </div>
-        <Button onClick={onNewCustomer} className="rounded-xl shrink-0 bg-orange-600 hover:bg-orange-700 text-white font-semibold">
+        <Button onClick={onNewCustomer} className="rounded-xl shrink-0 font-semibold">
           <UserPlus className="size-4" />
-          Nuevo cliente mayorista
+          Nuevo cliente
         </Button>
       </div>
 
@@ -132,13 +137,13 @@ export function CustomersView({
         <Card className="gap-3 border-0 py-5 shadow-[0_8px_28px_rgb(15_33_55/7%)]">
           <CardContent className="flex items-start justify-between px-5">
             <div>
-              <p className="text-sm text-muted-foreground">Clientes Mayoristas</p>
+              <p className="text-sm text-muted-foreground">Total de clientes</p>
               <p className="mt-2 text-2xl font-bold tracking-tight">{totalCustomers}</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Comercios y revendedores
+                {wholesalers} mayoristas · {retailers} minoristas
               </p>
             </div>
-            <span className="clay-icon rounded-2xl p-3 bg-orange-50 text-orange-700 dark:bg-orange-950/40">
+            <span className="clay-icon rounded-2xl p-3 bg-blue-50 text-blue-700 dark:bg-blue-950/40">
               <Users className="size-5" />
             </span>
           </CardContent>
@@ -212,10 +217,26 @@ export function CustomersView({
             <button
               onClick={() => setFilterTab("todos")}
               className={`rounded-lg px-3 py-1.5 transition ${
-                filterTab === "todos" ? "bg-card shadow-xs text-foreground" : "text-muted-foreground"
+                filterTab === "todos" ? "bg-card shadow-xs text-foreground font-bold" : "text-muted-foreground"
               }`}
             >
               Todos ({totalCustomers})
+            </button>
+            <button
+              onClick={() => setFilterTab("mayoristas")}
+              className={`rounded-lg px-3 py-1.5 transition ${
+                filterTab === "mayoristas" ? "bg-card shadow-xs text-orange-600 font-bold" : "text-muted-foreground"
+              }`}
+            >
+              Mayoristas ({wholesalers})
+            </button>
+            <button
+              onClick={() => setFilterTab("minoristas")}
+              className={`rounded-lg px-3 py-1.5 transition ${
+                filterTab === "minoristas" ? "bg-card shadow-xs text-blue-600 font-bold" : "text-muted-foreground"
+              }`}
+            >
+              Minoristas ({retailers})
             </button>
             <button
               onClick={() => setFilterTab("con_deuda")}
@@ -228,7 +249,7 @@ export function CustomersView({
             <button
               onClick={() => setFilterTab("al_dia")}
               className={`rounded-lg px-3 py-1.5 transition ${
-                filterTab === "al_dia" ? "bg-card shadow-xs text-foreground" : "text-muted-foreground"
+                filterTab === "al_dia" ? "bg-card shadow-xs text-foreground font-bold" : "text-muted-foreground"
               }`}
             >
               Al día
@@ -308,10 +329,23 @@ export function CustomersView({
 
                       <TableCell>
                         <Badge
-                          className="bg-orange-100 text-orange-800 dark:bg-orange-950/50 dark:text-orange-300 border-0 text-xs font-semibold gap-1 inline-flex items-center"
+                          className={`border-0 text-xs font-semibold gap-1 inline-flex items-center ${
+                            c.type === "mayorista"
+                              ? "bg-orange-100 text-orange-800 dark:bg-orange-950/50 dark:text-orange-300"
+                              : "bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300"
+                          }`}
                         >
-                          <Building className="size-3 text-orange-600 dark:text-orange-400" />
-                          Mayorista
+                          {c.type === "mayorista" ? (
+                            <>
+                              <Building className="size-3 text-orange-600 dark:text-orange-400" />
+                              Mayorista
+                            </>
+                          ) : (
+                            <>
+                              <UserRound className="size-3 text-blue-600 dark:text-blue-400" />
+                              Minorista
+                            </>
+                          )}
                         </Badge>
                       </TableCell>
 

@@ -6,31 +6,36 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+import { formatMoney, convertAmount } from "@/lib/currency";
+
 interface TransferBalanceModalProps {
   accounts: any[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   busy?: boolean;
+  rates?: any;
+  settings?: any;
   onSubmit: (payload: {
     action: string;
     fromAccountId: string;
     toAccountId: string;
     amount: number;
+    destinationAmount?: number;
     concept: string;
     reference: string;
   }) => Promise<any>;
 }
-
-const formatMoney = (val: number) =>
-  new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(val || 0);
 
 export function TransferBalanceModal({
   accounts = [],
   open,
   onOpenChange,
   busy = false,
+  rates,
+  settings,
   onSubmit,
 }: TransferBalanceModalProps) {
+  const activeRates = rates || settings || { exchange_rate_ars: 250, exchange_rate_usd: 5.70 };
   const [fromId, setFromId] = useState("");
   const [toId, setToId] = useState("");
   const [amount, setAmount] = useState("");
@@ -56,6 +61,21 @@ export function TransferBalanceModal({
   const transferAmount = Number(amount) || 0;
   const isBalanceExceeded = transferAmount > fromBalance;
 
+  const isCrossCurrency = fromAccount && toAccount && (fromAccount.currency || "BRL") !== (toAccount.currency || "BRL");
+  const calculatedToAmount = useMemo(() => {
+    if (!fromAccount || !toAccount || transferAmount <= 0) return 0;
+    if (!isCrossCurrency) return transferAmount;
+    return convertAmount({
+      amount: transferAmount,
+      from: fromAccount.currency || "BRL",
+      to: toAccount.currency || "BRL",
+      rates: activeRates,
+    });
+  }, [fromAccount, toAccount, transferAmount, isCrossCurrency, activeRates]);
+
+  const [customToAmount, setCustomToAmount] = useState<string>("");
+  const finalToAmount = isCrossCurrency && customToAmount ? Number(customToAmount) || calculatedToAmount : calculatedToAmount;
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
@@ -73,7 +93,7 @@ export function TransferBalanceModal({
       return;
     }
     if (isBalanceExceeded) {
-      setError(`El importe excede el saldo disponible en ${fromAccount?.name} (${formatMoney(fromBalance)}).`);
+      setError(`El importe excede el saldo disponible en ${fromAccount?.name} (${formatMoney(fromBalance, fromAccount?.currency || "BRL")}).`);
       return;
     }
 
@@ -82,6 +102,7 @@ export function TransferBalanceModal({
       fromAccountId: fromId,
       toAccountId: toId,
       amount: transferAmount,
+      destinationAmount: isCrossCurrency ? finalToAmount : transferAmount,
       concept: concept.trim(),
       reference: reference.trim(),
     });
@@ -102,7 +123,7 @@ export function TransferBalanceModal({
             <div>
               <DialogTitle className="text-xl">Transferir entre cuentas</DialogTitle>
               <DialogDescription>
-                Movimiento interno de fondos entre dos cuentas bancarias o cajas del negocio.
+                Movimiento interno de fondos entre cuentas en Reales, Pesos o Dólares.
               </DialogDescription>
             </div>
           </div>
@@ -125,11 +146,11 @@ export function TransferBalanceModal({
               <select
                 value={fromId}
                 onChange={(e) => setFromId(e.target.value)}
-                className="h-10 w-full rounded-xl border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="h-10 w-full rounded-xl border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary font-semibold"
               >
                 {accounts.map((acc) => (
                   <option key={acc.id} value={acc.id} disabled={String(acc.id) === String(toId)}>
-                    {acc.name} ({formatMoney(acc.balance)})
+                    {acc.name} ({formatMoney(acc.balance, acc.currency || "BRL")})
                   </option>
                 ))}
               </select>
@@ -137,7 +158,7 @@ export function TransferBalanceModal({
                 <p className="text-[11px] text-muted-foreground">
                   Saldo disponible:{" "}
                   <span className={`font-semibold ${fromBalance <= 0 ? "text-destructive" : "text-emerald-600 dark:text-emerald-400"}`}>
-                    {formatMoney(fromBalance)}
+                    {formatMoney(fromBalance, fromAccount.currency || "BRL")}
                   </span>
                 </p>
               )}
@@ -151,11 +172,11 @@ export function TransferBalanceModal({
               <select
                 value={toId}
                 onChange={(e) => setToId(e.target.value)}
-                className="h-10 w-full rounded-xl border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="h-10 w-full rounded-xl border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary font-semibold"
               >
                 {accounts.map((acc) => (
                   <option key={acc.id} value={acc.id} disabled={String(acc.id) === String(fromId)}>
-                    {acc.name} ({formatMoney(acc.balance)})
+                    {acc.name} ({formatMoney(acc.balance, acc.currency || "BRL")})
                   </option>
                 ))}
               </select>
@@ -163,7 +184,7 @@ export function TransferBalanceModal({
                 <p className="text-[11px] text-muted-foreground">
                   Saldo actual:{" "}
                   <span className="font-semibold text-foreground">
-                    {formatMoney(toAccount.balance)}
+                    {formatMoney(toAccount.balance, toAccount.currency || "BRL")}
                   </span>
                 </p>
               )}
@@ -173,16 +194,18 @@ export function TransferBalanceModal({
           {/* Importe */}
           <div className="space-y-1.5">
             <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Importe a transferir ($ ARS) <span className="text-destructive">*</span>
+              Importe a debitar de {fromAccount?.name || "origen"} ({fromAccount?.currency || "BRL"}) <span className="text-destructive">*</span>
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-bold">
+                {fromAccount?.currency === "USD" ? "US$" : fromAccount?.currency === "ARS" ? "$" : "R$"}
+              </span>
               <Input
                 type="number"
-                min="1"
+                min="0.01"
                 step="any"
                 placeholder="0"
-                className={`pl-7 h-11 text-lg font-bold ${isBalanceExceeded ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                className={`pl-9 h-11 text-lg font-bold ${isBalanceExceeded ? "border-destructive focus-visible:ring-destructive" : ""}`}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 required
@@ -191,10 +214,34 @@ export function TransferBalanceModal({
             </div>
             {isBalanceExceeded && (
               <p className="text-xs text-destructive font-medium">
-                El importe supera el saldo disponible de {formatMoney(fromBalance)}.
+                El importe supera el saldo disponible de {formatMoney(fromBalance, fromAccount?.currency || "BRL")}.
               </p>
             )}
           </div>
+
+          {/* Si las cuentas son de distinta moneda */}
+          {isCrossCurrency && transferAmount > 0 && (
+            <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-primary">
+                  Conversión de moneda ({fromAccount?.currency} ➔ {toAccount?.currency}):
+                </span>
+                <span className="font-bold">
+                  {formatMoney(finalToAmount, toAccount?.currency || "BRL")}
+                </span>
+              </div>
+              <label className="block text-[11px] text-muted-foreground">
+                Importe que ingresa a destino ({toAccount?.currency}):
+                <Input
+                  type="number"
+                  step="any"
+                  value={customToAmount || calculatedToAmount}
+                  onChange={(e) => setCustomToAmount(e.target.value)}
+                  className="mt-1 h-9 bg-background font-bold text-sm"
+                />
+              </label>
+            </div>
+          )}
 
           {/* Vista previa de saldos resultantes */}
           {fromAccount && toAccount && transferAmount > 0 && !isBalanceExceeded && (
@@ -206,13 +253,13 @@ export function TransferBalanceModal({
               <div className="flex items-center justify-between text-muted-foreground">
                 <span>{fromAccount.name}:</span>
                 <span className="font-mono font-bold text-foreground">
-                  {formatMoney(fromBalance - transferAmount)}
+                  {formatMoney(fromBalance - transferAmount, fromAccount.currency || "BRL")}
                 </span>
               </div>
               <div className="flex items-center justify-between text-muted-foreground">
                 <span>{toAccount.name}:</span>
                 <span className="font-mono font-bold text-foreground">
-                  {formatMoney(Number(toAccount.balance || 0) + transferAmount)}
+                  {formatMoney(Number(toAccount.balance || 0) + finalToAmount, toAccount.currency || "BRL")}
                 </span>
               </div>
             </div>

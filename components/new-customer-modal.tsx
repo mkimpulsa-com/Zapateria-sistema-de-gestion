@@ -35,7 +35,7 @@ export function NewCustomerModal({
   busy,
   onSubmit,
 }: NewCustomerModalProps) {
-  const [type, setType] = useState<"mayorista">("mayorista");
+  const [type, setType] = useState<"minorista" | "mayorista">("minorista");
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -43,7 +43,7 @@ export function NewCustomerModal({
     const payload = {
       action: "create_customer",
       name: String(form.get("name") || "").trim(),
-      type: "mayorista",
+      type,
       document: String(form.get("document") || "").trim(),
       phone: String(form.get("phone") || "").trim(),
       email: String(form.get("email") || "").trim(),
@@ -65,25 +65,45 @@ export function NewCustomerModal({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <span className="grid size-10 place-items-center rounded-xl bg-orange-500/10 text-orange-600">
+            <span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary">
               <UserPlus className="size-5" />
             </span>
             <div>
-              <DialogTitle className="text-xl">Nuevo cliente mayorista</DialogTitle>
+              <DialogTitle className="text-xl">Nuevo cliente</DialogTitle>
               <DialogDescription>
-                Registrá un comercio, revendedor o cliente mayorista con cuenta corriente.
+                Registrá un cliente minorista (consumidor final) o mayorista (comercial / revendedor).
               </DialogDescription>
             </div>
           </div>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="mt-2 space-y-5">
-          <div className="rounded-xl border border-orange-200 bg-orange-50/70 p-3.5 text-xs text-orange-900 dark:border-orange-900/50 dark:bg-orange-950/30 dark:text-orange-200 flex items-center justify-between">
-            <div className="flex items-center gap-2 font-semibold">
-              <Building className="size-4 text-orange-600 dark:text-orange-400" />
-              <span>Tipo de cuenta: <strong>Cliente Mayorista (Comercial / Reventa)</strong></span>
+          <div className="flex flex-col gap-2 rounded-xl border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-xs font-semibold text-muted-foreground">Tipo de cliente:</span>
+            <div className="flex rounded-lg bg-muted p-1">
+              <button
+                type="button"
+                onClick={() => setType("minorista")}
+                className={`rounded-md px-3 py-1.5 text-xs font-bold transition-all ${
+                  type === "minorista"
+                    ? "bg-card shadow-xs text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Minorista (Consumidor final)
+              </button>
+              <button
+                type="button"
+                onClick={() => setType("mayorista")}
+                className={`rounded-md px-3 py-1.5 text-xs font-bold transition-all ${
+                  type === "mayorista"
+                    ? "bg-orange-600 text-white shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Mayorista (Comercial / Reventa)
+              </button>
             </div>
-            <Badge className="bg-orange-600 text-white text-[10px]">Mayorista</Badge>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
