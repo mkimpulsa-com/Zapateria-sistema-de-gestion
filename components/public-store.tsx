@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import {
   ShoppingBag, Search, Sparkles, Filter, X, Plus, Minus, Trash2,
   CheckCircle2, AlertCircle, MessageCircle, MapPin, Truck, Store,
-  ChevronRight, Phone, ShieldCheck, Tag, ArrowLeft, Send, Eye, Check
+  ChevronRight, Phone, ShieldCheck, Tag, ArrowLeft, Send, Eye, Check, Clock
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,9 +13,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
-import { Progress } from "@/components/ui/progress";
-
 import { formatMoney } from "@/lib/currency";
+import {
+  createStoreOrder,
+  subscribeOrder,
+  type StoreOrder,
+  type OrderStatus,
+} from "@/lib/store-service";
 
 interface Variant {
   size: string;
@@ -88,9 +92,9 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
   const branchName = settings?.branch_name || "";
   const rawWhatsapp = settings?.whatsapp || settings?.phone || "";
   const rawMinQty = Number(settings?.wholesale_min_qty);
-  const wholesaleMinQty = rawMinQty && rawMinQty !== 6 ? rawMinQty : 12;
-  const minQty = isMayorista ? wholesaleMinQty : 1;
-  const wholesaleTerms = settings?.wholesale_terms || "Precios mayoristas por volumen.";
+  const wholesaleMinQty = rawMinQty && rawMinQty > 1 && rawMinQty !== 6 ? rawMinQty : 1;
+  const minQty = 1;
+  const wholesaleTerms = settings?.wholesale_terms || "Precios mayoristas directos sin mínimo de compra.";
 
   // Sanitize store phone for wa.me
   const storePhone = useMemo(() => {
@@ -115,15 +119,15 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
 
   // Modal de vista completa del producto
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
-  const [detailQty, setDetailQty] = useState<number>(isMayorista ? wholesaleMinQty : 1);
+  const [detailQty, setDetailQty] = useState<number>(1);
   const [modalAddedAnimation, setModalAddedAnimation] = useState(false);
 
   useEffect(() => {
     if (detailProduct) {
-      setDetailQty(isMayorista ? wholesaleMinQty : 1);
+      setDetailQty(1);
       setModalAddedAnimation(false);
     }
-  }, [detailProduct, isMayorista, wholesaleMinQty]);
+  }, [detailProduct]);
 
   // Channel switch handler that preserves cart and recalculates prices
   const handleSwitchChannel = (newChannel: "minorista" | "mayorista") => {
@@ -157,6 +161,37 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
   const [customerAddress, setCustomerAddress] = useState("");
   const [customerNotes, setCustomerNotes] = useState("");
   const [formError, setFormError] = useState("");
+
+  // Estados de pedido directo y tracking en tiempo real para el cliente
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const [activeTrackOrder, setActiveTrackOrder] = useState<StoreOrder | null>(null);
+  const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false);
+  const [lastStoredOrderId, setLastStoredOrderId] = useState<string>("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(`cr_order_${storeUid}`) || localStorage.getItem("cr_last_order_id") || "";
+      if (saved) setLastStoredOrderId(saved);
+    }
+  }, [storeUid]);
+
+  // Listener en tiempo real del estado del pedido
+  useEffect(() => {
+    const orderIdToTrack = activeTrackOrder?.id || (isTrackingModalOpen ? lastStoredOrderId : "");
+    if (!orderIdToTrack || !storeUid) return;
+
+    const unsub = subscribeOrder(
+      storeUid,
+      orderIdToTrack,
+      (orderLive) => {
+        if (orderLive) {
+          setActiveTrackOrder(orderLive);
+        }
+      },
+      (err) => console.error("Error siguiendo pedido en vivo:", err)
+    );
+    return () => unsub();
+  }, [activeTrackOrder?.id, isTrackingModalOpen, lastStoredOrderId, storeUid]);
 
   // Calculate distinct categories, genders for filters
   const categories = useMemo(() => {
@@ -213,7 +248,7 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
     return cart.reduce((sum, item) => sum + item.qty * item.price, 0);
   }, [cart]);
 
-  const meetsWholesaleMinimum = !isMayorista || totalCartPairs >= minQty;
+  const meetsWholesaleMinimum = totalCartPairs >= 1;
 
   // Add to cart helper (minorista por unidad o mayorista por pack/volumen)
   const handleAddToCart = (product: Product, overrideQty?: number) => {
@@ -224,13 +259,8 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
       return;
     }
 
-    if (isMayorista && maxStock < minQty) {
-      alert(`Este producto no cuenta con la cantidad requerida para el mínimo mayorista (${minQty} unidades).`);
-      return;
-    }
-
-    const defaultInitialQty = isMayorista ? minQty : 1;
-    const qtyToAdd = overrideQty !== undefined && overrideQty >= (isMayorista ? minQty : 1)
+    const defaultInitialQty = 1;
+    const qtyToAdd = overrideQty !== undefined && overrideQty >= 1
       ? overrideQty
       : (cardQtys[product.id] || defaultInitialQty);
 
@@ -282,13 +312,8 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
         .map((item) => {
           if (item.id === id) {
             const nextQty = item.qty + delta;
-            const itemMin = isMayorista ? minQty : 1;
-            if (nextQty < itemMin) {
-              if (isMayorista) {
-                alert(`La compra mayorista es a partir de ${minQty} unidades por producto. Para remover el producto utilizá el botón de eliminar.`);
-              } else {
-                alert(`La cantidad mínima es 1 unidad. Para remover el calzado utilizá el botón de eliminar.`);
-              }
+            if (nextQty < 1) {
+              alert(`La cantidad mínima es 1 unidad. Para remover el producto utilizá el botón de eliminar.`);
               return item;
             }
             if (nextQty > item.maxStock) {
@@ -307,8 +332,8 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
     setCart((prev) => prev.filter((i) => i.id !== id));
   };
 
-  // Build WhatsApp Message and send
-  const handleConfirmAndSendWhatsapp = () => {
+  // Registrar pedido directo en la base de datos (Panel Admin)
+  const handleConfirmOrderDirectly = async () => {
     if (!customerName.trim()) {
       setFormError("Por favor ingresa tu nombre completo.");
       return;
@@ -322,59 +347,77 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
       return;
     }
 
-    if (isMayorista && totalCartPairs < minQty) {
-      setFormError(`El pedido mayorista requiere un mínimo de ${minQty} unidades.`);
+    if (totalCartPairs < 1) {
+      setFormError("Por favor agrega al menos un producto a tu pedido.");
       return;
     }
 
     setFormError("");
+    setIsSubmittingOrder(true);
 
-    // Build structured message
-    const nowStr = new Date().toLocaleDateString("es-AR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    try {
+      const orderItems = cart.map((item) => ({
+        productId: item.productId,
+        name: item.name,
+        brand: item.brand || "",
+        size: item.size || "",
+        qty: item.qty,
+        price: item.price,
+        subtotal: item.qty * item.price,
+        imageUrl: item.imageUrl || "",
+      }));
 
-    let message = `📦 *NUEVO PEDIDO - ${isMayorista ? "VENTA MAYORISTA" : "MINORISTA"}*\n`;
-    message += `📅 *Fecha:* ${nowStr}\n`;
-    message += `👤 *Cliente:* ${customerName.trim()}\n`;
-    message += `📱 *Teléfono:* ${customerPhone.trim()}\n`;
-    message += `📍 *Entrega:* ${deliveryType === "pickup" ? "Retiro en local / depósito" : `Envío a domicilio (${customerAddress.trim()})`}\n`;
-    if (customerNotes.trim()) {
-      message += `📝 *Nota:* ${customerNotes.trim()}\n`;
-    }
-    message += `\n━━━━━━━━━━━━━━━━━━━━\n`;
-    message += `🛍️ *DETALLE DE PRODUCTOS:*\n`;
+      const newOrder = await createStoreOrder(storeUid, {
+        channel: isMayorista ? "mayorista" : "minorista",
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        customerAddress: customerAddress.trim(),
+        deliveryType,
+        customerNotes: customerNotes.trim(),
+        items: orderItems,
+        totalUnits: totalCartPairs,
+        totalAmount: totalCartAmount,
+        currency,
+      });
 
-    cart.forEach((item, idx) => {
-      const itemSubtotal = item.qty * item.price;
-      message += `\n${idx + 1}. *${item.name}* ${item.brand ? `(${item.brand})` : ""}\n`;
-      if (item.size) {
-        message += `   • Variante / Detalle: *${item.size}*\n`;
+      // Guardar en almacenamiento local para seguimiento
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`cr_order_${storeUid}`, newOrder.id);
+        localStorage.setItem("cr_last_order_id", newOrder.id);
       }
-      message += `   • Cantidad: *${item.qty}* unidad${item.qty > 1 ? "es" : ""} x ${money(item.price)}\n`;
-      message += `   • Subtotal: *${money(itemSubtotal)}*\n`;
-    });
+      setLastStoredOrderId(newOrder.id);
+      setActiveTrackOrder(newOrder);
 
-    message += `\n━━━━━━━━━━━━━━━━━━━━\n`;
-    message += `📦 *TOTAL DE UNIDADES:* ${totalCartPairs}\n`;
-    message += `💰 *TOTAL GENERAL:* *${money(totalCartAmount)}*\n`;
-    message += `━━━━━━━━━━━━━━━━━━━━\n\n`;
-    message += `_Pedido enviado desde el catálogo online de ${businessName}._`;
+      // Limpiar carrito y cerrar checkout
+      setCart([]);
+      setIsCheckoutOpen(false);
+      setIsCartOpen(false);
+      setIsTrackingModalOpen(true);
+    } catch (err: any) {
+      console.error("Error al registrar pedido:", err);
+      setFormError(err.message || "Ocurrió un error al procesar el pedido. Por favor intentá nuevamente.");
+    } finally {
+      setIsSubmittingOrder(false);
+    }
+  };
 
-    // Destination url
+  // Enviar copia informativa a WhatsApp (opcional para el cliente)
+  const handleSendCopyWhatsApp = (order: StoreOrder) => {
+    let message = `📦 *PEDIDO REGISTRADO: ${order.orderNumber}*\n`;
+    message += `👤 *Cliente:* ${order.customerName}\n`;
+    message += `📱 *Teléfono:* ${order.customerPhone}\n`;
+    message += `📍 *Modalidad:* ${order.deliveryType === "pickup" ? "Retiro en local" : `Envío a domicilio (${order.customerAddress})`}\n`;
+    if (order.customerNotes) {
+      message += `📝 *Nota:* ${order.customerNotes}\n`;
+    }
+    message += `\n🛍️ *Resumen:* ${order.totalUnits} unidades • *Total: ${money(order.totalAmount)}*\n\n`;
+    message += `_Hola! Ya confirmé mi pedido en su web y les escribo para coordinar pago o entrega._`;
+
     const waUrl = storePhone
       ? `https://wa.me/${storePhone}?text=${encodeURIComponent(message)}`
       : `https://wa.me/?text=${encodeURIComponent(message)}`;
 
     window.open(waUrl, "_blank");
-
-    // Close modals
-    setIsCheckoutOpen(false);
-    setIsCartOpen(false);
   };
 
   return (
@@ -390,7 +433,7 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
         <Sparkles className="w-4 h-4 shrink-0" />
         {isMayorista ? (
           <span>
-            <strong>Catálogo Mayorista:</strong> Compra mínima de <strong>{minQty} unidades</strong>. {wholesaleTerms}
+            <strong>Catálogo Mayorista:</strong> Precios mayoristas directos sin mínimo de compra. {wholesaleTerms}
           </span>
         ) : (
           <span>
@@ -471,6 +514,18 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                 <span>Mayorista</span>
               </button>
             </div>
+
+            {(lastStoredOrderId || activeTrackOrder) && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsTrackingModalOpen(true)}
+                className="hidden sm:flex items-center gap-1.5 border-emerald-500/40 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 font-bold rounded-xl h-10 px-3 text-xs"
+              >
+                <Clock className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                <span>Mi Pedido</span>
+              </Button>
+            )}
 
             <Button
               onClick={() => setIsCartOpen(true)}
@@ -585,7 +640,7 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
           </span>
           <span className={`font-semibold hidden sm:inline ${isMayorista ? "text-amber-700" : "text-indigo-700"}`}>
             {isMayorista
-              ? `Venta mayorista a partir de ${minQty} unidades por modelo`
+              ? "Venta mayorista sin mínimo de compra requerido"
               : "Venta minorista por unidad (sin mínimo)"}
           </span>
         </div>
@@ -624,8 +679,8 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                 .filter((i) => i.productId === p.id)
                 .reduce((sum, i) => sum + i.qty, 0);
 
-              const currentQty = cardQtys[p.id] || (isMayorista ? minQty : 1);
-              const hasMinStock = isMayorista ? Number(p.total_stock || 0) >= minQty : Number(p.total_stock || 0) >= 1;
+              const currentQty = cardQtys[p.id] || 1;
+              const hasMinStock = Number(p.total_stock || 0) >= 1;
 
               return (
                 <Card
@@ -715,7 +770,7 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                             {isMayorista ? (
                               <>Sugerido venta minorista: <strong>{money(secondaryPrice)}</strong></>
                             ) : (
-                              <>Precio por mayor: <strong>{money(secondaryPrice)}</strong> (mín. {wholesaleMinQty} u.)</>
+                              <>Precio por mayor: <strong>{money(secondaryPrice)}</strong></>
                             )}
                           </p>
                         )}
@@ -727,10 +782,10 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                           <div className="flex items-center justify-between text-xs text-slate-700">
                             <span className="font-semibold flex items-center gap-1">
                               <Sparkles className={`w-3.5 h-3.5 ${isMayorista ? "text-amber-600" : "text-indigo-600"}`} />
-                              {isMayorista ? "Surtido / Pack mayorista" : "Compra individual (unidad)"}
+                              {isMayorista ? "Precio mayorista directo" : "Compra individual (unidad)"}
                             </span>
                             <span className="text-[11px] text-slate-500 font-medium">
-                              {isMayorista ? `Mín. ${minQty} u.` : "Desde 1 u."}
+                              {isMayorista ? "Sin mínimo" : "Desde 1 u."}
                             </span>
                           </div>
 
@@ -743,10 +798,10 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                                 onClick={() =>
                                   setCardQtys((prev) => ({
                                     ...prev,
-                                    [p.id]: Math.max(isMayorista ? minQty : 1, (prev[p.id] || (isMayorista ? minQty : 1)) - 1),
+                                    [p.id]: Math.max(1, (prev[p.id] || 1) - 1),
                                   }))
                                 }
-                                disabled={currentQty <= (isMayorista ? minQty : 1)}
+                                disabled={currentQty <= 1}
                                 className="w-6 h-6 rounded flex items-center justify-center text-slate-600 hover:bg-slate-100 disabled:opacity-30"
                               >
                                 <Minus className="w-3 h-3" />
@@ -759,7 +814,7 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                                 onClick={() =>
                                   setCardQtys((prev) => ({
                                     ...prev,
-                                    [p.id]: Math.min(p.total_stock, (prev[p.id] || (isMayorista ? minQty : 1)) + 1),
+                                    [p.id]: Math.min(p.total_stock, (prev[p.id] || 1) + 1),
                                   }))
                                 }
                                 disabled={currentQty >= p.total_stock}
@@ -805,7 +860,7 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                           ¡Agregado al pedido!
                         </>
                       ) : !hasMinStock ? (
-                        <>{isMayorista ? `Stock insuficiente (mín. ${minQty} u.)` : "Sin stock disponible"}</>
+                        <>Sin stock disponible</>
                       ) : (
                         <>
                           <Plus className="w-4 h-4 mr-1.5" />
@@ -863,28 +918,14 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
               Revisá tus productos seleccionados antes de enviar por WhatsApp
             </SheetDescription>
 
-            {/* Wholesale minimum reminder or retail info */}
+            {/* Wholesale or retail cart badge */}
             {isMayorista ? (
-              <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
-                <div className="flex items-center justify-between text-xs font-semibold text-amber-900 mb-1.5">
-                  <span>Mínimo mayorista: {minQty} unidades</span>
-                  <span>{totalCartPairs} / {minQty} unidades</span>
-                </div>
-                <Progress
-                  value={Math.min(100, (totalCartPairs / minQty) * 100)}
-                  className="h-2 bg-amber-200"
-                />
-                {!meetsWholesaleMinimum ? (
-                  <p className="text-[11px] text-amber-800 mt-1.5 font-medium flex items-center gap-1">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    Te faltan {minQty - totalCartPairs} unidades para alcanzar el mínimo mayorista.
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-emerald-700 mt-1.5 font-bold flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                    ¡Mínimo mayorista alcanzado! Podés finalizar tu pedido.
-                  </p>
-                )}
+              <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between text-xs">
+                <span className="font-semibold text-amber-900 flex items-center gap-1.5">
+                  <CheckCircle2 className="size-4 text-emerald-600" />
+                  Precios mayoristas (sin mínimo de compra)
+                </span>
+                <span className="font-bold text-amber-800">{totalCartPairs} {totalCartPairs === 1 ? "unidad" : "unidades"}</span>
               </div>
             ) : (
               <div className="mt-3 p-3 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-between text-xs">
@@ -933,9 +974,9 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       onClick={() => updateCartQty(item.id, -1)}
-                      disabled={item.qty <= (isMayorista ? minQty : 1)}
+                      disabled={item.qty <= 1}
                       className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-100 disabled:opacity-30"
-                      title={isMayorista ? `Mínimo ${minQty} unidades por producto` : "Mínimo 1 unidad"}
+                      title="Mínimo 1 unidad"
                     >
                       <Minus className="w-3 h-3" />
                     </button>
@@ -1141,7 +1182,7 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                   <span className="font-bold text-slate-800">Unidades a ordenar:</span>
                   <span className="text-slate-500 text-[11px]">
                     {isMayorista ? (
-                      <>Mínimo del pedido: <strong>{minQty} unidades</strong></>
+                      <>Compra mayorista: <strong>sin mínimo</strong></>
                     ) : (
                       <>Venta individual: <strong>desde 1 unidad</strong></>
                     )}
@@ -1152,20 +1193,20 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                   <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-2xs">
                     <button
                       type="button"
-                      onClick={() => setDetailQty((prev) => Math.max(isMayorista ? minQty : 1, prev - 1))}
-                      disabled={detailQty <= (isMayorista ? minQty : 1)}
+                      onClick={() => setDetailQty((prev) => Math.max(1, prev - 1))}
+                      disabled={detailQty <= 1}
                       className="size-8 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-bold hover:bg-slate-100 flex items-center justify-center transition-colors disabled:opacity-30"
                     >
                       <Minus className="w-3.5 h-3.5" />
                     </button>
                     <input
                       type="number"
-                      min={isMayorista ? minQty : 1}
+                      min={1}
                       max={detailProduct.total_stock}
                       value={detailQty}
                       onChange={(e) =>
                         setDetailQty(
-                          Math.max(isMayorista ? minQty : 1, Math.min(detailProduct.total_stock, Number(e.target.value) || (isMayorista ? minQty : 1)))
+                          Math.max(1, Math.min(detailProduct.total_stock, Number(e.target.value) || 1))
                         )
                       }
                       className="w-14 text-center font-black text-base bg-transparent outline-none text-slate-900"
@@ -1188,69 +1229,26 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                   </div>
                 </div>
 
-                {isMayorista ? (
-                  detailProduct.total_stock > minQty && (
-                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                      <span className="text-[11px] text-slate-500 font-medium mr-1">Rápidos:</span>
+                {detailProduct.total_stock > 1 && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <span className="text-[11px] text-slate-500 font-medium mr-1">Rápidos:</span>
+                    {[1, 2, 3, 6, 12].filter((q) => q <= detailProduct.total_stock).map((q) => (
                       <button
+                        key={q}
                         type="button"
-                        onClick={() => setDetailQty(minQty)}
+                        onClick={() => setDetailQty(q)}
                         className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
-                          detailQty === minQty
-                            ? "bg-amber-600 text-white border-amber-600 shadow-2xs"
+                          detailQty === q
+                            ? isMayorista
+                              ? "bg-amber-600 text-white border-amber-600 shadow-2xs"
+                              : "bg-indigo-600 text-white border-indigo-600 shadow-2xs"
                             : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
                         }`}
                       >
-                        {minQty} u. (Mínimo)
+                        {q} {q === 1 ? "unidad" : "unidades"}
                       </button>
-                      {detailProduct.total_stock >= minQty * 2 && (
-                        <button
-                          type="button"
-                          onClick={() => setDetailQty(minQty * 2)}
-                          className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
-                            detailQty === minQty * 2
-                              ? "bg-amber-600 text-white border-amber-600 shadow-2xs"
-                              : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                          }`}
-                        >
-                          {minQty * 2} unidades
-                        </button>
-                      )}
-                      {detailProduct.total_stock >= minQty * 3 && (
-                        <button
-                          type="button"
-                          onClick={() => setDetailQty(minQty * 3)}
-                          className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
-                            detailQty === minQty * 3
-                              ? "bg-amber-600 text-white border-amber-600 shadow-2xs"
-                              : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                          }`}
-                        >
-                          {minQty * 3} unidades
-                        </button>
-                      )}
-                    </div>
-                  )
-                ) : (
-                  detailProduct.total_stock > 1 && (
-                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                      <span className="text-[11px] text-slate-500 font-medium mr-1">Rápidos:</span>
-                      {[1, 2, 3, 6].filter((q) => q <= detailProduct.total_stock).map((q) => (
-                        <button
-                          key={q}
-                          type="button"
-                          onClick={() => setDetailQty(q)}
-                          className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
-                            detailQty === q
-                              ? "bg-indigo-600 text-white border-indigo-600 shadow-2xs"
-                              : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                          }`}
-                        >
-                          {q} {q === 1 ? "unidad" : "unidades"}
-                        </button>
-                      ))}
-                    </div>
-                  )
+                    ))}
+                  </div>
                 )}
               </div>
 
@@ -1262,7 +1260,7 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                     setModalAddedAnimation(true);
                     setTimeout(() => setModalAddedAnimation(false), 1500);
                   }}
-                  disabled={detailProduct.total_stock < (isMayorista ? minQty : 1)}
+                  disabled={detailProduct.total_stock < 1}
                   className={`w-full h-12 rounded-xl text-sm font-bold shadow-md transition-all flex items-center justify-center gap-2 ${
                     modalAddedAnimation
                       ? "bg-emerald-600 hover:bg-emerald-700 text-white"
@@ -1276,8 +1274,8 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                       <Check className="w-4 h-4" />
                       ¡Agregado al pedido!
                     </>
-                  ) : detailProduct.total_stock < (isMayorista ? minQty : 1) ? (
-                    <>{isMayorista ? `Stock insuficiente (mínimo ${minQty} unidades)` : "Sin stock disponible"}</>
+                  ) : detailProduct.total_stock < 1 ? (
+                    <>Sin stock disponible</>
                   ) : (
                     <>
                       <ShoppingBag className="w-4 h-4" />
@@ -1310,20 +1308,20 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
         )}
       </Dialog>
 
-      {/* Customer Data & WhatsApp Order Modal */}
+      {/* Customer Data & Direct Order Modal */}
       <Dialog open={isCheckoutOpen} onOpenChange={setIsCheckoutOpen}>
         <DialogContent className="max-w-md bg-white rounded-2xl p-6">
           <DialogHeader>
             <div className="flex items-center gap-2 mb-1">
-              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
-                <MessageCircle className="w-5 h-5" />
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white ${isMayorista ? "bg-amber-600" : "bg-indigo-600"}`}>
+                <Store className="w-5 h-5" />
               </div>
               <DialogTitle className="text-lg font-bold text-slate-900">
-                Finalizar pedido por WhatsApp
+                Confirmar pedido
               </DialogTitle>
             </div>
             <DialogDescription className="text-xs text-slate-500">
-              Completá tus datos de contacto para armar el mensaje formal y enviarlo al vendedor.
+              Completá tus datos de contacto y entrega. El pedido se enviará directamente al panel de administración para su preparación.
             </DialogDescription>
           </DialogHeader>
 
@@ -1349,7 +1347,7 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Teléfono / WhatsApp de contacto <span className="text-rose-500">*</span>
+                Teléfono de contacto <span className="text-rose-500">*</span>
               </label>
               <Input
                 placeholder="Ej. 11 4455 6677"
@@ -1369,7 +1367,7 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                   onClick={() => setDeliveryType("pickup")}
                   className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${
                     deliveryType === "pickup"
-                      ? "bg-slate-900 text-white border-slate-900"
+                      ? "bg-slate-900 text-white border-slate-900 shadow-xs"
                       : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
                   }`}
                 >
@@ -1381,7 +1379,7 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                   onClick={() => setDeliveryType("delivery")}
                   className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${
                     deliveryType === "delivery"
-                      ? "bg-slate-900 text-white border-slate-900"
+                      ? "bg-slate-900 text-white border-slate-900 shadow-xs"
                       : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
                   }`}
                 >
@@ -1427,15 +1425,257 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
           </div>
 
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setIsCheckoutOpen(false)} className="rounded-xl">
+            <Button
+              variant="outline"
+              disabled={isSubmittingOrder}
+              onClick={() => setIsCheckoutOpen(false)}
+              className="rounded-xl"
+            >
               Volver
             </Button>
             <Button
-              onClick={handleConfirmAndSendWhatsapp}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md"
+              disabled={isSubmittingOrder}
+              onClick={handleConfirmOrderDirectly}
+              className={`font-bold rounded-xl shadow-md text-white ${
+                isMayorista
+                  ? "bg-amber-600 hover:bg-amber-700"
+                  : "bg-indigo-600 hover:bg-indigo-700"
+              }`}
             >
-              <MessageCircle className="w-4 h-4 mr-1.5" />
-              Enviar a WhatsApp
+              {isSubmittingOrder ? (
+                <span className="flex items-center gap-2">
+                  <span className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Enviando pedido...
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Confirmar Pedido
+                </span>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Seguimiento en Tiempo Real para el Cliente */}
+      <Dialog open={isTrackingModalOpen} onOpenChange={setIsTrackingModalOpen}>
+        <DialogContent className="max-w-lg bg-white rounded-2xl p-6">
+          <DialogHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <DialogTitle className="text-lg font-black text-slate-900">
+                    {activeTrackOrder ? `Pedido ${activeTrackOrder.orderNumber}` : "Seguimiento de Pedido"}
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-slate-500">
+                    Sincronización en vivo con la tienda
+                  </DialogDescription>
+                </div>
+              </div>
+              {activeTrackOrder && (
+                <Badge
+                  className={`text-xs font-bold uppercase tracking-wider ${
+                    activeTrackOrder.status === "pendiente"
+                      ? "bg-amber-100 text-amber-800 border-amber-300"
+                      : activeTrackOrder.status === "confirmado"
+                      ? "bg-blue-100 text-blue-800 border-blue-300"
+                      : activeTrackOrder.status === "en_preparacion"
+                      ? "bg-purple-100 text-purple-800 border-purple-300"
+                      : activeTrackOrder.status === "listo"
+                      ? "bg-teal-100 text-teal-800 border-teal-300"
+                      : activeTrackOrder.status === "entregado"
+                      ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                      : "bg-rose-100 text-rose-800 border-rose-300"
+                  }`}
+                >
+                  {activeTrackOrder.status === "pendiente"
+                    ? "🟡 Pendiente"
+                    : activeTrackOrder.status === "confirmado"
+                    ? "🔵 Confirmado"
+                    : activeTrackOrder.status === "en_preparacion"
+                    ? "🟣 En preparación"
+                    : activeTrackOrder.status === "listo"
+                    ? "🟢 Listo para entrega"
+                    : activeTrackOrder.status === "entregado"
+                    ? "✅ Entregado"
+                    : "🔴 Cancelado"}
+                </Badge>
+              )}
+            </div>
+          </DialogHeader>
+
+          {activeTrackOrder ? (
+            <div className="space-y-4 my-2 text-xs">
+              {/* Barra de progreso interactiva en vivo */}
+              <div className="rounded-xl bg-slate-50 p-4 border border-slate-200">
+                <p className="font-bold text-slate-700 uppercase tracking-wider text-[11px] mb-3">
+                  Progreso de tu pedido en tiempo real:
+                </p>
+                <div className="grid grid-cols-4 gap-2 text-center text-[10px] font-bold">
+                  {/* Paso 1: Recibido */}
+                  <div className="flex flex-col items-center">
+                    <div className="size-8 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold mb-1 shadow-xs">
+                      ✓
+                    </div>
+                    <span className="text-slate-800">Recibido</span>
+                  </div>
+
+                  {/* Paso 2: Confirmado */}
+                  <div className="flex flex-col items-center">
+                    <div
+                      className={`size-8 rounded-full flex items-center justify-center font-bold mb-1 shadow-xs transition-colors ${
+                        ["confirmado", "en_preparacion", "listo", "entregado"].includes(
+                          activeTrackOrder.status
+                        )
+                          ? "bg-blue-600 text-white"
+                          : "bg-slate-200 text-slate-400"
+                      }`}
+                    >
+                      {["confirmado", "en_preparacion", "listo", "entregado"].includes(
+                        activeTrackOrder.status
+                      )
+                        ? "✓"
+                        : "2"}
+                    </div>
+                    <span
+                      className={
+                        ["confirmado", "en_preparacion", "listo", "entregado"].includes(
+                          activeTrackOrder.status
+                        )
+                          ? "text-blue-700 font-bold"
+                          : "text-slate-400"
+                      }
+                    >
+                      Confirmado
+                    </span>
+                  </div>
+
+                  {/* Paso 3: En preparación */}
+                  <div className="flex flex-col items-center">
+                    <div
+                      className={`size-8 rounded-full flex items-center justify-center font-bold mb-1 shadow-xs transition-colors ${
+                        ["en_preparacion", "listo", "entregado"].includes(
+                          activeTrackOrder.status
+                        )
+                          ? "bg-purple-600 text-white"
+                          : "bg-slate-200 text-slate-400"
+                      }`}
+                    >
+                      {["en_preparacion", "listo", "entregado"].includes(
+                        activeTrackOrder.status
+                      )
+                        ? "✓"
+                        : "3"}
+                    </div>
+                    <span
+                      className={
+                        ["en_preparacion", "listo", "entregado"].includes(
+                          activeTrackOrder.status
+                        )
+                          ? "text-purple-700 font-bold"
+                          : "text-slate-400"
+                      }
+                    >
+                      Preparando
+                    </span>
+                  </div>
+
+                  {/* Paso 4: Listo / Entregado */}
+                  <div className="flex flex-col items-center">
+                    <div
+                      className={`size-8 rounded-full flex items-center justify-center font-bold mb-1 shadow-xs transition-colors ${
+                        ["listo", "entregado"].includes(activeTrackOrder.status)
+                          ? "bg-emerald-600 text-white"
+                          : "bg-slate-200 text-slate-400"
+                      }`}
+                    >
+                      {activeTrackOrder.status === "entregado" ? "✓" : "4"}
+                    </div>
+                    <span
+                      className={
+                        ["listo", "entregado"].includes(activeTrackOrder.status)
+                          ? "text-emerald-700 font-bold"
+                          : "text-slate-400"
+                      }
+                    >
+                      {activeTrackOrder.status === "entregado" ? "Entregado" : "Listo"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-3 text-center text-xs text-slate-600 bg-white p-2.5 rounded-lg border border-slate-200">
+                  {activeTrackOrder.status === "pendiente" &&
+                    "Tu pedido ya ingresó a nuestro sistema. El vendedor lo confirmará a la brevedad."}
+                  {activeTrackOrder.status === "confirmado" &&
+                    "¡Tu pedido ha sido confirmado por la tienda! En breve iniciaremos el empaque."}
+                  {activeTrackOrder.status === "en_preparacion" &&
+                    "Estamos empaquetando tus productos en el depósito / sucursal."}
+                  {activeTrackOrder.status === "listo" &&
+                    (activeTrackOrder.deliveryType === "pickup"
+                      ? "¡Tu pedido está listo para ser retirado en el local!"
+                      : "¡Tu pedido está listo y despachado para la entrega!")}
+                  {activeTrackOrder.status === "entregado" &&
+                    "¡Pedido completado y entregado! Muchas gracias por tu compra."}
+                  {activeTrackOrder.status === "cancelado" &&
+                    "Este pedido fue cancelado. Consultanos para más información."}
+                </div>
+              </div>
+
+              {/* Detalle de articulos del pedido */}
+              <div className="rounded-xl border border-slate-200 p-3.5 space-y-2">
+                <p className="font-bold text-slate-700 uppercase tracking-wider text-[11px]">
+                  Resumen de lo solicitado ({activeTrackOrder.totalUnits} un.):
+                </p>
+                <div className="divide-y divide-slate-100 max-h-36 overflow-y-auto pr-1">
+                  {activeTrackOrder.items.map((item, idx) => (
+                    <div key={idx} className="py-1.5 flex justify-between items-center">
+                      <div>
+                        <span className="font-bold text-slate-800">x{item.qty}</span>{" "}
+                        <span className="text-slate-700">{item.name}</span>
+                        {item.size && (
+                          <span className="ml-1 text-[10px] text-slate-500 bg-slate-100 px-1 rounded">
+                            Talle {item.size}
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-semibold text-slate-900">{money(item.subtotal)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between items-center border-t border-slate-200 pt-2 font-black text-slate-900 text-sm">
+                  <span>Total general:</span>
+                  <span>{money(activeTrackOrder.totalAmount)}</span>
+                </div>
+              </div>
+
+              {/* Botón opcional de contacto vía WhatsApp */}
+              <div className="pt-1">
+                <Button
+                  onClick={() => handleSendCopyWhatsApp(activeTrackOrder)}
+                  variant="outline"
+                  className="w-full h-10 border-emerald-500/40 text-emerald-700 hover:bg-emerald-50 font-bold rounded-xl gap-2 text-xs"
+                >
+                  <MessageCircle className="w-4 h-4 text-emerald-600" />
+                  Enviar copia o consultar por WhatsApp
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-slate-500 text-xs">
+              No hay un pedido activo seleccionado.
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              onClick={() => setIsTrackingModalOpen(false)}
+              className="w-full rounded-xl bg-slate-900 text-white font-bold"
+            >
+              Cerrar y seguir navegando
             </Button>
           </DialogFooter>
         </DialogContent>

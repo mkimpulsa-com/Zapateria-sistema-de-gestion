@@ -1,6 +1,6 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, writeBatch,
-  runTransaction, deleteDoc, type DocumentData,
+  runTransaction, deleteDoc, onSnapshot, query, orderBy, type DocumentData,
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { getApp, getApps, initializeApp } from "firebase/app";
@@ -24,7 +24,7 @@ const defaultSettings = {
   receipt_type:"X", receipt_prefix:"X", next_receipt_number:1, currency:"BRL", secondary_currency:"ARS",
   exchange_rate_brl:250, exchange_rate_ars:250, exchange_rate_usd:5.70, default_channel:"mayorista",
   payment_methods:"Efectivo,Transferencia,Tarjeta,Mercado Pago,Cuenta corriente", max_discount_percent:20, rounding_mode:"none",
-  wholesale_min_qty:12, allow_mixed_sale:true, wholesale_terms:"Precios mayoristas desde el mínimo indicado.",
+  wholesale_min_qty:0, allow_mixed_sale:true, wholesale_terms:"Precios mayoristas directos sin mínimo de compra.",
   low_stock_at:3, default_sizes:"35,36,37,38,39,40", allow_negative_stock:false, barcode_prefix:"",
   catalog_default_price:"wholesale", catalog_in_stock_only:true, catalog_show_barcode:true, catalog_contact:"",
   catalog_terms:"Precios sujetos a disponibilidad.", theme_default:"system", motion_level:"full", nav_density:"normal",
@@ -214,9 +214,7 @@ export async function loadStore(uid?: string) {
   ]);
   const rawSettings = settingsSnap.data() || {};
   const settings = { ...defaultSettings, ...rawSettings };
-  if (!rawSettings.wholesale_min_qty || Number(rawSettings.wholesale_min_qty) === 6) {
-    settings.wholesale_min_qty = 12;
-  }
+  settings.wholesale_min_qty = Number(rawSettings.wholesale_min_qty) || 0;
   const products = withId(productsSnap).filter((item:any)=>item.active!==false).map((item:any)=>({...item,variants:Array.isArray(item.variants)?item.variants:[],total_stock:(item.variants||[]).reduce((sum:number,variant:any)=>sum+Number(variant.stock||0),0)})).sort((a:any,b:any)=>String(b.created_at).localeCompare(String(a.created_at)));
   const customers = withId(customersSnap).sort((a:any,b:any)=>String(a.name).localeCompare(String(b.name)));
   const suppliers = withId(suppliersSnap).sort((a:any,b:any)=>String(a.name).localeCompare(String(b.name)));
@@ -1134,11 +1132,13 @@ export async function runStoreAction(body: any, uid?: string) {
       }
 
       if (body.channel === "mayorista") {
-        const minimum = Math.max(1, Number(settings.wholesale_min_qty && settings.wholesale_min_qty !== 6 ? settings.wholesale_min_qty : 12) || 12);
-        const perProduct = new Map<string, number>();
-        checked.forEach(item => perProduct.set(item.product.id, (perProduct.get(item.product.id) || 0) + item.quantity));
-        const qualifies = settings.allow_mixed_sale ? checked.reduce((sum, item) => sum + item.quantity, 0) >= minimum : [...perProduct.values()].every(value => value >= minimum);
-        if (!qualifies) throw new Error(`La venta mayorista requiere al menos ${minimum} pares${settings.allow_mixed_sale ? " en total" : " por modelo"}.`);
+        const minimum = Number(settings.wholesale_min_qty) || 0;
+        if (minimum > 1) {
+          const perProduct = new Map<string, number>();
+          checked.forEach(item => perProduct.set(item.product.id, (perProduct.get(item.product.id) || 0) + item.quantity));
+          const qualifies = settings.allow_mixed_sale ? checked.reduce((sum, item) => sum + item.quantity, 0) >= minimum : [...perProduct.values()].every(value => value >= minimum);
+          if (!qualifies) throw new Error(`La venta mayorista requiere al menos ${minimum} pares${settings.allow_mixed_sale ? " en total" : " por modelo"}.`);
+        }
       }
 
       const discount = Math.max(0, Number(body.discount) || 0);
@@ -1465,9 +1465,7 @@ export async function loadPublicStore(storeUid: string) {
 
   const rawSettings = settingsSnap.exists() ? settingsSnap.data() : {};
   const settings = { ...defaultSettings, ...rawSettings };
-  if (!rawSettings.wholesale_min_qty || Number(rawSettings.wholesale_min_qty) === 6) {
-    settings.wholesale_min_qty = 12;
-  }
+  settings.wholesale_min_qty = Number(rawSettings.wholesale_min_qty) || 0;
   const products = withId(productsSnap)
     .filter((item: any) => item.active !== false)
     .map((item: any) => ({
@@ -1478,5 +1476,202 @@ export async function loadPublicStore(storeUid: string) {
     .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
 
   return { settings, products, storeUid: cleanUid };
+}
+
+export type OrderStatus =
+  | "pendiente"
+  | "confirmado"
+  | "en_preparacion"
+  | "listo"
+  | "entregado"
+  | "cancelado";
+
+export type OrderItem = {
+  productId: number | string;
+  variantId?: number | string;
+  name: string;
+  brand?: string;
+  size?: string;
+  qty: number;
+  price: number;
+  subtotal: number;
+  imageUrl?: string;
+};
+
+export type StoreOrder = {
+  id: string;
+  orderNumber: string;
+  channel: "minorista" | "mayorista";
+  status: OrderStatus;
+  statusNotes?: string;
+  customerName: string;
+  customerPhone: string;
+  customerAddress?: string;
+  deliveryType: "delivery" | "pickup";
+  customerNotes?: string;
+  items: OrderItem[];
+  totalUnits: number;
+  totalAmount: number;
+  currency?: string;
+  createdAt: string;
+  updatedAt?: string;
+  convertedToSaleId?: string;
+};
+
+function mapOrderDoc(docSnap: any): StoreOrder {
+  const data = docSnap.data() || {};
+  return {
+    id: docSnap.id,
+    orderNumber: data.orderNumber || data.order_number || `#PED-${docSnap.id.slice(-5).toUpperCase()}`,
+    channel: data.channel === "mayorista" ? "mayorista" : "minorista",
+    status: (data.status as OrderStatus) || "pendiente",
+    statusNotes: data.statusNotes || data.status_notes || "",
+    customerName: data.customerName || data.customer_name || "",
+    customerPhone: data.customerPhone || data.customer_phone || "",
+    customerAddress: data.customerAddress || data.customer_address || "",
+    deliveryType: data.deliveryType === "pickup" ? "pickup" : "delivery",
+    customerNotes: data.customerNotes || data.customer_notes || "",
+    items: Array.isArray(data.items) ? data.items : [],
+    totalUnits: Number(data.totalUnits ?? data.total_units ?? 0),
+    totalAmount: Number(data.totalAmount ?? data.total_amount ?? data.total ?? 0),
+    currency: data.currency || "BRL",
+    createdAt: data.createdAt || data.created_at || now(),
+    updatedAt: data.updatedAt || data.updated_at || undefined,
+    convertedToSaleId: data.convertedToSaleId || data.converted_to_sale_id || undefined,
+  };
+}
+
+export async function createStoreOrder(
+  storeUid: string,
+  orderInput: Omit<StoreOrder, "id" | "orderNumber" | "status" | "createdAt">
+): Promise<StoreOrder> {
+  const cleanUid = String(storeUid || "").trim();
+  if (!cleanUid) throw new Error("ID de tienda inválido para generar el pedido.");
+
+  const database = requireFirebase();
+  const ordersCollection = collection(database, "users", cleanUid, "orders");
+
+  const todayStr = new Date().toISOString().slice(2, 10).replace(/-/g, "");
+  const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+  const orderNumber = `#${todayStr}-${randomSuffix}`;
+  const timestamp = now();
+
+  const docPayload = {
+    orderNumber,
+    channel: orderInput.channel,
+    status: "pendiente" as OrderStatus,
+    customerName: orderInput.customerName.trim(),
+    customerPhone: orderInput.customerPhone.trim(),
+    customerAddress: (orderInput.customerAddress || "").trim(),
+    deliveryType: orderInput.deliveryType,
+    customerNotes: (orderInput.customerNotes || "").trim(),
+    items: orderInput.items,
+    totalUnits: orderInput.totalUnits,
+    totalAmount: orderInput.totalAmount,
+    currency: orderInput.currency || "BRL",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+
+  const newDocRef = await addDoc(ordersCollection, docPayload);
+
+  return {
+    id: newDocRef.id,
+    ...docPayload,
+  };
+}
+
+export function subscribeStoreOrders(
+  storeUid: string,
+  onUpdate: (orders: StoreOrder[]) => void,
+  onError?: (error: any) => void
+): () => void {
+  const cleanUid = String(storeUid || "").trim();
+  if (!cleanUid) {
+    if (onError) onError(new Error("UID de tienda no disponible."));
+    return () => {};
+  }
+
+  const database = requireFirebase();
+  const ordersCollection = collection(database, "users", cleanUid, "orders");
+
+  return onSnapshot(
+    ordersCollection,
+    (snapshot) => {
+      const orders = snapshot.docs.map(mapOrderDoc);
+      orders.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+      onUpdate(orders);
+    },
+    (err) => {
+      console.error("Error en listener de pedidos:", err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+export function subscribeOrder(
+  storeUid: string,
+  orderId: string,
+  onUpdate: (order: StoreOrder | null) => void,
+  onError?: (error: any) => void
+): () => void {
+  const cleanUid = String(storeUid || "").trim();
+  const cleanOrderId = String(orderId || "").trim();
+  if (!cleanUid || !cleanOrderId) {
+    if (onError) onError(new Error("ID de tienda u orden no disponible."));
+    return () => {};
+  }
+
+  const database = requireFirebase();
+  const orderDocRef = doc(database, "users", cleanUid, "orders", cleanOrderId);
+
+  return onSnapshot(
+    orderDocRef,
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        onUpdate(null);
+      } else {
+        onUpdate(mapOrderDoc(snapshot));
+      }
+    },
+    (err) => {
+      console.error("Error en listener de pedido único:", err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+export async function updateStoreOrderStatus(
+  storeUid: string,
+  orderId: string,
+  status: OrderStatus,
+  statusNotes?: string
+) {
+  const cleanUid = String(storeUid || "").trim();
+  const cleanOrderId = String(orderId || "").trim();
+  if (!cleanUid || !cleanOrderId) throw new Error("Faltan identificadores para actualizar estado.");
+
+  const database = requireFirebase();
+  const orderDocRef = doc(database, "users", cleanUid, "orders", cleanOrderId);
+
+  const payload: any = {
+    status,
+    updatedAt: now(),
+  };
+  if (statusNotes !== undefined) {
+    payload.statusNotes = statusNotes;
+  }
+
+  await updateDoc(orderDocRef, payload);
+}
+
+export async function deleteStoreOrder(storeUid: string, orderId: string) {
+  const cleanUid = String(storeUid || "").trim();
+  const cleanOrderId = String(orderId || "").trim();
+  if (!cleanUid || !cleanOrderId) throw new Error("Faltan identificadores para eliminar pedido.");
+
+  const database = requireFirebase();
+  const orderDocRef = doc(database, "users", cleanUid, "orders", cleanOrderId);
+  await deleteDoc(orderDocRef);
 }
 

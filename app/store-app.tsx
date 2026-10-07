@@ -17,7 +17,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { createStoreBackup, loadStore, runStoreAction, uploadBusinessLogo } from "@/lib/store-service";
+import { createStoreBackup, loadStore, runStoreAction, uploadBusinessLogo, subscribeStoreOrders, type StoreOrder } from "@/lib/store-service";
+import { OrdersView } from "@/components/orders-view";
 import { NewProductModal } from "@/components/new-product-modal";
 import { EditProductModal } from "@/components/edit-product-modal";
 import { AdjustProductStockModal } from "@/components/adjust-product-stock-modal";
@@ -58,6 +59,7 @@ type CartItem = { productId:number; variantId:number; name:string; size:string; 
 
 const nav = [
   ["resumen", "Resumen", LayoutDashboard], ["ventas", "Punto de venta", ShoppingCart],
+  ["pedidos", "Pedidos Web", ClipboardList],
   ["productos", "Productos", ShoppingBag], ["inventario", "Inventario", Boxes],
   ["clientes", "Clientes", Users], ["proveedores", "Proveedores", Truck],
   ["caja", "Caja e ingresos", WalletCards], ["tienda", "Tienda Online", Store],
@@ -67,6 +69,7 @@ const nav = [
 
 const cashierNav = [
   ["ventas", "Punto de venta", ShoppingCart],
+  ["pedidos", "Pedidos Web", ClipboardList],
   ["inventario", "Stock por talle", Boxes],
   ["caja", "Caja de turno", WalletCards],
   ["clientes", "Clientes", Users],
@@ -169,9 +172,25 @@ export default function StoreApp({
   const [payment,setPayment]=useState("Efectivo");
   const [customerId,setCustomerId]=useState("");
   const [scan,setScan]=useState(""); const [catalogPrice,setCatalogPrice]=useState<"wholesale"|"retail"|"both">("both"); const [invoiceSale,setInvoiceSale]=useState<any|null>(null); const videoRef=useRef<HTMLVideoElement>(null);
+  const [orders, setOrders] = useState<StoreOrder[]>([]);
 
   const load=async()=>{try{const storeData=await loadStore(uid) as StoreData;setData(storeData);if(!bankAccountId&&storeData?.bankAccounts?.length){setBankAccountId(String(storeData.bankAccounts[0].id));}setError("");}catch(e:any){setError(e.message||"No se pudo cargar");}};
   useEffect(()=>{load();},[uid]);
+
+  // Sincronización en tiempo real de pedidos de clientes
+  useEffect(() => {
+    if (!uid) return;
+    const unsub = subscribeStoreOrders(
+      uid,
+      (liveOrders) => {
+        setOrders(liveOrders);
+      },
+      (err) => {
+        console.error("Error al sincronizar pedidos en vivo:", err);
+      }
+    );
+    return () => unsub();
+  }, [uid]);
   useEffect(()=>{document.documentElement.classList.toggle("dark",dark);},[dark]);
   useEffect(()=>{
     if(!data?.settings)return;
@@ -228,6 +247,60 @@ export default function StoreApp({
       })
     );
   };
+
+  const handleOrderToSale = (order: StoreOrder) => {
+    const newCartItems: CartItem[] = [];
+    const allowNegative = Boolean(data?.settings?.allow_negative_stock);
+
+    for (const item of order.items) {
+      const prod = (data?.products || []).find(
+        (p) => String(p.id) === String(item.productId) || p.name.toLowerCase() === item.name.toLowerCase()
+      );
+      let variant: Variant | undefined;
+      if (prod) {
+        if (item.variantId) {
+          variant = prod.variants.find((v) => String(v.id) === String(item.variantId));
+        }
+        if (!variant && item.size) {
+          variant = prod.variants.find((v) => String(v.size) === String(item.size));
+        }
+        if (!variant && prod.variants.length > 0) {
+          variant = prod.variants[0];
+        }
+      }
+
+      const varId = variant?.id || Number(item.variantId) || Number(Date.now().toString().slice(-6));
+      const prodId = prod?.id || Number(item.productId) || 0;
+      const maxStock = allowNegative ? 9999 : (variant?.stock ?? 99);
+
+      newCartItems.push({
+        productId: prodId,
+        variantId: varId,
+        name: item.name,
+        size: item.size || variant?.size || "Estándar",
+        quantity: item.qty,
+        unitPrice: item.price,
+        max: maxStock,
+      });
+    }
+
+    setCart(newCartItems);
+    setChannel(order.channel);
+
+    // Si el cliente existe registrado, seleccionarlo
+    const cleanOrderPhone = order.customerPhone.replace(/[^0-9]/g, "");
+    const matchedCustomer = (data?.customers || []).find((c: any) =>
+      (cleanOrderPhone && c.phone && c.phone.replace(/[^0-9]/g, "") === cleanOrderPhone) ||
+      (c.name && order.customerName && c.name.toLowerCase().trim() === order.customerName.toLowerCase().trim())
+    );
+    if (matchedCustomer) {
+      setCustomerId(String(matchedCustomer.id));
+    }
+
+    setSection("ventas");
+    setToast(`Pedido ${order.orderNumber} cargado al Punto de Venta`);
+  };
+
   const scanProduct = (code = scan) => {
     const value = cleanBarcodeScan(code);
     // Limpiar siempre de inmediato para evitar que el siguiente disparo de la pistola concatene códigos
@@ -364,22 +437,33 @@ export default function StoreApp({
       </div>
       <div className="top-nav-rail">
         <nav className="top-section-nav mx-auto flex max-w-[1800px] items-start gap-1.5 overflow-x-auto px-4 py-2.5 sm:gap-3.5 sm:px-7 lg:px-9 2xl:justify-center" aria-label="Secciones principales">
-          {activeNavList.map(([id, label, Icon]) => (
-            <button
-              key={id}
-              data-nav-id={id}
-              onClick={() => setSection(id)}
-              aria-current={section === id ? "page" : undefined}
-              className={`top-section-button flex shrink-0 flex-col items-center gap-2 px-2.5 py-1.5 text-xs font-bold ${
-                section === id ? "is-active" : ""
-              }`}
-            >
-              <span className="section-icon shrink-0">
-                <Icon className="size-6 shrink-0" strokeWidth={2.3} />
-              </span>
-              <span className="section-label">{label}</span>
-            </button>
-          ))}
+          {activeNavList.map(([id, label, Icon]) => {
+            const pendingOrdersCount = id === "pedidos" ? orders.filter((o) => o.status === "pendiente").length : 0;
+            return (
+              <button
+                key={id}
+                data-nav-id={id}
+                onClick={() => setSection(id)}
+                aria-current={section === id ? "page" : undefined}
+                className={`top-section-button relative flex shrink-0 flex-col items-center gap-2 px-2.5 py-1.5 text-xs font-bold ${
+                  section === id ? "is-active" : ""
+                }`}
+              >
+                <span className="section-icon relative shrink-0">
+                  <Icon className="size-6 shrink-0" strokeWidth={2.3} />
+                  {pendingOrdersCount > 0 && (
+                    <span
+                      title={`${pendingOrdersCount} pedidos pendientes`}
+                      className="absolute -top-1.5 -right-2 flex size-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white shadow-xs animate-bounce"
+                    >
+                      {pendingOrdersCount}
+                    </span>
+                  )}
+                </span>
+                <span className="section-label">{label}</span>
+              </button>
+            );
+          })}
         </nav>
       </div>
     </header>
@@ -387,6 +471,7 @@ export default function StoreApp({
       <main className="glass-grid min-h-[calc(100vh-148px)] p-4 sm:p-7 lg:p-9">
         {!isCashier && section==="resumen"&&<DashboardView data={data!} setSection={setSection} addVariant={addVariant} setModal={setModal}/>} 
         {section==="ventas"&&<SalesPOSConfigured data={data!} filtered={filtered} channel={channel} setChannel={handleChannelChange} cart={cart} setCart={setCart} addVariant={addVariant} scan={scan} setScan={setScan} scanProduct={scanProduct} setModal={setModal} discount={discount} setDiscount={setDiscount} discountPercent={discountPercent} setDiscountPercent={setDiscountPercent} additionalCharge={additionalCharge} setAdditionalCharge={setAdditionalCharge} additionalChargeDescription={additionalChargeDescription} setAdditionalChargeDescription={setAdditionalChargeDescription} payment={payment} setPayment={setPayment} customerId={customerId} setCustomerId={setCustomerId} bankAccountId={bankAccountId} setBankAccountId={setBankAccountId} cartTotal={cartTotal} closeSale={closeSale} busy={busy}/>}
+        {section==="pedidos"&&<OrdersView orders={orders} storeUid={uid} currency={data?.settings?.currency || "BRL"} onSelectOrderForSale={handleOrderToSale} setToast={setToast}/>}
         {!isCashier && section==="productos"&&<Products data={data!} filtered={filtered} setModal={setModal} onEdit={(p:Product)=>setEditingProduct(p)} onAdjust={(p:Product)=>setAdjustingProduct(p)} onDelete={(p:Product)=>setDeletingProduct(p)}/>} 
         {section==="inventario"&&<Inventory data={data!} filtered={filtered} isCashier={isCashier} onAddToCart={(p:Product,v:Variant)=>{addVariant(p,v);setSection("ventas");setToast(`${p.name} (Talle ${v.size}) agregado a la venta`);}} adjust={(v:Variant,p:Product)=>{setAdjustTarget({v,p});setModal("stock");}}/>}
         {section==="clientes"&&<CustomersView customers={data!.customers} sales={data!.sales} customerMoves={data!.customerMoves||[]} isCashier={isCashier} onNewCustomer={()=>setModal("customer")} onEditCustomer={(c:any)=>setEditingCustomer(c)} onAdjustDebt={(c:any)=>setAdjustingCustomer(c)} onViewDetail={(c:any)=>setViewingCustomer(c)} onDeleteCustomer={(c:any)=>setDeletingCustomer(c)}/>} 
@@ -1314,7 +1399,7 @@ function SalesPOSConfigured({
     {channel === "mayorista" ? (
       <div className="mb-5 flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-50/80 px-4 py-3 text-sm text-orange-900 dark:border-orange-900/50 dark:bg-orange-950/30 dark:text-orange-200">
         <Tags className="size-4 text-orange-600 dark:text-orange-400 shrink-0"/>
-        <span>Precios mayoristas aplicados · Mínimo sugerido: {data.settings?.wholesale_min_qty && Number(data.settings.wholesale_min_qty) !== 6 ? data.settings.wholesale_min_qty : 12} unidades {data.settings?.allow_mixed_sale ? "combinando modelos" : "por modelo"}.</span>
+        <span>Precios mayoristas aplicados · Venta directa por mayor sin mínimo de compra requerido.</span>
       </div>
     ) : (
       <div className="mb-5 flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50/80 px-4 py-3 text-sm text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">
@@ -2341,7 +2426,7 @@ function SettingsCenter({data,onSave,busy,dark,setDark,setToast,uid,setModal,onE
   return <>
     <SectionTitle eyebrow="Centro de control" title="Configuración" text="Administrá la sucursal, las reglas comerciales y la seguridad de los datos desde un solo lugar."/>
     <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {[[Store,settings.business_name||"CR MAYORISTA",settings.branch_name||"Sucursal principal"],[FileText,`${settings.receipt_prefix||"X"}-${String(settings.next_receipt_number||1).padStart(8,"0")}`,"Próximo comprobante"],[Tags,`${settings.wholesale_min_qty && Number(settings.wholesale_min_qty) !== 6 ? settings.wholesale_min_qty : 12} unidades`,"Mínimo mayorista"],[Database,`${data.products.length} productos`,`${data.sales.length} ventas recientes`]].map(([Icon,value,label]:any)=><Card key={label} className="settings-summary border-0 py-4 shadow-sm"><CardContent className="flex items-center gap-3 px-4"><span className="grid size-10 place-items-center rounded-full bg-primary/10 text-primary"><Icon className="size-4"/></span><div className="min-w-0"><p className="truncate font-bold">{value}</p><p className="text-xs text-muted-foreground">{label}</p></div></CardContent></Card>)}
+      {[[Store,settings.business_name||"CR MAYORISTA",settings.branch_name||"Sucursal principal"],[FileText,`${settings.receipt_prefix||"X"}-${String(settings.next_receipt_number||1).padStart(8,"0")}`,"Próximo comprobante"],[Tags,Number(settings.wholesale_min_qty) > 1 ? `${settings.wholesale_min_qty} unidades` : "Sin mínimo (libre)","Condición mayorista"],[Database,`${data.products.length} productos`,`${data.sales.length} ventas recientes`]].map(([Icon,value,label]:any)=><Card key={label} className="settings-summary border-0 py-4 shadow-sm"><CardContent className="flex items-center gap-3 px-4"><span className="grid size-10 place-items-center rounded-full bg-primary/10 text-primary"><Icon className="size-4"/></span><div className="min-w-0"><p className="truncate font-bold">{value}</p><p className="text-xs text-muted-foreground">{label}</p></div></CardContent></Card>)}
     </div>
     <Tabs defaultValue="negocio" className="settings-center">
       <TabsList className="settings-tabs-list flex-wrap h-auto gap-1">
@@ -2385,7 +2470,7 @@ function SettingsCenter({data,onSave,busy,dark,setDark,setToast,uid,setModal,onE
           onTransfer={onTransferModal}
         />
       </TabsContent>
-      <TabsContent value="ventas"><SettingsFormCard title="Ventas, Monedas y Comprobantes X" description="Configurá la moneda base (Reales por defecto), cotizaciones en Pesos y Dólares, cobros y condiciones comerciales." icon={FileText} onSubmit={submitSettings} busy={busy}><SelectField label="Moneda base predeterminada" name="currency" defaultValue={settings.currency||"BRL"}><option value="BRL">🇧🇷 Reales Brasileños (R$ BRL) - Predeterminada</option><option value="ARS">🇦🇷 Pesos Argentinos ($ ARS)</option><option value="USD">🇺🇸 Dólares Estadounidenses (US$ USD)</option></SelectField><Field label="Cotización: 1 Real (R$ BRL) en Pesos ($ ARS)" name="exchangeRateArs" type="number" step="any" defaultValue={settings.exchange_rate_ars||settings.exchange_rate_brl||250} placeholder="Ej: 250"/><Field label="Cotización: 1 Dólar (US$ USD) en Reales (R$ BRL)" name="exchangeRateUsd" type="number" step="any" defaultValue={settings.exchange_rate_usd||5.70} placeholder="Ej: 5.70"/><input type="hidden" name="exchangeRateBrl" value={settings.exchange_rate_ars||settings.exchange_rate_brl||250} /><div className="md:col-span-2 rounded-xl bg-muted/40 border p-3 text-xs text-muted-foreground flex flex-wrap items-center justify-between gap-2"><span>Paridades activas: <strong>1 R$ = ${Number(settings.exchange_rate_ars||settings.exchange_rate_brl||250).toLocaleString("es-AR")} ARS</strong> · <strong>1 US$ = R$ {Number(settings.exchange_rate_usd||5.70).toFixed(2)} BRL</strong> · <strong>1 US$ ≈ ${(Number(settings.exchange_rate_usd||5.70) * Number(settings.exchange_rate_ars||settings.exchange_rate_brl||250)).toLocaleString("es-AR")} ARS</strong></span><Badge variant="outline" className="font-mono text-[10px]">Multi-moneda CR</Badge></div><Field label="Prefijo del comprobante" name="receiptPrefix" defaultValue={settings.receipt_prefix||"X"}/><Field label="Próximo número" name="nextReceiptNumber" type="number" defaultValue={settings.next_receipt_number||1}/><SelectField label="Canal de venta predeterminado" name="defaultChannel" defaultValue={settings.default_channel||"minorista"}><option value="minorista">Minorista (Público general / Consumidor final)</option><option value="mayorista">Mayorista (Comercios y revendedores)</option></SelectField><Field label="Medios de pago separados por coma" name="paymentMethods" defaultValue={settings.payment_methods}/><Field label="Descuento máximo (%)" name="maxDiscountPercent" type="number" defaultValue={settings.max_discount_percent}/><SelectField label="Redondeo del total" name="roundingMode" defaultValue={settings.rounding_mode}><option value="none">Sin redondeo</option><option value="10">Al múltiplo de $10</option><option value="100">Al múltiplo de $100</option></SelectField><Field label="Mínimo mayorista (pares)" name="wholesaleMinQty" type="number" defaultValue={settings.wholesale_min_qty && Number(settings.wholesale_min_qty) !== 6 ? settings.wholesale_min_qty : 12}/><SettingToggle name="allowMixedSale" label="Combinar modelos" description="Permite alcanzar el mínimo mayorista sumando distintos modelos." defaultChecked={Boolean(settings.allow_mixed_sale)}/><div className="md:col-span-2"><TextAreaField label="Condiciones mayoristas" name="wholesaleTerms" defaultValue={settings.wholesale_terms}/></div></SettingsFormCard></TabsContent>
+      <TabsContent value="ventas"><SettingsFormCard title="Ventas, Monedas y Comprobantes X" description="Configurá la moneda base (Reales por defecto), cotizaciones en Pesos y Dólares, cobros y condiciones comerciales." icon={FileText} onSubmit={submitSettings} busy={busy}><SelectField label="Moneda base predeterminada" name="currency" defaultValue={settings.currency||"BRL"}><option value="BRL">🇧🇷 Reales Brasileños (R$ BRL) - Predeterminada</option><option value="ARS">🇦🇷 Pesos Argentinos ($ ARS)</option><option value="USD">🇺🇸 Dólares Estadounidenses (US$ USD)</option></SelectField><Field label="Cotización: 1 Real (R$ BRL) en Pesos ($ ARS)" name="exchangeRateArs" type="number" step="any" defaultValue={settings.exchange_rate_ars||settings.exchange_rate_brl||250} placeholder="Ej: 250"/><Field label="Cotización: 1 Dólar (US$ USD) en Reales (R$ BRL)" name="exchangeRateUsd" type="number" step="any" defaultValue={settings.exchange_rate_usd||5.70} placeholder="Ej: 5.70"/><input type="hidden" name="exchangeRateBrl" value={settings.exchange_rate_ars||settings.exchange_rate_brl||250} /><div className="md:col-span-2 rounded-xl bg-muted/40 border p-3 text-xs text-muted-foreground flex flex-wrap items-center justify-between gap-2"><span>Paridades activas: <strong>1 R$ = ${Number(settings.exchange_rate_ars||settings.exchange_rate_brl||250).toLocaleString("es-AR")} ARS</strong> · <strong>1 US$ = R$ {Number(settings.exchange_rate_usd||5.70).toFixed(2)} BRL</strong> · <strong>1 US$ ≈ ${(Number(settings.exchange_rate_usd||5.70) * Number(settings.exchange_rate_ars||settings.exchange_rate_brl||250)).toLocaleString("es-AR")} ARS</strong></span><Badge variant="outline" className="font-mono text-[10px]">Multi-moneda CR</Badge></div><Field label="Prefijo del comprobante" name="receiptPrefix" defaultValue={settings.receipt_prefix||"X"}/><Field label="Próximo número" name="nextReceiptNumber" type="number" defaultValue={settings.next_receipt_number||1}/><SelectField label="Canal de venta predeterminado" name="defaultChannel" defaultValue={settings.default_channel||"minorista"}><option value="minorista">Minorista (Público general / Consumidor final)</option><option value="mayorista">Mayorista (Comercios y revendedores)</option></SelectField><Field label="Medios de pago separados por coma" name="paymentMethods" defaultValue={settings.payment_methods}/><Field label="Descuento máximo (%)" name="maxDiscountPercent" type="number" defaultValue={settings.max_discount_percent}/><SelectField label="Redondeo del total" name="roundingMode" defaultValue={settings.rounding_mode}><option value="none">Sin redondeo</option><option value="10">Al múltiplo de $10</option><option value="100">Al múltiplo de $100</option></SelectField><Field label="Mínimo mayorista (pares) - dejar en 0 para sin mínimo" name="wholesaleMinQty" type="number" defaultValue={settings.wholesale_min_qty ?? 0}/><SettingToggle name="allowMixedSale" label="Combinar modelos" description="Permite alcanzar el mínimo mayorista sumando distintos modelos." defaultChecked={Boolean(settings.allow_mixed_sale)}/><div className="md:col-span-2"><TextAreaField label="Condiciones mayoristas" name="wholesaleTerms" defaultValue={settings.wholesale_terms}/></div></SettingsFormCard></TabsContent>
       <TabsContent value="inventario"><SettingsFormCard title="Reglas de inventario" description="Definí alertas, talles habituales y el comportamiento cuando no hay existencias." icon={Boxes} onSubmit={submitSettings} busy={busy}><Field label="Alerta de stock mínimo" name="lowStockAt" type="number" defaultValue={settings.low_stock_at}/><Field label="Talles predeterminados" name="defaultSizes" defaultValue={settings.default_sizes}/><Field label="Prefijo para códigos propios" name="barcodePrefix" defaultValue={settings.barcode_prefix}/><SettingToggle name="allowNegativeStock" label="Permitir stock negativo" description="Habilita ventas aunque el talle figure sin existencias. Usalo con control." defaultChecked={Boolean(settings.allow_negative_stock)}/><div className="md:col-span-2 rounded-2xl border bg-muted/35 p-4"><p className="font-bold">Estado actual</p><div className="mt-3 grid gap-3 sm:grid-cols-3"><div><p className="text-2xl font-black">{data.stats.productCount}</p><p className="text-xs text-muted-foreground">Modelos activos</p></div><div><p className="text-2xl font-black">{data.stats.lowStock}</p><p className="text-xs text-muted-foreground">Alertas vigentes</p></div><div><p className="text-2xl font-black">{data.products.reduce((sum:number,p:Product)=>sum+p.total_stock,0)}</p><p className="text-xs text-muted-foreground">Pares registrados</p></div></div></div></SettingsFormCard></TabsContent>
       <TabsContent value="catalogo"><SettingsFormCard title="Catálogos comerciales" description="Elegí qué información se imprime y comparte con clientes." icon={Tags} onSubmit={submitSettings} busy={busy}><SelectField label="Lista de precios predeterminada en catálogos" name="catalogDefaultPrice" defaultValue={settings.catalog_default_price||"both"}><option value="wholesale">Solo Precios Mayoristas</option><option value="retail">Solo Precios Minoristas</option><option value="both">Ambas listas (Mayorista + PVP)</option></SelectField><Field label="Contacto visible" name="catalogContact" defaultValue={settings.catalog_contact} placeholder="WhatsApp, teléfono o Instagram"/><SettingToggle name="catalogInStockOnly" label="Solo productos con stock" description="Oculta automáticamente modelos agotados." defaultChecked={Boolean(settings.catalog_in_stock_only)}/><SettingToggle name="catalogShowBarcode" label="Mostrar códigos de barras" description="Incluye el código en cada ficha impresa." defaultChecked={Boolean(settings.catalog_show_barcode)}/><div className="md:col-span-2"><TextAreaField label="Condiciones al pie del catálogo" name="catalogTerms" defaultValue={settings.catalog_terms}/></div></SettingsFormCard></TabsContent>
       <TabsContent value="lectores"><SettingsFormCard title="Lectores y cámara" description="Configurá y verificá los dispositivos usados en el punto de venta." icon={ScanLine} onSubmit={submitSettings} busy={busy}><SettingToggle name="scanSound" label="Confirmación sonora" description="Reproduce un sonido breve al reconocer un código." defaultChecked={Boolean(settings.scan_sound)}/><SettingToggle name="cameraEnabled" label="Lector con cámara" description="Habilita el escaneo mediante la cámara del dispositivo." defaultChecked={Boolean(settings.camera_enabled)}/><div className="md:col-span-2 grid gap-3 rounded-2xl border bg-muted/30 p-4 md:grid-cols-[1fr_auto_auto]"><div><p className="mb-2 text-sm font-bold">Prueba de lector USB o Bluetooth</p><Input value={readerCode} onChange={e=>setReaderCode(e.target.value)} onKeyDown={e=>e.key==="Enter"&&testReader()} placeholder="Escaneá un código aquí"/><p className="mt-2 text-xs text-muted-foreground">{readerResult||"El lector debe escribir el código y enviar Enter."}</p></div><Button type="button" variant="outline" className="self-end" onClick={testReader}><ScanLine/>Probar lector</Button><Button type="button" variant="outline" className="self-end" onClick={testCamera}><Camera/>Probar cámara</Button></div></SettingsFormCard></TabsContent>

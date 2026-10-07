@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import {
   Store, QrCode, Copy, Check, ExternalLink, MessageCircle, Download, Printer,
-  Sparkles, Tags, ShoppingBag, Info, Users
+  Sparkles, Tags, ShoppingBag, Info, Users, ClipboardList
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -40,8 +40,8 @@ export function WholesaleStoreAdmin({
   const storeUid = uid || data?.settings?.uid || "";
   const businessName = data?.settings?.business_name || "CR CALZADOS";
   const whatsappNumber = data?.settings?.whatsapp || data?.settings?.phone || "";
-  const wholesaleMinQty = data?.settings?.wholesale_min_qty && Number(data.settings.wholesale_min_qty) !== 6 ? Number(data.settings.wholesale_min_qty) : 12;
-  const wholesaleTerms = data?.settings?.wholesale_terms || "Precios mayoristas desde el mínimo indicado.";
+  const wholesaleMinQty = data?.settings?.wholesale_min_qty && Number(data.settings.wholesale_min_qty) !== 6 ? Number(data.settings.wholesale_min_qty) : 0;
+  const wholesaleTerms = data?.settings?.wholesale_terms || "Precios mayoristas directos sin mínimo de compra.";
   const activeProducts = (data?.products || []).filter((p: any) => p.total_stock > 0);
 
   const minoristaUrl = useMemo(() => {
@@ -97,7 +97,7 @@ export function WholesaleStoreAdmin({
     if (type === "minorista") {
       text = `¡Hola! Te comparto nuestro catálogo y tienda online de *${businessName}*:\n\n👉 ${url}\n\nPodés ver todos los modelos disponibles en stock con fotos y precios por unidad, y hacernos tu pedido directamente.`;
     } else {
-      text = `¡Hola! Te comparto nuestro catálogo de precios mayoristas de *${businessName}*:\n\n👉 ${url}\n\nPodés armar tu pedido eligiendo curvas y cantidades deseadas (mínimo ${wholesaleMinQty} unidades) para enviárnoslo directamente por acá.`;
+      text = `¡Hola! Te comparto nuestro catálogo de precios mayoristas de *${businessName}*:\n\n👉 ${url}\n\nPodés armar tu pedido eligiendo curvas y modelos con precios por mayor directos para enviárnoslo directamente por acá.`;
     }
     const shareUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
     window.open(shareUrl, "_blank");
@@ -216,11 +216,18 @@ export function WholesaleStoreAdmin({
             <h1 className="text-2xl font-black tracking-tight sm:text-3xl text-foreground">Catálogo & Tiendas Online</h1>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Compartí tu tienda minorista (venta al público por unidad) o tienda mayorista (por volumen) y recibí los pedidos directos en tu WhatsApp.
+            Compartí tu tienda minorista o mayorista y recibí los pedidos directamente en tu panel de administración en tiempo real.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            className="gap-2 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
+            onClick={() => setSection("pedidos")}
+          >
+            <ClipboardList className="size-4" />
+            Ver Pedidos Web
+          </Button>
           <Button
             variant="outline"
             className="gap-2 rounded-xl font-semibold"
@@ -262,9 +269,9 @@ export function WholesaleStoreAdmin({
         <Card className="group">
           <CardContent className="p-5 flex items-center justify-between">
             <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Mínimo Mayorista</p>
-              <p className="mt-1.5 text-2xl font-black tracking-tight">{wholesaleMinQty} unidades</p>
-              <p className="mt-1 text-xs text-muted-foreground">Regla para revendedores</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Condición Mayorista</p>
+              <p className="mt-1.5 text-2xl font-black tracking-tight">{wholesaleMinQty > 1 ? `${wholesaleMinQty} unidades` : "Sin mínimo (libre)"}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Venta mayorista directa</p>
             </div>
             <span className="clay-pill-3d clay-pill-coral size-13 shrink-0">
               <Tags className="size-6" strokeWidth={2.3} />
@@ -368,7 +375,7 @@ export function WholesaleStoreAdmin({
                     <p className="font-bold text-foreground">Características del Catálogo Minorista:</p>
                     <p>• Muestra los precios de venta al público (PVP / retail).</p>
                     <p>• Los clientes pueden elegir desde 1 sola unidad de cualquier modelo.</p>
-                    <p>• El cliente envía su pedido completo y sus datos de entrega directo a tu WhatsApp.</p>
+                    <p>• El cliente confirma su pedido y llega directamente a tu panel de administración en tiempo real.</p>
                   </div>
                 </CardContent>
               </Card>
@@ -444,7 +451,7 @@ export function WholesaleStoreAdmin({
                   </div>
                   <CardTitle className="text-xl mt-1 font-black">Enlace del Catálogo Mayorista</CardTitle>
                   <CardDescription>
-                    Compartí este enlace con revendedores, distribuidores o comercios. Verán los precios por mayor y podrán armar su pedido cumpliendo el mínimo de unidades.
+                    Compartí este enlace con revendedores, distribuidores o comercios. Verán los precios por mayor y podrán armar su pedido directamente sin mínimo de compra.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -485,8 +492,8 @@ export function WholesaleStoreAdmin({
                   <div className="mt-4 rounded-xl border bg-muted/30 p-4 text-xs space-y-1.5 text-muted-foreground">
                     <p className="font-bold text-foreground">Reglas del Catálogo Mayorista:</p>
                     <p>• Los clientes visualizan exclusivamente los precios mayoristas definidos para cada producto.</p>
-                    <p>• Mínimo de compra requerido configurado: <strong>{wholesaleMinQty} unidades</strong>.</p>
-                    <p>• Al confirmar el pedido, el carrito se formatea y se envía a tu WhatsApp con el detalle por producto, variante y cantidad.</p>
+                    <p>• Mínimo de compra requerido: <strong>{wholesaleMinQty > 1 ? `${wholesaleMinQty} unidades` : "Sin mínimo (libre a partir de 1 unidad)"}</strong>.</p>
+                    <p>• Al confirmar el pedido, ingresa directamente a tu panel de administración con el detalle por producto, variante y cantidad.</p>
                     <p>• Condición configurada: <em>"{wholesaleTerms}"</em></p>
                   </div>
                 </CardContent>
@@ -536,7 +543,7 @@ export function WholesaleStoreAdmin({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => printQr(qrMayorista, "Catálogo Mayorista", "Escaneá y armá tu pedido con precios mayoristas", `Mínimo mayorista: ${wholesaleMinQty} unidades`)}
+                      onClick={() => printQr(qrMayorista, "Catálogo Mayorista", "Escaneá y armá tu pedido con precios mayoristas", wholesaleMinQty > 1 ? `Mínimo mayorista: ${wholesaleMinQty} unidades` : "Precios mayoristas sin mínimo de compra")}
                       className="gap-1.5 rounded-xl text-xs"
                       disabled={!qrMayorista}
                     >

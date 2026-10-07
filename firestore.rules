@@ -46,6 +46,12 @@ service cloud.firestore {
       allow write: if authenticated() && (request.auth.uid == userId || isStaffOf(userId));
     }
 
+    // Pedidos de la tienda online (clientes crean y consultan en tiempo real, admin administra)
+    match /users/{userId}/orders/{orderId} {
+      allow create, read: if true;
+      allow update, delete: if authenticated() && (request.auth.uid == userId || isStaffOf(userId));
+    }
+
     // Cada tienda tiene acceso total para el dueño y acceso operativo para sus cajeras activas
     match /users/{userId}/{document=**} {
       allow read, write: if authenticated() && (request.auth.uid == userId || isStaffOf(userId));
