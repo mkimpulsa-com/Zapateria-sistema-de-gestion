@@ -885,7 +885,13 @@ function CustomerSelectField({
 function SalesPOS({data,filtered,channel,setChannel,cart,setCart,addVariant,scan,setScan,scanProduct,setModal,discount,setDiscount,payment,setPayment,customerId,setCustomerId,cartTotal,closeSale,busy}:any){return <><SectionTitle eyebrow="Venta rápida" title="Punto de venta" text="Escaneá, elegí la variante y cobrá sin salir de la pantalla."/><div className="mb-5 grid gap-3 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-[1fr_auto_auto]"><div className="relative"><Barcode className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-primary"/><Input autoFocus className="h-12 pl-10" placeholder="Escaneá con lector USB/Bluetooth o escribí el código" value={scan} onChange={e=>{const val=e.target.value;if(val.includes("\n")||val.includes("\r")){scanProduct(val);}else{setScan(val);}}} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();scanProduct(scan);}}}/></div><Button variant="outline" className="h-12" onClick={()=>setModal("scanner")}><Camera/>Usar cámara</Button><div className="flex rounded-xl bg-muted p-1"><button onClick={()=>setChannel("minorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel==="minorista"?"bg-card shadow":"text-muted-foreground"}`}>Minorista</button><button onClick={()=>setChannel("mayorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel==="mayorista"?"bg-card shadow":"text-muted-foreground"}`}>Mayorista</button></div></div><div className="grid gap-6 xl:grid-cols-[1fr_390px]"><div className="grid content-start gap-4 sm:grid-cols-2 2xl:grid-cols-3">{filtered.map((p:Product)=><Card key={p.id} className="gap-3 border-0 py-0 shadow-sm overflow-hidden flex flex-col">{p.image_url?<div className="h-36 w-full overflow-hidden bg-muted/20"><img src={p.image_url} alt={p.name} className="h-full w-full object-cover hover:scale-105 transition-transform duration-300"/></div>:<div className="h-20 w-full bg-gradient-to-r from-primary/5 via-muted/30 to-primary/5 flex items-center justify-center text-muted-foreground/40"><ShoppingBag className="size-7 opacity-50"/></div>}<CardContent className="px-4 pb-4 pt-2 flex-1 flex flex-col justify-between"><div><div className="mb-2 flex items-start justify-between gap-2"><div><p className="font-bold">{p.name}</p><p className="text-xs text-muted-foreground">{p.brand} · {p.sku}</p></div><Badge variant="outline">{p.total_stock} u.</Badge></div><p className="mb-3 text-xl font-extrabold text-primary">{money(channel==="mayorista"?p.wholesale_price:p.retail_price)}</p></div><div><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Elegir variante</p><div className="flex flex-wrap gap-1.5">{p.variants.map(v=><Button key={v.id} variant="outline" size="xs" disabled={!v.stock} onClick={()=>addVariant(p,v)}>{v.size}<span className="text-[10px] text-muted-foreground">{v.stock}</span></Button>)}</div></div></CardContent></Card>)}</div><Card className="sticky top-24 h-fit gap-4 border-0 py-5 shadow-[0_14px_40px_rgb(15_33_55/12%)]"><CardHeader className="flex-row items-center justify-between px-5"><CardTitle className="flex items-center gap-2"><ShoppingCart className="size-5 text-primary"/>Venta actual</CardTitle><Badge>{cart.reduce((s:number,i:CartItem)=>s+i.quantity,0)} unidades</Badge></CardHeader><CardContent className="space-y-4 px-5"><div className="max-h-64 space-y-2 overflow-y-auto pr-1">{cart.length===0?<div className="rounded-2xl border border-dashed p-7 text-center text-sm text-muted-foreground">Escaneá un producto o elegí una variante para comenzar.</div>:cart.map((i:CartItem)=><div key={i.variantId} className="flex items-center gap-3 rounded-xl bg-muted/55 p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{i.name}</p><p className="text-xs text-muted-foreground">Variante {i.size} · {money(i.unitPrice)}</p></div><div className="flex items-center gap-1"><button className="size-7 rounded-lg border" onClick={()=>setCart((c:CartItem[])=>c.map(x=>x.variantId===i.variantId?{...x,quantity:Math.max(0,x.quantity-1)}:x).filter(x=>x.quantity>0))}>−</button><span className="w-6 text-center text-sm font-bold">{i.quantity}</span><button className="size-7 rounded-lg border" onClick={()=>setCart((c:CartItem[])=>c.map(x=>x.variantId===i.variantId?{...x,quantity:Math.min(x.max,x.quantity+1)}:x))}>+</button></div></div>)}</div><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold">Descuento<Input type="number" value={discount} onChange={e=>setDiscount(Number(e.target.value)||0)} className="mt-1"/></label><label className="text-xs font-semibold">Medio de pago<select value={payment} onChange={e=>setPayment(e.target.value)} className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Cuenta corriente</option></select></label></div><CustomerSelectField customers={data.customers} customerId={customerId} setCustomerId={setCustomerId} onNewCustomer={()=>setModal("customer")}/><div className="border-t pt-4"><div className="flex justify-between text-sm text-muted-foreground"><span>Subtotal</span><span>{money(cartTotal+discount)}</span></div><div className="mt-2 flex items-end justify-between"><span className="font-semibold">Total</span><span className="text-3xl font-black tracking-tight">{money(cartTotal)}</span></div></div><Button className="h-12 w-full rounded-xl text-base" disabled={!cart.length||busy} onClick={closeSale}>{busy?"Procesando…":`Cobrar ${money(cartTotal)}`}</Button><p className="text-center text-xs text-muted-foreground">Genera comprobante X y descuenta el stock automáticamente.</p></CardContent></Card></div></>}
 
 function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
+  const [displayLimit, setDisplayLimit] = useState(40);
   const productsList = filtered || [];
+
+  useEffect(() => {
+    setDisplayLimit(40);
+  }, [filtered]);
+
   const totalPairs = productsList.reduce((sum: number, p: Product) => sum + (Number(p.total_stock) || 0), 0);
   const costStock = productsList.reduce((sum: number, p: Product) => sum + ((Number(p.cost) || 0) * (Number(p.total_stock) || 0)), 0);
   const wholesaleStock = productsList.reduce((sum: number, p: Product) => sum + ((Number(p.wholesale_price) || 0) * (Number(p.total_stock) || 0)), 0);
@@ -941,7 +947,7 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((p:Product)=>{
+              {productsList.slice(0, displayLimit).map((p:Product)=>{
                 const margin=p.wholesale_price?Math.round((p.wholesale_price-p.cost)/p.wholesale_price*100):0;
                 return (
                   <TableRow key={p.id}>
@@ -986,6 +992,19 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
               })}
             </TableBody>
           </Table>
+          {productsList.length > displayLimit && (
+            <div className="flex justify-center p-4 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDisplayLimit(prev => prev + 40)}
+                className="gap-2 font-semibold rounded-xl"
+              >
+                <Plus className="size-4 text-primary" />
+                Cargar más productos ({Math.min(displayLimit, productsList.length)} de {productsList.length})
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </>
@@ -993,6 +1012,13 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
 }
 
 function Inventory({data,filtered,adjust,isCashier,onAddToCart}:any){
+  const [displayLimit, setDisplayLimit] = useState(36);
+  const productsList = filtered || [];
+
+  useEffect(() => {
+    setDisplayLimit(36);
+  }, [filtered]);
+
   return (
     <>
       <SectionTitle
@@ -1001,7 +1027,7 @@ function Inventory({data,filtered,adjust,isCashier,onAddToCart}:any){
         text={isCashier ? "Consultá la disponibilidad por artículo o variante y precios de venta." : "Control de existencias por artículo y variante."}
       />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {filtered.map((p:Product)=>(
+        {productsList.slice(0, displayLimit).map((p:Product)=>(
           <Card key={p.id} className="gap-4 border-0 py-5 shadow-sm">
             <CardHeader className="px-5">
               <div className="flex items-start justify-between gap-2">
@@ -1059,6 +1085,19 @@ function Inventory({data,filtered,adjust,isCashier,onAddToCart}:any){
             </CardContent>
           </Card>
         ))}
+        {productsList.length > displayLimit && (
+          <div className="col-span-full flex justify-center py-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDisplayLimit(prev => prev + 36)}
+              className="gap-2 font-semibold rounded-xl"
+            >
+              <Plus className="size-4 text-primary" />
+              Cargar más existencias ({Math.min(displayLimit, productsList.length)} de {productsList.length})
+            </Button>
+          </div>
+        )}
       </div>
     </>
   );
@@ -1218,6 +1257,8 @@ function ProductImage({ src, alt, className = "size-11 rounded-xl object-cover b
     <img
       src={src}
       alt={alt || ""}
+      loading="lazy"
+      decoding="async"
       onError={() => setError(true)}
       className={className}
     />
@@ -1315,13 +1356,32 @@ function SalesPOSConfigured({
   const formatCurr = (val: number) => formatMoney(val, saleCurrency);
 
   const [showAllCatalog, setShowAllCatalog] = useState(false);
+  const [searchLimit, setSearchLimit] = useState(24);
+  const [catalogLimit, setCatalogLimit] = useState(24);
   const searchTrim = scan.trim().toLowerCase();
-  const matchingProducts = useMemo(() => {
+
+  useEffect(() => {
+    setSearchLimit(24);
+  }, [searchTrim]);
+
+  useEffect(() => {
+    setCatalogLimit(24);
+  }, [filtered]);
+
+  const allMatchingProducts = useMemo(() => {
     if (!searchTrim) return [];
     return (data.products || []).filter((p: Product) =>
       [p.name, p.sku, p.barcode, p.brand, p.category, p.color].join(" ").toLowerCase().includes(searchTrim)
     );
   }, [data.products, searchTrim]);
+
+  const matchingProducts = useMemo(() => {
+    return allMatchingProducts.slice(0, searchLimit);
+  }, [allMatchingProducts, searchLimit]);
+
+  const visibleCatalog = useMemo(() => {
+    return (filtered || []).slice(0, catalogLimit);
+  }, [filtered, catalogLimit]);
 
   return <>
     <SectionTitle eyebrow="Venta rápida" title="Punto de venta" text="Escaneá, elegí el talle y cobrá sin salir de la pantalla."/>
@@ -1421,7 +1481,7 @@ function SalesPOSConfigured({
                   Productos encontrados para &ldquo;{scan}&rdquo;
                 </h3>
                 <Badge variant="outline" className="bg-background text-xs">
-                  {matchingProducts.length} {matchingProducts.length === 1 ? "resultado" : "resultados"}
+                  {allMatchingProducts.length} {allMatchingProducts.length === 1 ? "resultado" : "resultados"}
                 </Badge>
               </div>
               <Button
@@ -1435,7 +1495,7 @@ function SalesPOSConfigured({
               </Button>
             </div>
 
-            {matchingProducts.length === 0 ? (
+            {allMatchingProducts.length === 0 ? (
               <div className="rounded-xl border border-dashed bg-background/60 p-6 text-center text-sm text-muted-foreground">
                 No se encontró ningún producto con &ldquo;{scan}&rdquo;. Podés escanear con el lector o{" "}
                 <button
@@ -1510,6 +1570,21 @@ function SalesPOSConfigured({
                 ))}
               </div>
             )}
+
+            {allMatchingProducts.length > searchLimit && (
+              <div className="flex justify-center pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSearchLimit(prev => prev + 24)}
+                  className="gap-1.5 text-xs font-semibold rounded-xl bg-background"
+                >
+                  <Plus className="size-3.5 text-primary" />
+                  Ver más resultados ({matchingProducts.length} de {allMatchingProducts.length})
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1532,7 +1607,7 @@ function SalesPOSConfigured({
               </Button>
             </div>
             <div className="grid content-start gap-4 sm:grid-cols-2 2xl:grid-cols-3">
-              {filtered.map((p: Product) => (
+              {visibleCatalog.map((p: Product) => (
                 <Card key={p.id} className="gap-3 border-0 py-0 shadow-sm overflow-hidden flex flex-col">
                   <ProductImage src={p.image_url} alt={p.name} className="h-36 w-full object-cover rounded-none border-b border-border/40" />
                   <CardContent className="px-4 pb-4 pt-2 flex-1 flex flex-col justify-between">
@@ -1583,6 +1658,19 @@ function SalesPOSConfigured({
                 </Card>
               ))}
             </div>
+            {filtered.length > catalogLimit && (
+              <div className="flex justify-center pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setCatalogLimit(prev => prev + 24)}
+                  className="gap-2 font-semibold rounded-xl"
+                >
+                  <Plus className="size-4 text-primary" />
+                  Cargar más productos ({visibleCatalog.length} de {filtered.length})
+                </Button>
+              </div>
+            )}
           </div>
         )}
 

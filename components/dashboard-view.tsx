@@ -1014,6 +1014,8 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                     <img
                       src={product.image_url}
                       alt={product.name}
+                      loading="lazy"
+                      decoding="async"
                       onError={(e) => {
                         (e.currentTarget as HTMLElement).style.display = 'none';
                         if (e.currentTarget.parentElement) {
@@ -1379,6 +1381,8 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                         <img
                           src={p.image_url}
                           alt={p.name}
+                          loading="lazy"
+                          decoding="async"
                           className="size-11 rounded-xl object-cover border border-border/80 shrink-0"
                         />
                       ) : (

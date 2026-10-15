@@ -1,6 +1,6 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, writeBatch,
-  runTransaction, deleteDoc, onSnapshot, query, orderBy, type DocumentData,
+  runTransaction, deleteDoc, onSnapshot, query, orderBy, limit, type DocumentData,
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { getApp, getApps, initializeApp } from "firebase/app";
@@ -202,13 +202,13 @@ export async function loadStore(uid?: string) {
     getDocs(userCol("products", userId)),
     getDocs(userCol("customers", userId)),
     getDocs(userCol("suppliers", userId)),
-    getDocs(userCol("sales", userId)),
-    getDocs(userCol("cashMovements", userId)),
-    getDocs(userCol("stockMovements", userId)),
-    getDocs(userCol("customerMovements", userId)),
-    getDocs(userCol("supplierMovements", userId)),
+    getDocs(query(userCol("sales", userId), orderBy("created_at", "desc"), limit(60))),
+    getDocs(query(userCol("cashMovements", userId), orderBy("created_at", "desc"), limit(60))),
+    getDocs(query(userCol("stockMovements", userId), orderBy("created_at", "desc"), limit(40))),
+    getDocs(query(userCol("customerMovements", userId), orderBy("created_at", "desc"), limit(100))),
+    getDocs(query(userCol("supplierMovements", userId), orderBy("created_at", "desc"), limit(100))),
     getDocs(userCol("bankAccounts", userId)),
-    getDocs(userCol("bankMovements", userId)),
+    getDocs(query(userCol("bankMovements", userId), orderBy("created_at", "desc"), limit(100))),
     getDocs(userCol("categories", userId)),
     getDocs(userCol("staff", userId)),
   ]);
