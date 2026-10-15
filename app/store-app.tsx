@@ -811,7 +811,7 @@ export default function StoreApp({
     />
     {toast&&<div className="clay-toast fixed bottom-5 left-1/2 z-[80] flex -translate-x-1/2 items-center gap-2 rounded-full bg-[#0f2137] px-5 py-3 text-sm font-medium text-white shadow-2xl"><Check className="size-4 text-emerald-500"/>{toast}</div>}
     {newOrderAlert && (
-      <aside aria-label="Alerta de nuevo pedido web" className="fixed bottom-6 right-4 sm:right-6 z-[95] max-w-sm w-[calc(100vw-32px)] bg-slate-950/95 dark:bg-[#080e18]/95 backdrop-blur-2xl text-white rounded-3xl p-4 sm:p-5 shadow-[0_20px_50px_rgba(0,0,0,0.65),0_0_35px_rgba(245,158,11,0.22)] border border-amber-500/40 relative overflow-hidden animate-in fade-in slide-in-from-bottom-5 duration-500">
+      <aside aria-label="Alerta de nuevo pedido web" className="fixed top-24 right-4 sm:top-28 sm:right-7 z-[100] max-w-sm w-[calc(100vw-32px)] bg-slate-950/95 dark:bg-[#080e18]/95 backdrop-blur-2xl text-white rounded-3xl p-4 sm:p-5 shadow-[0_20px_50px_rgba(0,0,0,0.65),0_0_35px_rgba(245,158,11,0.22)] border border-amber-500/40 relative overflow-hidden animate-in fade-in slide-in-from-top-5 duration-500">
         {/* Línea superior con resplandor dorado */}
         <div className="absolute inset-x-0 top-0 h-[1.5px] bg-gradient-to-r from-transparent via-amber-400 to-transparent pointer-events-none" />
 
