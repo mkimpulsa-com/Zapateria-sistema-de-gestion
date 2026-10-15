@@ -83,7 +83,8 @@ export function NewProductModal({
   busy,
   onSubmit,
 }: NewProductModalProps) {
-  const [productType, setProductType] = useState<ProductType>("simple");
+  const [hasVariants, setHasVariants] = useState<boolean>(false);
+  const [productType, setProductType] = useState<ProductType>("calzado");
   const [simpleStock, setSimpleStock] = useState<number>(10);
 
   const initialCalzadoSizes = useMemo(() => {
@@ -106,8 +107,21 @@ export function NewProductModal({
   useEffect(() => {
     if (open) {
       setBarcode("");
+      setHasVariants(false);
+      setSimpleStock(10);
     }
   }, [open]);
+
+  const handleEnableVariants = () => {
+    setHasVariants(true);
+    if (!variants || variants.length === 0) {
+      setVariants(initialCalzadoSizes.map((size) => ({ size, stock: 2 })));
+    }
+  };
+
+  const handleDisableVariants = () => {
+    setHasVariants(false);
+  };
 
   const categoryNames = useMemo(() => {
     if (Array.isArray(categories) && categories.length > 0) {
@@ -172,10 +186,9 @@ export function NewProductModal({
   };
 
   // Totales calculados en tiempo real
-  const totalStock =
-    productType === "simple"
-      ? Math.max(0, Number(simpleStock) || 0)
-      : variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+  const totalStock = !hasVariants
+    ? Math.max(0, Number(simpleStock) || 0)
+    : variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
 
   const totalCost = totalStock * (Number(cost) || 0);
 
@@ -216,7 +229,7 @@ export function NewProductModal({
 
     let finalVariants: VariantItem[] = [];
 
-    if (productType === "simple") {
+    if (!hasVariants) {
       finalVariants = [
         {
           size: "Único",
@@ -264,70 +277,6 @@ export function NewProductModal({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6 pt-2">
-          {/* SELECTOR DE TIPO DE ARTÍCULO */}
-          <div className="rounded-2xl border border-border/80 bg-muted/30 p-3">
-            <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
-              Tipo de artículo / Inventario
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <button
-                type="button"
-                onClick={() => handleSelectProductType("simple")}
-                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-all ${
-                  productType === "simple"
-                    ? "bg-primary text-primary-foreground border-primary shadow-sm ring-2 ring-primary/20"
-                    : "bg-card hover:bg-muted text-foreground border-border/80"
-                }`}
-              >
-                <Package className="size-5" />
-                <span className="text-xs font-bold">Artículo Simple</span>
-                <span className="text-[10px] opacity-80 leading-tight">Sin talles (stock único)</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleSelectProductType("calzado")}
-                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-all ${
-                  productType === "calzado"
-                    ? "bg-primary text-primary-foreground border-primary shadow-sm ring-2 ring-primary/20"
-                    : "bg-card hover:bg-muted text-foreground border-border/80"
-                }`}
-              >
-                <Footprints className="size-5" />
-                <span className="text-xs font-bold">Calzado</span>
-                <span className="text-[10px] opacity-80 leading-tight">Curva por número</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleSelectProductType("indumentaria")}
-                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-all ${
-                  productType === "indumentaria"
-                    ? "bg-primary text-primary-foreground border-primary shadow-sm ring-2 ring-primary/20"
-                    : "bg-card hover:bg-muted text-foreground border-border/80"
-                }`}
-              >
-                <Shirt className="size-5" />
-                <span className="text-xs font-bold">Ropa / Indumentaria</span>
-                <span className="text-[10px] opacity-80 leading-tight">Talles S, M, L, XL...</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleSelectProductType("variantes")}
-                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-all ${
-                  productType === "variantes"
-                    ? "bg-primary text-primary-foreground border-primary shadow-sm ring-2 ring-primary/20"
-                    : "bg-card hover:bg-muted text-foreground border-border/80"
-                }`}
-              >
-                <Palette className="size-5" />
-                <span className="text-xs font-bold">Variantes Libres</span>
-                <span className="text-[10px] opacity-80 leading-tight">Colores o medidas</span>
-              </button>
-            </div>
-          </div>
-
           {/* SECCIÓN 1: DATOS GENERALES */}
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5">
@@ -651,20 +600,33 @@ export function NewProductModal({
             )}
           </div>
 
-          {/* SECCIÓN 3: GESTIÓN DE INVENTARIO SEGÚN TIPO */}
-          {productType === "simple" ? (
-            /* MODO SIMPLE (Bazar, termos, electrónica, accesorios, etc.) */
+          {/* SECCIÓN 3: GESTIÓN DE INVENTARIO Y STOCK */}
+          {!hasVariants ? (
+            /* MODO PREDETERMINADO: AGREGAR CANTIDAD DIRECTO */
             <div className="rounded-3xl border border-border/80 bg-gradient-to-b from-muted/40 via-card/70 to-card p-5 space-y-4 shadow-sm">
-              <div className="flex items-center gap-3 border-b border-border/60 pb-3.5">
-                <div className="size-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center border border-primary/20 shadow-xs">
-                  <Package className="size-5" />
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60 pb-3.5">
+                <div className="flex items-center gap-3">
+                  <div className="size-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center border border-primary/20 shadow-xs">
+                    <Package className="size-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">Cantidad / Stock inicial</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Ingresá la cantidad de unidades que tenés disponible en depósito
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-foreground">Stock inicial del artículo</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Cantidad total disponible en depósito. Al vender en el Punto de Venta se sumará con 1 solo clic.
-                  </p>
-                </div>
+
+                {/* BOTÓN VISIBLE PARA AGREGAR VARIANTES */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleEnableVariants}
+                  className="gap-2 rounded-xl border-dashed border-primary/60 bg-primary/5 hover:bg-primary/15 text-primary text-xs font-bold h-10 px-4 self-start sm:self-auto shadow-2xs hover:border-primary transition-all cursor-pointer"
+                >
+                  <Plus className="size-4" />
+                  + Agregar variantes (talles / colores)
+                </Button>
               </div>
 
               <div className="flex flex-col sm:flex-row items-center gap-4 bg-background/80 border border-border/60 p-4 rounded-2xl">
@@ -723,8 +685,8 @@ export function NewProductModal({
               )}
             </div>
           ) : (
-            /* MODO CON VARIANTES (Calzado, Ropa o Libres) */
-            <div className="rounded-3xl border border-border/80 bg-gradient-to-b from-muted/40 via-card/70 to-card p-5 space-y-4 shadow-sm">
+            /* MODO DESPLEGADO CON VARIANTES (Si el usuario apretó '+ Agregar variantes') */
+            <div className="rounded-3xl border border-primary/30 bg-gradient-to-b from-primary/5 via-card/70 to-card p-5 space-y-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-200">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60 pb-3.5">
                 <div className="flex items-center gap-3">
                   <div className="size-10 rounded-2xl bg-gradient-to-br from-amber-500/20 to-amber-500/5 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-500/20 shadow-xs">
@@ -732,11 +694,7 @@ export function NewProductModal({
                   </div>
                   <div>
                     <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-                      {productType === "calzado"
-                        ? "Curva de talles y stock por número"
-                        : productType === "indumentaria"
-                        ? "Talles de indumentaria y stock inicial"
-                        : "Variantes personalizadas y stock"}
+                      Variantes y stock por opción
                       <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
                         {variants.length} {variants.length === 1 ? "variante" : "variantes"}
                       </span>
@@ -747,25 +705,77 @@ export function NewProductModal({
                   </div>
                 </div>
 
-                {/* Preajustes rápidos */}
-                {(productType === "calzado" || productType === "indumentaria") && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-[11px] font-medium text-muted-foreground mr-1 hidden sm:inline">
-                      Preajustes:
-                    </span>
-                    {(productType === "calzado" ? CALZADO_CURVES : ROPA_CURVES).map((curve) => (
-                      <button
-                        key={curve.label}
-                        type="button"
-                        onClick={() => applyCurve(curve.sizes)}
-                        className="rounded-xl border border-border/70 bg-card px-2.5 py-1 text-xs font-semibold hover:border-primary/50 hover:bg-primary/5 hover:text-primary transition-all shadow-2xs"
-                      >
-                        {curve.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                {/* BOTÓN PARA CERRAR Y VOLVER A CANTIDAD SIMPLE */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleDisableVariants}
+                  className="text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-xl gap-1.5 self-start sm:self-auto font-semibold"
+                >
+                  <Trash2 className="size-3.5" />
+                  Quitar variantes (usar solo cantidad)
+                </Button>
               </div>
+
+              {/* SELECTOR DE TIPO DE VARIANTES */}
+              <div className="flex flex-wrap items-center gap-2 bg-muted/60 p-1.5 rounded-2xl border border-border/70">
+                <button
+                  type="button"
+                  onClick={() => handleSelectProductType("calzado")}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                    productType === "calzado"
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Footprints className="size-4" />
+                  Calzado (curva por número)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectProductType("indumentaria")}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                    productType === "indumentaria"
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Shirt className="size-4" />
+                  Ropa / Indumentaria (S, M, L)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectProductType("variantes")}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                    productType === "variantes"
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Palette className="size-4" />
+                  Variantes libres (colores / opciones)
+                </button>
+              </div>
+
+              {/* Preajustes rápidos */}
+              {(productType === "calzado" || productType === "indumentaria") && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[11px] font-medium text-muted-foreground mr-1 hidden sm:inline">
+                    Curvas rápidas:
+                  </span>
+                  {(productType === "calzado" ? CALZADO_CURVES : ROPA_CURVES).map((curve) => (
+                    <button
+                      key={curve.label}
+                      type="button"
+                      onClick={() => applyCurve(curve.sizes)}
+                      className="rounded-xl border border-border/70 bg-card px-2.5 py-1 text-xs font-semibold hover:border-primary/50 hover:bg-primary/5 hover:text-primary transition-all shadow-2xs"
+                    >
+                      {curve.label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Herramienta de llenado rápido y agregar talle */}
               <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
@@ -943,7 +953,7 @@ export function NewProductModal({
             </Button>
             <Button
               type="submit"
-              disabled={busy || (productType !== "simple" && variants.length === 0)}
+              disabled={busy || (hasVariants && variants.length === 0)}
               className="rounded-xl px-6 bg-orange-600 hover:bg-orange-700 text-white font-bold"
             >
               {busy ? "Guardando producto…" : "Crear producto y guardar stock"}
