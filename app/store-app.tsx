@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Archive, ArrowDownLeft, ArrowRight, ArrowRightLeft, ArrowUpRight, BarChart3, Barcode, Bell, BellRing, Boxes, Building2,
   Camera, Check, CircleDollarSign, ClipboardList, Database, Download,
@@ -177,6 +178,9 @@ export default function StoreApp({
   const [newOrderAlert, setNewOrderAlert] = useState<StoreOrder | null>(null);
   const initialOrdersLoadedRef = useRef(false);
   const knownOrderIdsRef = useRef<Set<string>>(new Set());
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   const load=async()=>{try{const storeData=await loadStore(uid) as StoreData;setData(storeData);if(!bankAccountId&&storeData?.bankAccounts?.length){setBankAccountId(String(storeData.bankAccounts[0].id));}setError("");}catch(e:any){setError(e.message||"No se pudo cargar");}};
   useEffect(()=>{load();},[uid]);
@@ -810,8 +814,20 @@ export default function StoreApp({
       }}
     />
     {toast&&<div className="clay-toast fixed bottom-5 left-1/2 z-[80] flex -translate-x-1/2 items-center gap-2 rounded-full bg-[#0f2137] px-5 py-3 text-sm font-medium text-white shadow-2xl"><Check className="size-4 text-emerald-500"/>{toast}</div>}
-    {newOrderAlert && (
-      <aside aria-label="Alerta de nuevo pedido web" className="fixed top-24 right-4 sm:top-28 sm:right-7 z-[100] max-w-sm w-[calc(100vw-32px)] bg-slate-950/95 dark:bg-[#080e18]/95 backdrop-blur-2xl text-white rounded-3xl p-4 sm:p-5 shadow-[0_20px_50px_rgba(0,0,0,0.65),0_0_35px_rgba(245,158,11,0.22)] border border-amber-500/40 relative overflow-hidden animate-in fade-in slide-in-from-top-5 duration-500">
+    {mounted && newOrderAlert && typeof document !== "undefined" && createPortal(
+      <aside
+        aria-label="Alerta de nuevo pedido web"
+        style={{
+          position: "fixed",
+          top: "84px",
+          right: "24px",
+          zIndex: 999999,
+          maxWidth: "390px",
+          width: "calc(100vw - 48px)",
+          boxShadow: "0 25px 60px -15px rgba(0,0,0,0.7), 0 0 35px rgba(245,158,11,0.25)",
+        }}
+        className="bg-[#0b1322] text-white rounded-3xl p-4 sm:p-5 border border-amber-500/40 relative overflow-hidden transition-all duration-300"
+      >
         {/* Línea superior con resplandor dorado */}
         <div className="absolute inset-x-0 top-0 h-[1.5px] bg-gradient-to-r from-transparent via-amber-400 to-transparent pointer-events-none" />
 
@@ -840,7 +856,7 @@ export default function StoreApp({
           <button
             type="button"
             onClick={() => setNewOrderAlert(null)}
-            className="size-6 rounded-full bg-white/5 hover:bg-white/15 text-slate-400 hover:text-white flex items-center justify-center transition-all"
+            className="size-6 rounded-full bg-white/5 hover:bg-white/15 text-slate-400 hover:text-white flex items-center justify-center transition-all cursor-pointer"
             title="Cerrar aviso"
           >
             <X className="size-3.5" />
@@ -887,7 +903,7 @@ export default function StoreApp({
               setSection("pedidos");
               setNewOrderAlert(null);
             }}
-            className="flex-1 h-9 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-black text-xs rounded-xl shadow-md shadow-amber-500/25 transition-all active:scale-95 flex items-center justify-center gap-1.5"
+            className="flex-1 h-9 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-black text-xs rounded-xl shadow-md shadow-amber-500/25 transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <span>Ver Pedido</span>
             <ArrowRight className="size-3.5" />
@@ -896,12 +912,13 @@ export default function StoreApp({
             variant="ghost"
             size="sm"
             onClick={() => setNewOrderAlert(null)}
-            className="h-9 px-3 text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
+            className="h-9 px-3 text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
           >
             Descartar
           </Button>
         </div>
-      </aside>
+      </aside>,
+      document.body
     )}
   </div>;
 }
