@@ -18,6 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { createStoreBackup, loadStore, runStoreAction, uploadBusinessLogo, subscribeStoreOrders, type StoreOrder } from "@/lib/store-service";
+import { playOrderAlertSound, showOrderBrowserNotification, isSoundAlertEnabled } from "@/lib/order-notifications";
 import { OrdersView } from "@/components/orders-view";
 import { NewProductModal } from "@/components/new-product-modal";
 import { EditProductModal } from "@/components/edit-product-modal";
@@ -173,16 +174,45 @@ export default function StoreApp({
   const [customerId,setCustomerId]=useState("");
   const [scan,setScan]=useState(""); const [catalogPrice,setCatalogPrice]=useState<"wholesale"|"retail"|"both">("both"); const [invoiceSale,setInvoiceSale]=useState<any|null>(null); const videoRef=useRef<HTMLVideoElement>(null);
   const [orders, setOrders] = useState<StoreOrder[]>([]);
+  const [newOrderAlert, setNewOrderAlert] = useState<StoreOrder | null>(null);
+  const initialOrdersLoadedRef = useRef(false);
+  const knownOrderIdsRef = useRef<Set<string>>(new Set());
 
   const load=async()=>{try{const storeData=await loadStore(uid) as StoreData;setData(storeData);if(!bankAccountId&&storeData?.bankAccounts?.length){setBankAccountId(String(storeData.bankAccounts[0].id));}setError("");}catch(e:any){setError(e.message||"No se pudo cargar");}};
   useEffect(()=>{load();},[uid]);
 
-  // Sincronización en tiempo real de pedidos de clientes
+  // Sincronización en tiempo real de pedidos de clientes con aviso sonoro y notificación push
   useEffect(() => {
     if (!uid) return;
     const unsub = subscribeStoreOrders(
       uid,
       (liveOrders) => {
+        if (!initialOrdersLoadedRef.current) {
+          // Primera carga: registrar IDs existentes sin disparar alarma
+          initialOrdersLoadedRef.current = true;
+          knownOrderIdsRef.current = new Set(liveOrders.map((o) => o.id));
+          setOrders(liveOrders);
+          return;
+        }
+
+        // Detectar si hay nuevos pedidos entrantes
+        const newOrders = liveOrders.filter((o) => !knownOrderIdsRef.current.has(o.id));
+        if (newOrders.length > 0) {
+          const latest = newOrders[0];
+          // 1. Sonido de campana (si está habilitado en las preferencias)
+          if (isSoundAlertEnabled()) {
+            playOrderAlertSound();
+          }
+          // 2. Notificación push del navegador / sistema operativo
+          showOrderBrowserNotification(latest, () => {
+            setSection("pedidos");
+          });
+          // 3. Banner emergente interactivo dentro del sistema
+          setNewOrderAlert(latest);
+        }
+
+        // Actualizar lista e IDs conocidos
+        knownOrderIdsRef.current = new Set(liveOrders.map((o) => o.id));
         setOrders(liveOrders);
       },
       (err) => {
@@ -191,6 +221,13 @@ export default function StoreApp({
     );
     return () => unsub();
   }, [uid]);
+
+  // Auto-ocultar banner de alerta de pedido tras 14 segundos
+  useEffect(() => {
+    if (!newOrderAlert) return;
+    const timer = setTimeout(() => setNewOrderAlert(null), 14000);
+    return () => clearTimeout(timer);
+  }, [newOrderAlert]);
   useEffect(()=>{document.documentElement.classList.toggle("dark",dark);},[dark]);
   useEffect(()=>{
     if(!data?.settings)return;
@@ -769,6 +806,56 @@ export default function StoreApp({
       }}
     />
     {toast&&<div className="clay-toast fixed bottom-5 left-1/2 z-[80] flex -translate-x-1/2 items-center gap-2 rounded-full bg-[#0f2137] px-5 py-3 text-sm font-medium text-white shadow-2xl"><Check className="size-4 text-emerald-500"/>{toast}</div>}
+    {newOrderAlert && (
+      <div className="fixed bottom-6 right-4 sm:right-6 z-[95] max-w-sm w-[calc(100vw-32px)] bg-[#0f2137] text-white rounded-2xl p-4 shadow-2xl border-2 border-amber-500/70 animate-in fade-in slide-in-from-bottom duration-300">
+        <div className="flex items-start gap-3">
+          <div className="size-10 rounded-xl bg-amber-500 flex items-center justify-center text-slate-950 font-bold shrink-0 shadow-sm animate-bounce text-lg">
+            🔔
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[11px] font-black tracking-wider uppercase text-amber-400">
+                ¡Nuevo Pedido Web!
+              </span>
+              <button
+                type="button"
+                onClick={() => setNewOrderAlert(null)}
+                className="text-slate-400 hover:text-white p-0.5 rounded-md transition-colors"
+                title="Cerrar aviso"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <p className="text-sm font-black text-white truncate mt-0.5">
+              {newOrderAlert.customerName}
+            </p>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Pedido {newOrderAlert.orderNumber} • {newOrderAlert.totalUnits} un. • <strong className="text-emerald-400">{money(newOrderAlert.totalAmount, newOrderAlert.currency)}</strong>
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => {
+                  setSection("pedidos");
+                  setNewOrderAlert(null);
+                }}
+                className="h-8 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-xs"
+              >
+                Ver Pedido
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setNewOrderAlert(null)}
+                className="h-8 text-xs text-slate-300 hover:text-white"
+              >
+                Descartar
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
   </div>;
 }
 

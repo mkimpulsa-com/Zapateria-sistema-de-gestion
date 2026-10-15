@@ -1,16 +1,23 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   ClipboardList, Search, Clock, CheckCircle2, Package, Truck,
   XCircle, ArrowRight, MessageCircle, Printer, Store, User, Phone,
   MapPin, AlertCircle, ShoppingBag, Trash2, Check, Sparkles, Filter,
-  Layers, RefreshCw
+  Layers, RefreshCw, Bell, BellRing, Volume2, VolumeX
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import {
+  playOrderAlertSound,
+  requestOrderNotificationPermission,
+  getNotificationPermissionStatus,
+  isSoundAlertEnabled,
+  setSoundAlertEnabled,
+} from "@/lib/order-notifications";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle
@@ -94,6 +101,41 @@ export function OrdersView({
   const [selectedOrder, setSelectedOrder] = useState<StoreOrder | null>(null);
   const [orderToDelete, setOrderToDelete] = useState<StoreOrder | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [soundEnabled, setSoundEnabledState] = useState(true);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
+
+  useEffect(() => {
+    setSoundEnabledState(isSoundAlertEnabled());
+    setNotifPermission(getNotificationPermissionStatus());
+  }, []);
+
+  const handleToggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabledState(next);
+    setSoundAlertEnabled(next);
+    if (next) {
+      playOrderAlertSound();
+      setToast("🔔 Avisos sonoros activados");
+    } else {
+      setToast("Avisos sonoros silenciados");
+    }
+  };
+
+  const handleRequestPermission = async () => {
+    const perm = await requestOrderNotificationPermission();
+    setNotifPermission(perm);
+    if (perm === "granted") {
+      setToast("¡Notificaciones de escritorio permitidas con éxito!");
+      playOrderAlertSound();
+    } else if (perm === "denied") {
+      setToast("Las notificaciones fueron bloqueadas en el navegador.");
+    }
+  };
+
+  const handleTestSound = () => {
+    playOrderAlertSound();
+    setToast("🔔 Campanita de aviso reproducida");
+  };
 
   // Formato de moneda
   const money = (val: number) => formatMoney(val, currency);
@@ -332,6 +374,77 @@ export function OrdersView({
             </span>
           </div>
         )}
+      </div>
+
+      {/* Barra de Notificaciones y Avisos Sonoros en Vivo */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/5 p-3.5 sm:p-4 shadow-xs">
+        <div className="flex items-center gap-3">
+          <div className="grid size-10 place-items-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
+            <BellRing className="size-5 animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-foreground">Avisos sonoros y notificaciones web</span>
+              <Badge variant="outline" className="border-amber-500/30 text-amber-600 dark:text-amber-400 font-bold text-[10px]">
+                En vivo
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Suena una campanita y emite notificación emergente al ingresar un nuevo pedido web.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Botón de Sonido */}
+          <Button
+            type="button"
+            variant={soundEnabled ? "default" : "outline"}
+            size="sm"
+            onClick={handleToggleSound}
+            className={`h-9 gap-1.5 rounded-xl text-xs font-bold transition-all ${
+              soundEnabled
+                ? "bg-amber-600 hover:bg-amber-700 text-white shadow-xs"
+                : "border-border text-muted-foreground hover:text-foreground"
+            }`}
+            title="Activar o silenciar el sonido de campana"
+          >
+            {soundEnabled ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
+            <span>{soundEnabled ? "Sonido activado" : "Silenciado"}</span>
+          </Button>
+
+          {/* Botón Probar Sonido */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleTestSound}
+            className="h-9 gap-1.5 rounded-xl text-xs font-semibold hover:border-amber-500/40"
+            title="Escuchar sonido de prueba en tus parlantes"
+          >
+            <Bell className="size-3.5 text-amber-600" />
+            <span>Probar timbre</span>
+          </Button>
+
+          {/* Botón Notificación de Navegador */}
+          {notifPermission !== "granted" ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleRequestPermission}
+              className="h-9 gap-1.5 rounded-xl text-xs font-bold border-indigo-500/40 text-indigo-700 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
+            >
+              <BellRing className="size-3.5" />
+              <span>Activar avisos en este equipo</span>
+            </Button>
+          ) : (
+            <div className="flex items-center gap-1.5 rounded-xl bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+              <Check className="size-3.5" />
+              <span>Notificaciones web activas</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Barra de Filtros y Búsqueda */}
