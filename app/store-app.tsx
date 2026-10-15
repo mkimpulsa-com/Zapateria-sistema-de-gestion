@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Archive, ArrowDownLeft, ArrowRightLeft, ArrowUpRight, BarChart3, Barcode, Boxes, Building2,
+  Archive, ArrowDownLeft, ArrowRight, ArrowRightLeft, ArrowUpRight, BarChart3, Barcode, Bell, BellRing, Boxes, Building2,
   Camera, Check, CircleDollarSign, ClipboardList, Database, Download,
   FileText, FolderTree, Landmark, LayoutDashboard, Moon, PackagePlus, Pencil, Percent, Plus, Printer, ScanLine,
   Search, Settings, ShieldAlert, ShoppingBag, ShoppingCart, SlidersHorizontal, Store, Sun, Tags, Trash2, TrendingUp, Truck,
@@ -199,16 +199,18 @@ export default function StoreApp({
         const newOrders = liveOrders.filter((o) => !knownOrderIdsRef.current.has(o.id));
         if (newOrders.length > 0) {
           const latest = newOrders[0];
-          // 1. Sonido de campana (si está habilitado en las preferencias)
-          if (isSoundAlertEnabled()) {
-            playOrderAlertSound();
-          }
-          // 2. Notificación push del navegador / sistema operativo
+          // 1. Mostrar banner emergente y notificación web de inmediato
           showOrderBrowserNotification(latest, () => {
             setSection("pedidos");
           });
-          // 3. Banner emergente interactivo dentro del sistema
           setNewOrderAlert(latest);
+
+          // 2. Sonido de campana: espera 2 segundos antes de sonar con cadencia completa
+          setTimeout(() => {
+            if (isSoundAlertEnabled()) {
+              playOrderAlertSound();
+            }
+          }, 2000);
         }
 
         // Actualizar lista e IDs conocidos
@@ -486,17 +488,19 @@ export default function StoreApp({
                   section === id ? "is-active" : ""
                 }`}
               >
-                <span className="section-icon relative shrink-0">
-                  <Icon className="size-6 shrink-0" strokeWidth={2.3} />
+                <div className="relative shrink-0">
+                  <span className="section-icon shrink-0">
+                    <Icon className="size-6 shrink-0" strokeWidth={2.3} />
+                  </span>
                   {pendingOrdersCount > 0 && (
                     <span
                       title={`${pendingOrdersCount} pedidos pendientes`}
-                      className="absolute -top-1.5 -right-2 flex size-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white shadow-xs animate-bounce"
+                      className="absolute -top-1 -right-1 z-30 flex size-5 items-center justify-center rounded-full bg-rose-600 text-[10px] font-black text-white shadow-md ring-2 ring-background animate-bounce"
                     >
                       {pendingOrdersCount}
                     </span>
                   )}
-                </span>
+                </div>
                 <span className="section-label">{label}</span>
               </button>
             );
@@ -807,54 +811,97 @@ export default function StoreApp({
     />
     {toast&&<div className="clay-toast fixed bottom-5 left-1/2 z-[80] flex -translate-x-1/2 items-center gap-2 rounded-full bg-[#0f2137] px-5 py-3 text-sm font-medium text-white shadow-2xl"><Check className="size-4 text-emerald-500"/>{toast}</div>}
     {newOrderAlert && (
-      <div className="fixed bottom-6 right-4 sm:right-6 z-[95] max-w-sm w-[calc(100vw-32px)] bg-[#0f2137] text-white rounded-2xl p-4 shadow-2xl border-2 border-amber-500/70 animate-in fade-in slide-in-from-bottom duration-300">
-        <div className="flex items-start gap-3">
-          <div className="size-10 rounded-xl bg-amber-500 flex items-center justify-center text-slate-950 font-bold shrink-0 shadow-sm animate-bounce text-lg">
-            🔔
+      <aside aria-label="Alerta de nuevo pedido web" className="fixed bottom-6 right-4 sm:right-6 z-[95] max-w-sm w-[calc(100vw-32px)] bg-slate-950/95 dark:bg-[#080e18]/95 backdrop-blur-2xl text-white rounded-3xl p-4 sm:p-5 shadow-[0_20px_50px_rgba(0,0,0,0.65),0_0_35px_rgba(245,158,11,0.22)] border border-amber-500/40 relative overflow-hidden animate-in fade-in slide-in-from-bottom-5 duration-500">
+        {/* Línea superior con resplandor dorado */}
+        <div className="absolute inset-x-0 top-0 h-[1.5px] bg-gradient-to-r from-transparent via-amber-400 to-transparent pointer-events-none" />
+
+        {/* Encabezado del aviso */}
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <span className="relative flex size-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full size-2 bg-amber-500"></span>
+            </span>
+            <span className="text-[10px] font-black uppercase tracking-widest text-amber-400">
+              Nuevo Pedido Web
+            </span>
+            <Badge
+              variant="outline"
+              className={`text-[9px] font-extrabold uppercase px-1.5 py-0 rounded-md ${
+                newOrderAlert.channel === "mayorista"
+                  ? "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                  : "border-indigo-500/40 text-indigo-300 bg-indigo-500/10"
+              }`}
+            >
+              {newOrderAlert.channel || "Web"}
+            </Badge>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setNewOrderAlert(null)}
+            className="size-6 rounded-full bg-white/5 hover:bg-white/15 text-slate-400 hover:text-white flex items-center justify-center transition-all"
+            title="Cerrar aviso"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+
+        {/* Cuerpo con cliente e icono */}
+        <div className="flex items-start gap-3.5">
+          <div className="size-11 rounded-2xl bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-amber-500/30 ring-2 ring-amber-400/40 shrink-0">
+            <BellRing className="size-5 animate-pulse" />
+          </div>
+
           <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-[11px] font-black tracking-wider uppercase text-amber-400">
-                ¡Nuevo Pedido Web!
-              </span>
-              <button
-                type="button"
-                onClick={() => setNewOrderAlert(null)}
-                className="text-slate-400 hover:text-white p-0.5 rounded-md transition-colors"
-                title="Cerrar aviso"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-            <p className="text-sm font-black text-white truncate mt-0.5">
+            <h4 className="text-base font-black text-white tracking-tight truncate leading-tight">
               {newOrderAlert.customerName}
-            </p>
-            <p className="text-xs text-slate-300 mt-0.5">
-              Pedido {newOrderAlert.orderNumber} • {newOrderAlert.totalUnits} un. • <strong className="text-emerald-400">{money(newOrderAlert.totalAmount, newOrderAlert.currency)}</strong>
-            </p>
-            <div className="mt-3 flex items-center gap-2">
-              <Button
-                size="sm"
-                onClick={() => {
-                  setSection("pedidos");
-                  setNewOrderAlert(null);
-                }}
-                className="h-8 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-xs"
-              >
-                Ver Pedido
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setNewOrderAlert(null)}
-                className="h-8 text-xs text-slate-300 hover:text-white"
-              >
-                Descartar
-              </Button>
+            </h4>
+            <div className="flex items-center gap-2 text-xs text-slate-400 mt-1">
+              <span className="font-mono text-[11px] text-amber-300/90 font-bold">
+                {newOrderAlert.orderNumber}
+              </span>
+              <span>•</span>
+              <span className="truncate">
+                {newOrderAlert.deliveryType === "pickup" ? "Retiro en local" : "Envío a acordar"}
+              </span>
             </div>
           </div>
         </div>
-      </div>
+
+        {/* Barra de resumen financiero */}
+        <div className="mt-3.5 p-2.5 rounded-2xl bg-white/[0.05] border border-white/[0.08] flex items-center justify-between text-xs">
+          <span className="text-slate-300 font-semibold">
+            {newOrderAlert.totalUnits} {newOrderAlert.totalUnits === 1 ? "unidad" : "unidades"}
+          </span>
+          <span className="text-sm font-black text-emerald-400 font-mono tracking-tight">
+            {money(newOrderAlert.totalAmount, newOrderAlert.currency)}
+          </span>
+        </div>
+
+        {/* Botones de acción rápida */}
+        <div className="mt-4 flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={() => {
+              setSection("pedidos");
+              setNewOrderAlert(null);
+            }}
+            className="flex-1 h-9 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-black text-xs rounded-xl shadow-md shadow-amber-500/25 transition-all active:scale-95 flex items-center justify-center gap-1.5"
+          >
+            <span>Ver Pedido</span>
+            <ArrowRight className="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setNewOrderAlert(null)}
+            className="h-9 px-3 text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
+          >
+            Descartar
+          </Button>
+        </div>
+      </aside>
     )}
   </div>;
 }
