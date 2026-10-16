@@ -4,7 +4,8 @@ import { useState, useMemo, useEffect } from "react";
 import {
   ShoppingBag, Search, Sparkles, Filter, X, Plus, Minus, Trash2,
   CheckCircle2, AlertCircle, MessageCircle, MapPin, Truck, Store,
-  ChevronRight, Phone, ShieldCheck, Tag, ArrowLeft, Send, Eye, Check, Clock
+  ChevronRight, ChevronLeft, Phone, ShieldCheck, Tag, ArrowLeft, Send, Eye, Check, Clock,
+  Images,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ interface Product {
   wholesale_price: number;
   cost?: number;
   image_url?: string;
+  images?: string[];
   color?: string;
   sku?: string;
   variants?: Variant[];
@@ -121,13 +123,37 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [detailQty, setDetailQty] = useState<number>(1);
   const [modalAddedAnimation, setModalAddedAnimation] = useState(false);
+  const [detailImageIndex, setDetailImageIndex] = useState<number>(0);
+
+  const detailImages: string[] = useMemo(() => {
+    if (!detailProduct) return [];
+    if (Array.isArray(detailProduct.images) && detailProduct.images.length > 0) {
+      return detailProduct.images;
+    }
+    return detailProduct.image_url ? [detailProduct.image_url] : [];
+  }, [detailProduct]);
 
   useEffect(() => {
     if (detailProduct) {
       setDetailQty(1);
       setModalAddedAnimation(false);
+      setDetailImageIndex(0);
     }
   }, [detailProduct]);
+
+  // Navegación con flechas del teclado en la galería de fotos
+  useEffect(() => {
+    if (!detailProduct || detailImages.length <= 1) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") {
+        setDetailImageIndex((prev) => (prev > 0 ? prev - 1 : detailImages.length - 1));
+      } else if (e.key === "ArrowRight") {
+        setDetailImageIndex((prev) => (prev < detailImages.length - 1 ? prev + 1 : 0));
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [detailProduct, detailImages.length]);
 
   // Channel switch handler that preserves cart and recalculates prices
   const handleSwitchChannel = (newChannel: "minorista" | "mayorista") => {
@@ -688,33 +714,47 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                   className="group overflow-hidden rounded-2xl border-slate-200 hover:border-slate-300 hover:shadow-md transition-all duration-200 bg-white flex flex-col"
                 >
                   {/* Image container con clic para ver completo */}
-                  <div
-                    onClick={() => setDetailProduct(p)}
-                    className="relative aspect-4/3 bg-slate-100 overflow-hidden flex items-center justify-center cursor-pointer group/img"
-                    title="Hacé clic para ver la foto completa y detalles"
-                  >
-                    {p.image_url ? (
-                      <>
-                        <img
-                          src={p.image_url}
-                          alt={p.name}
-                          className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300"
-                          loading="lazy"
-                        />
-                        {/* Overlay al pasar el mouse */}
-                        <div className="absolute inset-0 bg-slate-900/35 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center text-white backdrop-blur-2xs">
-                          <span className="bg-slate-900/80 rounded-full px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 shadow-md">
-                            <Eye className="w-3.5 h-3.5" />
-                            Ver foto completa
-                          </span>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center text-slate-400 p-4">
-                        <Store className="w-12 h-12 stroke-[1.5] mb-1 text-slate-300" />
-                        <span className="text-[11px] font-medium text-slate-400">Sin foto</span>
-                      </div>
-                    )}
+                  {(() => {
+                    const cardImages = (Array.isArray(p.images) && p.images.length > 0) ? p.images : (p.image_url ? [p.image_url] : []);
+                    const coverUrl = cardImages[0] || p.image_url;
+                    return (
+                      <div
+                        onClick={() => setDetailProduct(p)}
+                        className="relative aspect-4/3 bg-slate-100 overflow-hidden flex items-center justify-center cursor-pointer group/img"
+                        title="Hacé clic para ver fotos y detalles"
+                      >
+                        {coverUrl ? (
+                          <>
+                            <img
+                              src={coverUrl}
+                              alt={p.name}
+                              className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300"
+                              loading="lazy"
+                            />
+                            {/* Overlay al pasar el mouse */}
+                            <div className="absolute inset-0 bg-slate-900/35 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center text-white backdrop-blur-2xs">
+                              <span className="bg-slate-900/80 rounded-full px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 shadow-md">
+                                <Eye className="w-3.5 h-3.5" />
+                                {cardImages.length > 1 ? `Ver las ${cardImages.length} fotos` : "Ver foto completa"}
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center text-slate-400 p-4">
+                            <Store className="w-12 h-12 stroke-[1.5] mb-1 text-slate-300" />
+                            <span className="text-[11px] font-medium text-slate-400">Sin foto</span>
+                          </div>
+                        )}
+
+                        {/* Badge de cantidad de fotos si tiene varias */}
+                        {cardImages.length > 1 && (
+                          <div className="absolute bottom-2.5 right-2.5 pointer-events-none">
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-900/80 text-white shadow-xs flex items-center gap-1 backdrop-blur border border-white/10">
+                              <Images className="size-3" />
+                              {cardImages.length} fotos
+                            </span>
+                          </div>
+                        )}
 
                     {/* Stock badge */}
                     <div className="absolute top-2.5 left-2.5 flex flex-col gap-1 pointer-events-none">
@@ -732,6 +772,8 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                       </span>
                     </div>
                   </div>
+                );
+              })()}
 
                   <CardContent className="p-4 flex-1 flex flex-col justify-between">
                     <div>
@@ -1037,41 +1079,111 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
       <Dialog open={Boolean(detailProduct)} onOpenChange={(open) => !open && setDetailProduct(null)}>
         {detailProduct && (
           <DialogContent className="max-w-xl w-full bg-white rounded-3xl p-0 overflow-hidden border-0 shadow-2xl max-h-[92vh] flex flex-col">
-            {/* PARTE SUPERIOR: Foto Completa */}
-            <div className="relative w-full bg-gradient-to-b from-slate-100/90 via-slate-50 to-white flex items-center justify-center p-4 sm:p-6 border-b border-slate-100 h-64 sm:h-72 shrink-0">
-              {detailProduct.image_url ? (
-                <img
-                  src={detailProduct.image_url}
-                  alt={detailProduct.name}
-                  className="max-h-full max-w-full object-contain rounded-2xl drop-shadow-md transition-all hover:scale-105 duration-300"
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center text-slate-300 p-8">
-                  <Store className="w-16 h-16 stroke-[1.2] mb-2" />
-                  <span className="text-xs font-semibold text-slate-400">Sin foto disponible</span>
+            {/* PARTE SUPERIOR: Galería de Fotos Completa (hasta 10 fotos) */}
+            <div className="relative w-full bg-gradient-to-b from-slate-100/90 via-slate-50 to-white flex flex-col border-b border-slate-100 shrink-0">
+              {/* Foto principal */}
+              <div className="relative w-full h-64 sm:h-80 flex items-center justify-center p-4">
+                {detailImages.length > 0 ? (
+                  <img
+                    key={detailImages[detailImageIndex]}
+                    src={detailImages[detailImageIndex]}
+                    alt={`${detailProduct.name} - foto ${detailImageIndex + 1}`}
+                    className="max-h-full max-w-full object-contain rounded-2xl drop-shadow-md transition-all duration-300"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-slate-300 p-8">
+                    <Store className="w-16 h-16 stroke-[1.2] mb-2" />
+                    <span className="text-xs font-semibold text-slate-400">Sin foto disponible</span>
+                  </div>
+                )}
+
+                {/* Flechas de navegación previa / siguiente */}
+                {detailImages.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDetailImageIndex((prev) => (prev > 0 ? prev - 1 : detailImages.length - 1));
+                      }}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 size-9 rounded-full bg-white/90 hover:bg-white text-slate-800 flex items-center justify-center shadow-md hover:scale-110 active:scale-95 transition backdrop-blur-xs border border-slate-200/60 z-10"
+                      title="Foto anterior (o flecha izquierda)"
+                    >
+                      <ChevronLeft className="size-5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDetailImageIndex((prev) => (prev < detailImages.length - 1 ? prev + 1 : 0));
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 size-9 rounded-full bg-white/90 hover:bg-white text-slate-800 flex items-center justify-center shadow-md hover:scale-110 active:scale-95 transition backdrop-blur-xs border border-slate-200/60 z-10"
+                      title="Foto siguiente (o flecha derecha)"
+                    >
+                      <ChevronRight className="size-5" />
+                    </button>
+
+                    {/* Indicador de posición (ej: 2 / 5) */}
+                    <div className="absolute bottom-3 right-3 pointer-events-none z-10">
+                      <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-900/80 text-white shadow-xs backdrop-blur border border-white/10">
+                        {detailImageIndex + 1} / {detailImages.length}
+                      </span>
+                    </div>
+                  </>
+                )}
+
+                {/* Badges superiores sobre la foto */}
+                <div className="absolute top-3.5 left-3.5 flex flex-wrap items-center gap-1.5 pointer-events-none z-10">
+                  {detailProduct.category && (
+                    <span className="px-3 py-1 rounded-xl text-xs font-bold bg-slate-900/90 text-white shadow-xs backdrop-blur">
+                      {detailProduct.category}
+                    </span>
+                  )}
+                  {detailProduct.brand && (
+                    <span className="px-3 py-1 rounded-xl text-xs font-black bg-white/95 text-slate-800 shadow-xs uppercase tracking-wider backdrop-blur border border-slate-200/60">
+                      {detailProduct.brand}
+                    </span>
+                  )}
+                </div>
+
+                <div className="absolute top-3.5 right-3.5 pointer-events-none z-10">
+                  <span className="px-3 py-1 rounded-xl text-xs font-bold bg-emerald-600 text-white shadow-xs flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-white animate-pulse" />
+                    En stock
+                  </span>
+                </div>
+              </div>
+
+              {/* Tira horizontal de miniaturas (hasta 10 fotos) */}
+              {detailImages.length > 1 && (
+                <div className="px-4 pb-3 flex items-center gap-2 overflow-x-auto scrollbar-thin">
+                  {detailImages.map((imgUrl, idx) => (
+                    <button
+                      key={`${imgUrl}-${idx}`}
+                      type="button"
+                      onClick={() => setDetailImageIndex(idx)}
+                      className={`relative size-14 sm:size-16 rounded-xl overflow-hidden shrink-0 border-2 transition-all cursor-pointer ${
+                        idx === detailImageIndex
+                          ? "border-emerald-600 ring-2 ring-emerald-500/40 scale-105 shadow-md"
+                          : "border-slate-200/90 opacity-70 hover:opacity-100 hover:border-slate-400"
+                      }`}
+                      title={`Ver foto ${idx + 1}`}
+                    >
+                      <img
+                        src={imgUrl}
+                        alt={`Miniatura ${idx + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+                      {idx === 0 && (
+                        <span className="absolute bottom-0 inset-x-0 bg-slate-900/85 text-[8px] text-white font-bold text-center py-0.5 uppercase tracking-tighter">
+                          Portada
+                        </span>
+                      )}
+                    </button>
+                  ))}
                 </div>
               )}
-
-              {/* Badges sobre la foto */}
-              <div className="absolute top-3.5 left-3.5 flex flex-wrap items-center gap-1.5 pointer-events-none">
-                {detailProduct.category && (
-                  <span className="px-3 py-1 rounded-xl text-xs font-bold bg-slate-900/90 text-white shadow-xs backdrop-blur">
-                    {detailProduct.category}
-                  </span>
-                )}
-                {detailProduct.brand && (
-                  <span className="px-3 py-1 rounded-xl text-xs font-black bg-white/95 text-slate-800 shadow-xs uppercase tracking-wider backdrop-blur border border-slate-200/60">
-                    {detailProduct.brand}
-                  </span>
-                )}
-              </div>
-
-              <div className="absolute top-3.5 right-3.5 pointer-events-none">
-                <span className="px-3 py-1 rounded-xl text-xs font-bold bg-emerald-600 text-white shadow-xs flex items-center gap-1.5">
-                  <span className="size-2 rounded-full bg-white animate-pulse" />
-                  En stock
-                </span>
-              </div>
             </div>
 
             {/* PARTE INFERIOR: Información completa y compra bien prolija */}

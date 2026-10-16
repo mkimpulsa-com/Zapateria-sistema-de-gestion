@@ -172,3 +172,18 @@ function fileToDataUrl(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+export async function compressMultipleImages(
+  files: File[],
+  options: CompressionOptions = {},
+  onProgress?: (current: number, total: number) => void
+): Promise<CompressionResult[]> {
+  const results: CompressionResult[] = [];
+  for (let i = 0; i < files.length; i++) {
+    if (onProgress) onProgress(i + 1, files.length);
+    const res = await compressImageFile(files[i], options);
+    results.push(res);
+  }
+  return results;
+}
+

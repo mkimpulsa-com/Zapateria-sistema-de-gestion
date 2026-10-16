@@ -188,10 +188,23 @@ export function EditProductModal({
       }
     }
 
+    let imagesList: string[] = [];
+    if (typeof data.imagesJson === "string") {
+      try {
+        imagesList = JSON.parse(data.imagesJson);
+      } catch {}
+    }
+    if (imagesList.length === 0 && data.imageUrl) {
+      imagesList = [String(data.imageUrl)];
+    }
+
     const payload = {
       action: "edit_product",
       productId: product.id,
       ...data,
+      images: imagesList,
+      imagesJson: JSON.stringify(imagesList),
+      imageUrl: imagesList[0] || "",
       variants: finalVariants,
       variantsJson: JSON.stringify(finalVariants),
     };
@@ -236,9 +249,12 @@ export function EditProductModal({
               </h3>
             </div>
 
-            {/* Subida y preview de foto */}
+            {/* Subida y preview de fotos (hasta 10 fotos) */}
             <div className="rounded-2xl border border-border/70 bg-card/60 p-3.5 shadow-2xs">
-              <ProductImageUpload value={product.image_url || ""} />
+              <ProductImageUpload
+                value={Array.isArray(product.images) && product.images.length > 0 ? product.images : (product.image_url || "")}
+                maxImages={10}
+              />
             </div>
 
             <div className="grid gap-3.5 sm:grid-cols-3">

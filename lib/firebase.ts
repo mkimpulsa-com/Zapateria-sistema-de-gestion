@@ -5,9 +5,17 @@ import {
   initializeFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
+  setLogLevel,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { Analytics, getAnalytics, isSupported } from "firebase/analytics";
+
+// Silenciar avisos benignos de sincronización entre pestañas en desarrollo
+if (typeof window !== "undefined") {
+  try {
+    setLogLevel("error");
+  } catch {}
+}
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,

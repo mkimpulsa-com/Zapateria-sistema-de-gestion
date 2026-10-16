@@ -52,7 +52,7 @@ import { cleanBarcodeScan, isBarcodeMatch } from "@/lib/barcode";
 import { formatMoney, formatNumber, convertAmount, getCurrencyEquivalents, CURRENCIES } from "@/lib/currency";
 
 type Variant = { id:number; product_id:number; size:string; stock:number };
-type Product = { id:number; sku:string; barcode:string; name:string; brand:string; category:string; color:string; gender:string; cost:number; retail_price:number; wholesale_price:number; min_stock:number; total_stock:number; image_url?:string; variants:Variant[] };
+type Product = { id:number; sku:string; barcode:string; name:string; brand:string; category:string; color:string; gender:string; cost:number; retail_price:number; wholesale_price:number; min_stock:number; total_stock:number; image_url?:string; images?:string[]; variants:Variant[] };
 type Party = { id:number; name:string; type?:string; phone:string; email?:string; balance:number; credit_limit?:number; contact?:string; document?:string; city?:string; address?:string; notes?:string; created_at?:string; bank_info?:string; category?:string };
 type Sale = { id:number; receipt_no:string; customer_id?:string; customer_name?:string; channel:string; total:number; paid_amount?:number; debt_amount?:number; pending_amount?:number; payment_method:string; status:string; created_at:string; bank_account_id?:string; bank_account_name?:string; subtotal?:number; discount?:number; discount_percent?:number; additional_charge?:number; additional_charge_description?:string; cashier_id?:string; cashier_name?:string; currency?:string };
 type Movement = { id:number|string; type:"ingreso"|"egreso"; category:string; amount:number; description:string; reference:string; created_at:string };
@@ -467,16 +467,22 @@ export default function StoreApp({
             variant={section === "tienda" ? "default" : "outline"}
             className={`hidden h-11 shrink-0 rounded-xl gap-2 font-bold sm:flex ${
               section === "tienda"
-                ? "bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
-                : "border-indigo-500/40 text-indigo-700 hover:bg-indigo-50 dark:text-indigo-400"
+                ? "bg-secondary text-secondary-foreground border-secondary hover:bg-secondary/80 shadow-xs"
+                : "border-border text-foreground hover:bg-secondary/60"
             }`}
             onClick={() => setSection("tienda")}
           >
-            <Store className="size-4" />
+            <Store className="size-4 text-primary" />
             Tienda Online
           </Button>
         )}
-        <Button className="hidden h-11 shrink-0 rounded-xl bg-[#ff7a5c] hover:bg-[#e9684c] sm:flex" onClick={()=>setSection("ventas")}><Plus/>Nueva venta</Button>
+        <Button
+          className="hidden h-11 shrink-0 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-sm sm:flex gap-1.5"
+          onClick={() => setSection("ventas")}
+        >
+          <Plus className="size-4" />
+          Nueva venta
+        </Button>
       </div>
       <div className="top-nav-rail">
         <nav className="top-section-nav mx-auto flex max-w-[1800px] items-start gap-1.5 overflow-x-auto px-4 py-2.5 sm:gap-3.5 sm:px-7 lg:px-9 2xl:justify-center" aria-label="Secciones principales">

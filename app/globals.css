@@ -19,43 +19,43 @@
 }
 
 /* ==========================================================================
-   TEMA: GESTIÓN MAYORISTA PROFESIONAL
+   TEMA: SAGE & BLUSH BOTANICAL CHIC (ALTA MODA & GESTIÓN PROFESIONAL)
    ========================================================================== */
 
 :root {
   color-scheme: light;
-  --background: #FAF7F2;          /* Beige tiza cálido artesanal */
-  --foreground: #221A15;          /* Café tostado profundo */
-  --card: #FFFFFF;                /* Blanco cálido nítido */
-  --card-foreground: #221A15;
+  --background: #F8FAF9;          /* Blanco menta / salvia tenue ultra limpio */
+  --foreground: #14221D;          /* Carbón botánico profundo de alta legibilidad */
+  --card: #FFFFFF;                /* Blanco puro nítido */
+  --card-foreground: #14221D;
   --popover: #FFFFFF;
-  --popover-foreground: #221A15;
-  --primary: #C05621;             /* Terracota cuero artesanal vibrante */
+  --popover-foreground: #14221D;
+  --primary: #2C6353;             /* Verde salvia bosque noble y elegante */
   --primary-foreground: #FFFFFF;
-  --secondary: #F3ECE2;           /* Lino / piel suave */
-  --secondary-foreground: #4A3A2C;
-  --muted: #EFE6DA;
-  --muted-foreground: #7C6D60;
-  --accent: #F6EEE4;
-  --accent-foreground: #9C441A;
-  --destructive: #D93838;
-  --border: #E5DACD;              /* Borde cálido sutil de 1px */
-  --input: #DFD2C3;
-  --ring: #C05621;
-  --chart-1: #C05621;             /* Terracota */
-  --chart-2: #2E7D5B;             /* Verde esmeralda artesanal */
-  --chart-3: #D97736;             /* Ámbar cognac */
-  --chart-4: #B8860B;             /* Mostaza dorada */
-  --chart-5: #6B4E3D;             /* Marrón cuero oscuro */
-  --radius: 0.85rem;              /* Curvatura moderna elegante */
-  --sidebar: #1C1714;             /* Cuero oscuro refinado para el menú */
-  --sidebar-foreground: #F5EFE8;
-  --sidebar-primary: #D96932;
+  --secondary: #F6ECEE;           /* Rosa blush suave / terciopelo empolvado */
+  --secondary-foreground: #8C394F;/* Rosewood profundo */
+  --muted: #EFF4F1;               /* Gris salvia tenue */
+  --muted-foreground: #5A7268;    /* Salvia medio para textos secundarios */
+  --accent: #FDF2F4;              /* Rubor satinado tenue */
+  --accent-foreground: #8C394F;
+  --destructive: #D33A4E;         /* Frambuesa rojo limpio */
+  --border: #DEE7E2;              /* Borde salvia tenue de 1px */
+  --input: #D3E0D9;
+  --ring: #2C6353;
+  --chart-1: #2C6353;             /* Salvia bosque */
+  --chart-2: #C47281;             /* Rosa blush */
+  --chart-3: #D4A373;             /* Champagne dorado */
+  --chart-4: #4E8B7A;             /* Salvia claro */
+  --chart-5: #8C475A;             /* Ciruela rosewood */
+  --radius: 0.95rem;              /* Curvatura orgánica moderna y refinada */
+  --sidebar: #12201A;             /* Verde carbón oscuro de lujo */
+  --sidebar-foreground: #F0F6F3;
+  --sidebar-primary: #C47281;     /* Blush de acento en sidebar */
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #2B231E;
+  --sidebar-accent: #1C2F27;
   --sidebar-accent-foreground: #FFFFFF;
-  --sidebar-border: #382D26;
-  --sidebar-ring: #D96932;
+  --sidebar-border: #243B31;
+  --sidebar-ring: #2C6353;
 }
 
 @theme inline {
@@ -100,37 +100,37 @@
 
 .dark {
   color-scheme: dark;
-  --background: #14110F;          /* Café espresso oscuro */
-  --foreground: #F5EFEA;
-  --card: #1D1815;                /* Tarjetas cuero carbón */
-  --card-foreground: #F5EFEA;
-  --popover: #1D1815;
-  --popover-foreground: #F5EFEA;
-  --primary: #DE7238;             /* Terracota luminoso */
-  --primary-foreground: #14110F;
-  --secondary: #29211B;
-  --secondary-foreground: #EADFD5;
-  --muted: #261E19;
-  --muted-foreground: #A19183;
-  --accent: #312720;
-  --accent-foreground: #F5EFEA;
-  --destructive: #E55353;
-  --border: #362B23;
-  --input: #362B23;
-  --ring: #DE7238;
-  --chart-1: #DE7238;
-  --chart-2: #3E9C73;
-  --chart-3: #E68848;
-  --chart-4: #D4A33B;
-  --chart-5: #8C6650;
-  --sidebar: #0F0D0C;
-  --sidebar-foreground: #F5EFEA;
-  --sidebar-primary: #DE7238;
-  --sidebar-primary-foreground: #14110F;
-  --sidebar-accent: #221B16;
+  --background: #0E1612;          /* Carbón salvia oscuro */
+  --foreground: #EFF6F2;
+  --card: #15221B;                /* Tarjetas bosque profundo */
+  --card-foreground: #EFF6F2;
+  --popover: #15221B;
+  --popover-foreground: #EFF6F2;
+  --primary: #458C77;             /* Salvia luminoso satinado */
+  --primary-foreground: #0A120E;
+  --secondary: #2C1D22;           /* Blush vino carbón */
+  --secondary-foreground: #F4D6DE;
+  --muted: #1B2B23;
+  --muted-foreground: #8FAEA2;
+  --accent: #2A1C21;
+  --accent-foreground: #F6DCE3;
+  --destructive: #E65A6E;
+  --border: #243B30;
+  --input: #243B30;
+  --ring: #458C77;
+  --chart-1: #458C77;
+  --chart-2: #DB8695;
+  --chart-3: #E0B080;
+  --chart-4: #62A894;
+  --chart-5: #A85A6E;
+  --sidebar: #090E0C;
+  --sidebar-foreground: #EFF6F2;
+  --sidebar-primary: #DB8695;
+  --sidebar-primary-foreground: #0A120E;
+  --sidebar-accent: #16241D;
   --sidebar-accent-foreground: #FFFFFF;
-  --sidebar-border: #2D231C;
-  --sidebar-ring: #DE7238;
+  --sidebar-border: #1D3127;
+  --sidebar-ring: #458C77;
 }
 
 body {
@@ -140,15 +140,15 @@ body {
   margin: 0;
   min-height: 100vh;
   background-image:
-    radial-gradient(circle at 10% 10%, rgb(192 86 33 / 3%) 0 12rem, transparent 12.1rem),
-    radial-gradient(circle at 90% 90%, rgb(184 134 11 / 3%) 0 14rem, transparent 14.1rem);
+    radial-gradient(circle at 10% 10%, rgba(44, 99, 83, 0.035) 0 12rem, transparent 12.1rem),
+    radial-gradient(circle at 90% 90%, rgba(196, 114, 129, 0.035) 0 14rem, transparent 14.1rem);
 }
 
 .dark body {
   background-color: var(--background);
   background-image:
-    radial-gradient(circle at 10% 10%, rgb(222 114 56 / 4%) 0 12rem, transparent 12.1rem),
-    radial-gradient(circle at 90% 90%, rgb(62 156 115 / 3%) 0 14rem, transparent 14.1rem);
+    radial-gradient(circle at 10% 10%, rgba(69, 140, 119, 0.05) 0 12rem, transparent 12.1rem),
+    radial-gradient(circle at 90% 90%, rgba(219, 134, 149, 0.04) 0 14rem, transparent 14.1rem);
 }
 
 /* ==========================================================================
@@ -293,8 +293,8 @@ body {
 }
 
 .brand-orb {
-  background: linear-gradient(135deg, #DE7238, #B04B18);
-  box-shadow: 0 4px 14px rgba(192, 86, 33, 0.35);
+  background: linear-gradient(135deg, #2C6353, #C47281);
+  box-shadow: 0 4px 14px rgba(44, 99, 83, 0.28);
 }
 
 .brand-block {
@@ -480,72 +480,72 @@ body {
   transition: color 180ms ease;
 }
 
-/* Paleta 3D Clay Semántica para todas las 11 Secciones */
+/* Paleta 3D Clay Semántica Armonizada (Sage & Blush Botanical Collection) */
 
-/* 1. Resumen (LayoutDashboard - Centro de Control / Cuero Cálido) */
+/* 1. Resumen (LayoutDashboard - Centro de Control / Salvia Profundo) */
 .top-section-button[data-nav-id="resumen"],
 .top-section-button:nth-child(1) {
-  --icon-light: #FB923C; --icon-dark: #C2410C; --icon-shadow: 194 65 12;
+  --icon-light: #4A8473; --icon-dark: #245446; --icon-shadow: 36 84 70;
 }
 
-/* 2. Punto de venta (ShoppingCart - Venta rápida / Terracota vivo) */
+/* 2. Punto de venta (ShoppingCart - Venta rápida / Rosa Blush Aterciopelado) */
 .top-section-button[data-nav-id="ventas"],
 .top-section-button:nth-child(2) {
-  --icon-light: #FF6243; --icon-dark: #DC2626; --icon-shadow: 220 38 38;
+  --icon-light: #D67A8F; --icon-dark: #9F3E54; --icon-shadow: 159 62 84;
 }
 
-/* 3. Productos (ShoppingBag - Catálogo de Calzados / Cognac ámbar) */
+/* 3. Productos (ShoppingBag - Catálogo de Calzados / Salvia Laurel) */
 .top-section-button[data-nav-id="productos"],
 .top-section-button:nth-child(3) {
-  --icon-light: #F59E0B; --icon-dark: #B45309; --icon-shadow: 180 83 9;
+  --icon-light: #529482; --icon-dark: #2E6354; --icon-shadow: 46 99 84;
 }
 
-/* 4. Inventario (Boxes - Curvas de Stock y Depósito / Verde Esmeralda) */
+/* 4. Inventario (Boxes - Curvas de Stock y Depósito / Verde Oliva Botánico) */
 .top-section-button[data-nav-id="inventario"],
 .top-section-button:nth-child(4) {
-  --icon-light: #34D399; --icon-dark: #059669; --icon-shadow: 5 150 105;
+  --icon-light: #6A9678; --icon-dark: #3F694D; --icon-shadow: 63 105 77;
 }
 
-/* 5. Clientes (Users - Revendedores y Mayoristas / Azul Océano) */
+/* 5. Clientes (Users - Revendedores y Mayoristas / Malva Ciruela Suave) */
 .top-section-button[data-nav-id="clientes"],
 .top-section-button:nth-child(5) {
-  --icon-light: #60A5FA; --icon-dark: #2563EB; --icon-shadow: 37 99 235;
+  --icon-light: #A57488; --icon-dark: #704054; --icon-shadow: 112 64 84;
 }
 
-/* 6. Proveedores (Truck - Fábricas y Logística / Mostaza Dorada) */
+/* 6. Proveedores (Truck - Fábricas y Logística / Eucalipto Suave) */
 .top-section-button[data-nav-id="proveedores"],
 .top-section-button:nth-child(6) {
-  --icon-light: #FACC15; --icon-dark: #CA8A04; --icon-shadow: 202 138 4;
+  --icon-light: #5E948C; --icon-dark: #37635C; --icon-shadow: 55 99 92;
 }
 
-/* 7. Caja e Ingresos (WalletCards - Flujo y Balances / Turquesa Teal) */
+/* 7. Caja e Ingresos (WalletCards - Flujo y Balances / Jade Mineral) */
 .top-section-button[data-nav-id="caja"],
 .top-section-button:nth-child(7) {
-  --icon-light: #2DD4BF; --icon-dark: #0D9488; --icon-shadow: 13 148 136;
+  --icon-light: #4A8E80; --icon-dark: #286055; --icon-shadow: 40 96 85;
 }
 
-/* 8. Tienda Mayorista (Store - Catálogo WhatsApp / Rosa Frambuesa) */
+/* 8. Tienda Mayorista (Store - Catálogo WhatsApp / Rosewood Chic) */
 .top-section-button[data-nav-id="tienda"],
 .top-section-button:nth-child(8) {
-  --icon-light: #FB7185; --icon-dark: #BE123C; --icon-shadow: 190 18 60;
+  --icon-light: #CE6F83; --icon-dark: #93384D; --icon-shadow: 147 56 77;
 }
 
-/* 9. Catálogos (FileText - Documentos y Precios / Violeta Amatista) */
+/* 9. Catálogos (FileText - Documentos y Precios / Champagne Cashmere) */
 .top-section-button[data-nav-id="catalogos"],
 .top-section-button:nth-child(9) {
-  --icon-light: #A78BFA; --icon-dark: #7C3AED; --icon-shadow: 124 58 237;
+  --icon-light: #C2A17E; --icon-dark: #8C6A48; --icon-shadow: 140 106 72;
 }
 
-/* 10. Reportes (BarChart3 - Métricas y Estadísticas / Índigo Zafiro) */
+/* 10. Reportes (BarChart3 - Métricas y Estadísticas / Salvia Pizarra) */
 .top-section-button[data-nav-id="reportes"],
 .top-section-button:nth-child(10) {
-  --icon-light: #818CF8; --icon-dark: #4338CA; --icon-shadow: 67 56 202;
+  --icon-light: #5D8078; --icon-dark: #36544E; --icon-shadow: 54 84 78;
 }
 
-/* 11. Configuración (Settings - Ajustes de Negocio / Pizarra Grafito) */
+/* 11. Configuración (Settings - Ajustes de Negocio / Grafito Pétreo) */
 .top-section-button[data-nav-id="configuracion"],
 .top-section-button:nth-child(11) {
-  --icon-light: #94A3B8; --icon-dark: #475569; --icon-shadow: 71 85 105;
+  --icon-light: #83918C; --icon-dark: #4F5C57; --icon-shadow: 79 92 87;
 }
 
 /* ==========================================================================

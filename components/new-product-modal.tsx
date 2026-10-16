@@ -246,8 +246,21 @@ export function NewProductModal({
       }
     }
 
+    let imagesList: string[] = [];
+    if (typeof data.imagesJson === "string") {
+      try {
+        imagesList = JSON.parse(data.imagesJson);
+      } catch {}
+    }
+    if (imagesList.length === 0 && data.imageUrl) {
+      imagesList = [String(data.imageUrl)];
+    }
+
     const payload = {
       ...data,
+      images: imagesList,
+      imagesJson: JSON.stringify(imagesList),
+      imageUrl: imagesList[0] || "",
       category: selectedCategory,
       variants: finalVariants,
       variantsJson: JSON.stringify(finalVariants),
@@ -283,9 +296,9 @@ export function NewProductModal({
               <span>1. Identificación y características</span>
             </h3>
 
-            {/* Subida y preview de foto */}
+            {/* Subida y preview de fotos (hasta 10 fotos) */}
             <div className="rounded-2xl border border-border/70 bg-card/60 p-3.5 shadow-2xs mb-3.5">
-              <ProductImageUpload />
+              <ProductImageUpload maxImages={10} />
             </div>
 
             <div className="grid gap-3.5 sm:grid-cols-3">

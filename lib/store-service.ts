@@ -447,6 +447,25 @@ export async function runStoreAction(body: any, uid?: string) {
       }));
     }
 
+    // Procesar lista de imágenes (hasta 10 fotos optimizadas)
+    let imagesList: string[] = [];
+    if (Array.isArray(body.images)) {
+      imagesList = body.images.map((img: any) => String(img || "").trim()).filter(Boolean);
+    } else if (body.imagesJson) {
+      try {
+        const parsed = JSON.parse(body.imagesJson);
+        if (Array.isArray(parsed)) {
+          imagesList = parsed.map((img: any) => String(img || "").trim()).filter(Boolean);
+        }
+      } catch {}
+    }
+    const singleImageFallback = text(body.imageUrl || body.image_url || body.image, "");
+    if (singleImageFallback && !imagesList.includes(singleImageFallback)) {
+      imagesList.unshift(singleImageFallback);
+    }
+    imagesList = imagesList.slice(0, 10);
+    const primaryImageUrl = imagesList[0] || singleImageFallback || "";
+
     await setDoc(target, {
       sku,
       barcode,
@@ -459,7 +478,8 @@ export async function runStoreAction(body: any, uid?: string) {
       retail_price: number(body.retailPrice),
       wholesale_price: number(body.wholesalePrice),
       min_stock: Math.max(0, number(body.minStock, 3)),
-      image_url: text(body.imageUrl || body.image_url || body.image, ""),
+      image_url: primaryImageUrl,
+      images: imagesList,
       active: true,
       created_at: now(),
       variants: variantsList,
@@ -509,6 +529,27 @@ export async function runStoreAction(body: any, uid?: string) {
       } catch {}
     }
 
+    // Procesar actualización de imágenes (hasta 10 fotos)
+    let imagesList: string[] = Array.isArray(current.images) && current.images.length > 0
+      ? [...current.images]
+      : (current.image_url ? [current.image_url] : []);
+
+    if (Array.isArray(body.images)) {
+      imagesList = body.images.map((img: any) => String(img || "").trim()).filter(Boolean);
+    } else if (body.imagesJson !== undefined) {
+      try {
+        const parsed = JSON.parse(body.imagesJson);
+        if (Array.isArray(parsed)) {
+          imagesList = parsed.map((img: any) => String(img || "").trim()).filter(Boolean);
+        }
+      } catch {}
+    } else if (body.imageUrl !== undefined || body.image_url !== undefined) {
+      const single = text(body.imageUrl !== undefined ? body.imageUrl : body.image_url);
+      imagesList = single ? [single] : [];
+    }
+    imagesList = imagesList.slice(0, 10);
+    const primaryImageUrl = imagesList[0] || (body.imageUrl !== undefined ? text(body.imageUrl) : (body.image_url !== undefined ? text(body.image_url) : (current.image_url || "")));
+
     await updateDoc(productRef, {
       name,
       brand: text(body.brand, current.brand),
@@ -521,7 +562,8 @@ export async function runStoreAction(body: any, uid?: string) {
       retail_price: body.retailPrice !== undefined ? number(body.retailPrice) : (body.retail_price !== undefined ? number(body.retail_price) : current.retail_price),
       wholesale_price: body.wholesalePrice !== undefined ? number(body.wholesalePrice) : (body.wholesale_price !== undefined ? number(body.wholesale_price) : current.wholesale_price),
       min_stock: body.minStock !== undefined ? Math.max(0, number(body.minStock)) : (body.min_stock !== undefined ? Math.max(0, number(body.min_stock)) : current.min_stock),
-      image_url: body.imageUrl !== undefined ? text(body.imageUrl) : (body.image_url !== undefined ? text(body.image_url) : (current.image_url || "")),
+      image_url: primaryImageUrl,
+      images: imagesList,
       variants: variantsList,
       updated_at: now(),
     });
