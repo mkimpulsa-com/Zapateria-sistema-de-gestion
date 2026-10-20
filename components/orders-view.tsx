@@ -5,7 +5,7 @@ import {
   ClipboardList, Search, Clock, CheckCircle2, Package, Truck,
   XCircle, ArrowRight, MessageCircle, Printer, Store, User, Phone,
   MapPin, AlertCircle, ShoppingBag, Trash2, Check, Sparkles, Filter,
-  Layers, RefreshCw, Bell, BellRing, Volume2, VolumeX
+  Layers, RefreshCw, Bell, BellRing, Volume2, VolumeX, Eye, Image as ImageIcon
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,8 @@ interface OrdersViewProps {
   orders: StoreOrder[];
   storeUid: string;
   currency?: string;
+  products?: any[];
+  businessSettings?: any;
   onSelectOrderForSale?: (order: StoreOrder) => void;
   setToast: (msg: string) => void;
 }
@@ -92,6 +94,8 @@ export function OrdersView({
   orders,
   storeUid,
   currency = "BRL",
+  products = [],
+  businessSettings,
   onSelectOrderForSale,
   setToast,
 }: OrdersViewProps) {
@@ -100,7 +104,31 @@ export function OrdersView({
   const [channelFilter, setChannelFilter] = useState<string>("todos");
   const [selectedOrder, setSelectedOrder] = useState<StoreOrder | null>(null);
   const [orderToDelete, setOrderToDelete] = useState<StoreOrder | null>(null);
+  const [prepModalOrder, setPrepModalOrder] = useState<StoreOrder | null>(null);
+  const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
+  const [includePhotosPrint, setIncludePhotosPrint] = useState<boolean>(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  // Obtener foto del calzado desde el item del pedido o catálogo de productos
+  const resolveItemImage = (item: { productId?: string | number; name?: string; imageUrl?: string }) => {
+    if (item.imageUrl && item.imageUrl.trim()) return item.imageUrl;
+    if (!products || !products.length) return "";
+    const found = products.find((p: any) =>
+      (item.productId !== undefined && String(p.id) === String(item.productId)) ||
+      (item.name && p.name && p.name.trim().toLowerCase() === item.name.trim().toLowerCase())
+    );
+    return found?.image_url || found?.images?.[0] || "";
+  };
+
+  // Obtener SKU o código de barra
+  const resolveItemSku = (item: { productId?: string | number; name?: string }) => {
+    if (!products || !products.length) return "";
+    const found = products.find((p: any) =>
+      (item.productId !== undefined && String(p.id) === String(item.productId)) ||
+      (item.name && p.name && p.name.trim().toLowerCase() === item.name.trim().toLowerCase())
+    );
+    return found?.sku || found?.barcode || "";
+  };
   const [soundEnabled, setSoundEnabledState] = useState(true);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
 
@@ -233,95 +261,432 @@ export function OrdersView({
     }
   };
 
-  // Imprimir comanda de preparación
-  const handlePrintOrder = (order: StoreOrder) => {
+  // Imprimir comanda / hoja de control interno de preparación
+  const handlePrintOrder = (order: StoreOrder, withPhotos: boolean = true) => {
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
-      setToast("Permití las ventanas emergentes para imprimir.");
+      setToast("Permití las ventanas emergentes en tu navegador para imprimir.");
       return;
     }
 
+    const businessName = businessSettings?.business_name || "CR MAYORISTA";
+    const branchName = businessSettings?.branch_name || "";
+    const businessPhone = businessSettings?.phone || businessSettings?.whatsapp || "";
+    const businessAddress = businessSettings?.address || "";
+    const businessLogo = businessSettings?.logo_url || "";
+
+    const itemsWithImages = order.items.map((item) => {
+      const img = resolveItemImage(item);
+      const sku = resolveItemSku(item);
+      return {
+        ...item,
+        resolvedImage: img,
+        sku,
+      };
+    });
+
     const htmlContent = `
       <!DOCTYPE html>
-      <html>
+      <html lang="es">
       <head>
         <meta charset="utf-8">
-        <title>Comanda de Pedido ${order.orderNumber}</title>
+        <title>Control Interno - Pedido ${order.orderNumber}</title>
         <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px; color: #111; max-width: 600px; margin: 0 auto; font-size: 14px; }
-          .header { border-bottom: 2px dashed #000; padding-bottom: 12px; margin-bottom: 16px; }
-          .title { font-size: 20px; font-weight: bold; margin: 0 0 4px; }
-          .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; background: #eee; }
-          .section { margin-bottom: 16px; border-bottom: 1px dashed #ccc; padding-bottom: 12px; }
-          .label { font-weight: bold; color: #555; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          th { text-align: left; border-bottom: 1px solid #000; padding: 6px 0; font-size: 12px; text-transform: uppercase; }
-          td { padding: 8px 0; border-bottom: 1px solid #eee; }
-          .qty { font-weight: bold; font-size: 15px; }
-          .totals { margin-top: 16px; text-align: right; }
-          .total-amount { font-size: 18px; font-weight: bold; }
+          * { box-sizing: border-box; }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            padding: 24px;
+            color: #111827;
+            background: #ffffff;
+            max-width: 820px;
+            margin: 0 auto;
+            font-size: 13px;
+            line-height: 1.4;
+          }
+          
+          /* Toolbar no imprimible */
+          .toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #f1f5f9;
+            padding: 10px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #cbd5e1;
+          }
+          .toolbar button {
+            cursor: pointer;
+            font-weight: 700;
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: none;
+            font-size: 13px;
+          }
+          .btn-print { background: #7c3aed; color: #fff; }
+          .btn-close { background: #e2e8f0; color: #334155; margin-left: 8px; }
+
+          /* Cabecera */
+          .header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            border-bottom: 2px solid #0f172a;
+            padding-bottom: 14px;
+            margin-bottom: 16px;
+          }
+          .business-title { font-size: 20px; font-weight: 900; color: #0f172a; text-transform: uppercase; margin: 0; }
+          .business-sub { font-size: 11px; color: #64748b; margin-top: 2px; }
+          .logo-img { max-height: 48px; max-width: 140px; object-fit: contain; margin-bottom: 4px; }
+
+          .doc-type-badge {
+            background: #581c87;
+            color: #ffffff;
+            font-weight: 900;
+            font-size: 12px;
+            padding: 5px 12px;
+            border-radius: 6px;
+            display: inline-block;
+            letter-spacing: 0.5px;
+            text-align: right;
+          }
+          .order-ref { font-size: 18px; font-weight: 900; margin-top: 4px; color: #1e293b; text-align: right; }
+
+          /* Grilla de información */
+          .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+          }
+          .info-block p { margin: 2px 0; font-size: 12px; }
+          .info-label { font-weight: 700; color: #475569; }
+          .badge-channel {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            background: #f3e8ff;
+            color: #6b21a8;
+          }
+
+          .alert-notes {
+            grid-column: 1 / -1;
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            padding: 8px 12px;
+            border-radius: 6px;
+            color: #92400e;
+            font-size: 12px;
+            margin-top: 4px;
+          }
+
+          /* Tabla de preparación */
+          .table-title {
+            font-size: 13px;
+            font-weight: 900;
+            text-transform: uppercase;
+            color: #0f172a;
+            letter-spacing: 0.5px;
+            margin: 16px 0 8px 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+          }
+          table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+          th {
+            background: #f1f5f9;
+            color: #334155;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            padding: 8px 6px;
+            border-top: 1px solid #cbd5e1;
+            border-bottom: 2px solid #94a3b8;
+            text-align: left;
+          }
+          td {
+            padding: 8px 6px;
+            border-bottom: 1px solid #e2e8f0;
+            vertical-align: middle;
+          }
+          tr:nth-child(even) { background-color: #fbfcfe; }
+
+          .check-box {
+            width: 22px;
+            height: 22px;
+            border: 2px solid #475569;
+            border-radius: 4px;
+            margin: 0 auto;
+            background: #fff;
+          }
+          .img-cell { width: 76px; text-align: center; }
+          .product-thumb {
+            width: 66px;
+            height: 66px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            display: block;
+            margin: 0 auto;
+          }
+          .no-img {
+            width: 66px;
+            height: 66px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f1f5f9;
+            color: #94a3b8;
+            font-size: 9px;
+            font-weight: 700;
+            border-radius: 6px;
+            border: 1px dashed #cbd5e1;
+            text-align: center;
+            margin: 0 auto;
+          }
+
+          .qty-box {
+            font-size: 17px;
+            font-weight: 900;
+            color: #0f172a;
+            text-align: center;
+            white-space: nowrap;
+          }
+          .item-name { font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 2px; }
+          .item-meta { font-size: 11px; color: #475569; }
+          .size-badge {
+            display: inline-block;
+            background: #eff6ff;
+            color: #1d4ed8;
+            border: 1px solid #bfdbfe;
+            font-size: 11px;
+            font-weight: 800;
+            padding: 2px 7px;
+            border-radius: 4px;
+            margin-top: 3px;
+          }
+          .sku-tag {
+            font-size: 10px;
+            color: #64748b;
+            font-family: monospace;
+            margin-left: 6px;
+          }
+
+          /* Totales y Firmas */
+          .summary-section {
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: 1.4fr 1fr;
+            gap: 16px;
+            align-items: start;
+          }
+          .signatures-box {
+            border: 1px dashed #94a3b8;
+            border-radius: 8px;
+            padding: 12px;
+            background: #fff;
+          }
+          .signature-line {
+            margin-top: 18px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #334155;
+            border-bottom: 1px solid #94a3b8;
+            padding-bottom: 2px;
+          }
+          .totals-box {
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 12px 16px;
+            text-align: right;
+          }
+          .total-units { font-size: 13px; font-weight: 700; color: #334155; margin-bottom: 4px; }
+          .total-price { font-size: 18px; font-weight: 900; color: #0f172a; }
+
           @media print {
-            body { padding: 0; }
+            body { padding: 0; font-size: 12px; max-width: 100%; }
+            .no-print { display: none !important; }
+            @page { margin: 10mm; }
+            tr { page-break-inside: avoid; }
           }
         </style>
       </head>
       <body>
+        <div class="toolbar no-print">
+          <div>
+            <strong>Hoja de Control Interno y Preparación de Pedido</strong>
+            <p style="margin:2px 0 0; font-size:11px; color:#64748b;">
+              ${withPhotos ? "✓ Incluye fotos del calzado para control visual en depósito" : "Modo compacto (sin fotos)"}
+            </p>
+          </div>
+          <div>
+            <button class="btn-print" onclick="window.print()">🖨️ Imprimir Hoja</button>
+            <button class="btn-close" onclick="window.close()">Cerrar</button>
+          </div>
+        </div>
+
         <div class="header">
-          <h1 class="title">ORDEN DE PREPARACIÓN</h1>
-          <div><strong>PEDIDO:</strong> ${order.orderNumber} <span class="badge">${order.channel.toUpperCase()}</span></div>
-          <div><strong>Fecha:</strong> ${formatDate(order.createdAt)}</div>
-          <div><strong>Estado:</strong> ${STATUS_CONFIG[order.status].label}</div>
+          <div>
+            ${businessLogo ? `<img src="${businessLogo}" alt="${businessName}" class="logo-img" />` : ""}
+            <h1 class="business-title">${businessName}</h1>
+            ${branchName ? `<div class="business-sub">${branchName}</div>` : ""}
+            ${businessAddress ? `<div class="business-sub">${businessAddress}</div>` : ""}
+            ${businessPhone ? `<div class="business-sub">Tel / WhatsApp: ${businessPhone}</div>` : ""}
+          </div>
+          <div style="text-align: right;">
+            <div class="doc-type-badge">CONTROL INTERNO / PREPARACIÓN</div>
+            <div class="order-ref">${order.orderNumber}</div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
+              Fecha: <b>${formatDate(order.createdAt)}</b>
+            </div>
+            <div style="margin-top: 4px;">
+              <span class="badge-channel">Canal ${order.channel.toUpperCase()}</span>
+            </div>
+          </div>
         </div>
 
-        <div class="section">
-          <div><span class="label">Cliente:</span> <strong>${order.customerName}</strong></div>
-          <div><span class="label">Teléfono:</span> ${order.customerPhone}</div>
-          <div><span class="label">Modalidad:</span> ${order.deliveryType === "pickup" ? "RETIRO EN LOCAL / DEPÓSITO" : "ENVÍO A DOMICILIO"}</div>
-          ${order.customerAddress ? `<div><span class="label">Dirección:</span> ${order.customerAddress}</div>` : ""}
-          ${order.customerNotes ? `<div><span class="label">Notas:</span> <em>${order.customerNotes}</em></div>` : ""}
+        <div class="info-grid">
+          <div class="info-block">
+            <p><span class="info-label">Cliente:</span> <b>${order.customerName}</b></p>
+            <p><span class="info-label">Teléfono:</span> ${order.customerPhone}</p>
+          </div>
+          <div class="info-block">
+            <p><span class="info-label">Modalidad:</span> <b>${order.deliveryType === "pickup" ? "RETIRO EN DEPÓSITO / LOCAL" : "ENVÍO A DOMICILIO"}</b></p>
+            ${order.customerAddress ? `<p><span class="info-label">Dirección:</span> <b>${order.customerAddress}</b></p>` : ""}
+          </div>
+          ${order.customerNotes ? `
+            <div class="alert-notes">
+              <b>Indicaciones del cliente:</b> "${order.customerNotes}"
+            </div>
+          ` : ""}
         </div>
 
-        <div class="section">
-          <div class="label">DETALLE DE ARTÍCULOS A PREPARAR:</div>
-          <table>
-            <thead>
+        <div class="table-title">
+          <span>Artículos a Preparar y Empacar (${order.totalUnits} pares / unidades)</span>
+          <span style="font-size: 11px; font-weight: normal; color: #64748b;">Marcar con [✓] cada calzado verificado</span>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 32px; text-align: center;">OK</th>
+              ${withPhotos ? `<th style="width: 80px; text-align: center;">Foto</th>` : ""}
+              <th style="width: 70px; text-align: center;">Cant.</th>
+              <th>Calzado / Detalle</th>
+              <th style="text-align: right; width: 90px;">P. Unit.</th>
+              <th style="text-align: right; width: 100px;">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsWithImages
+              .map(
+                (item) => `
               <tr>
-                <th>Cant.</th>
-                <th>Producto / Detalle</th>
-                <th style="text-align: right;">Unit.</th>
-                <th style="text-align: right;">Subtotal</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${order.items
-                .map(
-                  (item) => `
-                <tr>
-                  <td class="qty">x${item.qty}</td>
-                  <td>
-                    <strong>${item.name}</strong>
-                    ${item.brand ? `(${item.brand})` : ""}
-                    ${item.size ? `<br><small style="color: #444;">Variante / Talle: <b>${item.size}</b></small>` : ""}
+                <td style="text-align: center;">
+                  <div class="check-box"></div>
+                </td>
+                ${
+                  withPhotos
+                    ? `
+                  <td class="img-cell">
+                    ${
+                      item.resolvedImage
+                        ? `<img src="${item.resolvedImage}" alt="${item.name}" class="product-thumb" />`
+                        : `<div class="no-img">Sin foto</div>`
+                    }
                   </td>
-                  <td style="text-align: right;">${money(item.price)}</td>
-                  <td style="text-align: right;"><strong>${money(item.subtotal)}</strong></td>
-                </tr>
-              `
-                )
-                .join("")}
-            </tbody>
-          </table>
-        </div>
+                `
+                    : ""
+                }
+                <td class="qty-box">x ${item.qty}</td>
+                <td>
+                  <div class="item-name">${item.name}</div>
+                  <div class="item-meta">
+                    ${item.brand ? `Marca: <b>${item.brand}</b>` : ""}
+                    ${item.sku ? `<span class="sku-tag">SKU: ${item.sku}</span>` : ""}
+                  </div>
+                  ${
+                    item.size
+                      ? `<div class="size-badge">TALLE / VARIANTE: ${item.size}</div>`
+                      : `<div style="font-size: 11px; color: #64748b;">Estándar / Único</div>`
+                  }
+                </td>
+                <td style="text-align: right; font-size: 12px;">${money(item.price)}</td>
+                <td style="text-align: right; font-size: 13px; font-weight: 800;">${money(item.subtotal)}</td>
+              </tr>
+            `
+              )
+              .join("")}
+          </tbody>
+        </table>
 
-        <div class="totals">
-          <div>Total de unidades: <strong>${order.totalUnits}</strong></div>
-          <div class="total-amount">TOTAL A COBRAR: ${money(order.totalAmount)}</div>
+        <div class="summary-section">
+          <div class="signatures-box">
+            <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #475569; margin-bottom: 6px;">
+              Control de Depósito y Despacho
+            </div>
+            <div class="signature-line">
+              <span>Preparado por:</span>
+              <span style="color: #94a3b8;">Firma y Aclaración</span>
+            </div>
+            <div class="signature-line">
+              <span>Controlado / Embalado por:</span>
+              <span style="color: #94a3b8;">Firma y Aclaración</span>
+            </div>
+            <div style="margin-top: 10px; font-size: 10px; color: #64748b; display: flex; justify-content: space-between;">
+              <span>Fecha: ____/____/________</span>
+              <span>Bultos / Cajas: [_____]</span>
+            </div>
+          </div>
+
+          <div class="totals-box">
+            <div class="total-units">Total de unidades: <b>${order.totalUnits} pares</b></div>
+            <div class="total-price">TOTAL: ${money(order.totalAmount)}</div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
+              Estado: <b>${STATUS_CONFIG[order.status]?.label || order.status}</b>
+            </div>
+          </div>
         </div>
 
         <script>
-          window.onload = function() {
-            window.print();
-          };
+          window.addEventListener("load", function() {
+            const images = Array.from(document.querySelectorAll("img.product-thumb"));
+            if (images.length === 0) {
+              setTimeout(function() { window.print(); }, 250);
+              return;
+            }
+            let loaded = 0;
+            const total = images.length;
+            function checkDone() {
+              loaded++;
+              if (loaded >= total) {
+                setTimeout(function() { window.print(); }, 350);
+              }
+            }
+            images.forEach(function(img) {
+              if (img.complete && img.naturalHeight !== 0) {
+                checkDone();
+              } else {
+                img.addEventListener("load", checkDone);
+                img.addEventListener("error", checkDone);
+              }
+            });
+            setTimeout(function() {
+              if (loaded < total) {
+                window.print();
+              }
+            }, 2500);
+          });
         </script>
       </body>
       </html>
@@ -688,26 +1053,41 @@ export function OrdersView({
                     <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
                       Artículos ({order.totalUnits} un.)
                     </p>
-                    <div className="space-y-1 max-h-28 overflow-y-auto pr-1 text-xs scrollbar-thin">
-                      {order.items.map((item, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center justify-between py-0.5 border-b border-border/30 last:border-0"
-                        >
-                          <div className="truncate pr-2">
-                            <span className="font-bold text-foreground">x{item.qty}</span>{" "}
-                            <span className="text-foreground/90">{item.name}</span>
-                            {item.size && (
-                              <span className="ml-1 text-[10px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.2 rounded">
-                                Talle {item.size}
-                              </span>
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1 text-xs scrollbar-thin">
+                      {order.items.map((item, idx) => {
+                        const itemImg = resolveItemImage(item);
+                        return (
+                          <div
+                            key={idx}
+                            className="flex items-center gap-2 py-1 border-b border-border/30 last:border-0"
+                          >
+                            {itemImg ? (
+                              <img
+                                src={itemImg}
+                                alt={item.name}
+                                className="size-8 rounded-md object-cover border shrink-0 bg-muted/40 shadow-xs"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="size-8 rounded-md bg-muted/60 border flex items-center justify-center shrink-0 text-muted-foreground">
+                                <Package className="size-3.5 opacity-60" />
+                              </div>
                             )}
+                            <div className="truncate flex-1 min-w-0">
+                              <span className="font-bold text-foreground">x{item.qty}</span>{" "}
+                              <span className="text-foreground/90 font-medium">{item.name}</span>
+                              {item.size && (
+                                <span className="ml-1 text-[10px] font-bold text-blue-700 dark:text-blue-300 bg-blue-500/15 border border-blue-500/20 px-1.5 py-0.2 rounded">
+                                  Talle {item.size}
+                                </span>
+                              )}
+                            </div>
+                            <span className="font-semibold text-foreground shrink-0 text-[11px]">
+                              {money(item.subtotal)}
+                            </span>
                           </div>
-                          <span className="font-semibold text-foreground shrink-0 text-[11px]">
-                            {money(item.subtotal)}
-                          </span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -721,62 +1101,82 @@ export function OrdersView({
                 </CardContent>
 
                 {/* Barra de Acciones */}
-                <div className="border-t bg-muted/10 p-3 space-y-2">
-                  {/* Selector / Botones de Cambio Rápido de Estado */}
-                  <div className="flex items-center justify-between gap-1 text-xs">
-                    <span className="text-[11px] font-bold text-muted-foreground">Estado:</span>
-                    <div className="flex items-center gap-1">
+                <div className="border-t bg-muted/20 p-3 space-y-2.5">
+                  {/* Selector / Botón Destacado de Cambio de Estado */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-muted-foreground">Estado actual:</span>
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-bold shadow-xs ${statusCfg.badgeClass}`}
+                      >
+                        <StatusIcon className="size-3" />
+                        {statusCfg.label}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       {order.status === "pendiente" && (
                         <Button
                           size="sm"
-                          variant="outline"
-                          disabled={isUpdating}
+                          disabled={updatingId === order.id}
                           onClick={() => handleChangeStatus(order, "confirmado")}
-                          className="h-7 text-xs border-blue-500/40 text-blue-600 hover:bg-blue-50"
+                          className="h-8 px-3 text-xs font-black bg-blue-600 hover:bg-blue-700 text-white shadow-sm gap-1.5 rounded-lg transition-transform active:scale-95"
+                          title="Confirmar y aceptar este pedido"
                         >
-                          Confirmar
+                          <CheckCircle2 className="size-3.5" />
+                          Confirmar Pedido
                         </Button>
                       )}
                       {order.status === "confirmado" && (
                         <Button
                           size="sm"
-                          variant="outline"
-                          disabled={isUpdating}
-                          onClick={() => handleChangeStatus(order, "en_preparacion")}
-                          className="h-7 text-xs border-purple-500/40 text-purple-600 hover:bg-purple-50"
+                          disabled={updatingId === order.id}
+                          onClick={() => {
+                            handleChangeStatus(order, "en_preparacion");
+                            setPrepModalOrder(order);
+                          }}
+                          className="h-8 px-3 text-xs font-black bg-purple-600 hover:bg-purple-700 text-white shadow-sm gap-1.5 rounded-lg transition-transform active:scale-95 animate-pulse hover:animate-none"
+                          title="Cambiar a En Preparación y abrir control"
                         >
+                          <Package className="size-3.5" />
                           A Preparación
                         </Button>
                       )}
                       {order.status === "en_preparacion" && (
                         <Button
                           size="sm"
-                          variant="outline"
-                          disabled={isUpdating}
+                          disabled={updatingId === order.id}
                           onClick={() => handleChangeStatus(order, "listo")}
-                          className="h-7 text-xs border-teal-500/40 text-teal-600 hover:bg-teal-50"
+                          className="h-8 px-3 text-xs font-black bg-teal-600 hover:bg-teal-700 text-white shadow-sm gap-1.5 rounded-lg transition-transform active:scale-95"
+                          title="Marcar pedido empaquetado y listo para despacho"
                         >
+                          <Truck className="size-3.5" />
                           Listo / Despachar
                         </Button>
                       )}
                       {order.status === "listo" && (
                         <Button
                           size="sm"
-                          variant="outline"
-                          disabled={isUpdating}
+                          disabled={updatingId === order.id}
                           onClick={() => handleChangeStatus(order, "entregado")}
-                          className="h-7 text-xs border-emerald-500/40 text-emerald-600 hover:bg-emerald-50"
+                          className="h-8 px-3 text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm gap-1.5 rounded-lg transition-transform active:scale-95"
+                          title="Marcar pedido como entregado"
                         >
+                          <Check className="size-3.5 stroke-[3]" />
                           Marcar Entregado
                         </Button>
                       )}
+                      {order.status === "entregado" && (
+                        <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-700 dark:text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-lg">
+                          <Check className="size-3.5 stroke-[3]" /> Completado
+                        </span>
+                      )}
 
-                      {/* Dropdown / Botón para ver más opciones de estado */}
                       <Button
                         size="sm"
                         variant="ghost"
                         onClick={() => setSelectedOrder(order)}
-                        className="h-7 px-2 text-xs"
+                        className="h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground font-bold"
                       >
                         Ver Detalle
                       </Button>
@@ -784,17 +1184,30 @@ export function OrdersView({
                   </div>
 
                   {/* Acciones complementarias */}
-                  <div className="flex items-center justify-between pt-1 border-t border-border/40">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handlePrintOrder(order)}
-                      className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                      title="Imprimir comanda de preparación"
-                    >
-                      <Printer className="size-3.5 mr-1" />
-                      Imprimir
-                    </Button>
+                  <div className="flex items-center justify-between pt-1 border-t border-border/40 gap-1.5 flex-wrap">
+                    <div className="flex items-center gap-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setPrepModalOrder(order)}
+                        className="h-7 px-2.5 text-xs font-bold border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40 gap-1"
+                        title="Control interno y preparación del pedido"
+                      >
+                        <ClipboardList className="size-3.5 text-purple-600 dark:text-purple-400" />
+                        Control Interno
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handlePrintOrder(order, true)}
+                        className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                        title="Imprimir hoja de control interno con fotos"
+                      >
+                        <Printer className="size-3.5 mr-1" />
+                        Imprimir
+                      </Button>
+                    </div>
 
                     {onSelectOrderForSale && order.status !== "cancelado" && (
                       <Button
@@ -840,26 +1253,53 @@ export function OrdersView({
 
             <div className="space-y-5 py-2">
               {/* Cambiar Estado Manual */}
-              <div className="rounded-xl border bg-muted/20 p-3.5 space-y-2">
-                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Cambiar estado del pedido (Se sincroniza en vivo con el cliente):
-                </p>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <div className="rounded-xl border bg-muted/20 p-4 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-black uppercase tracking-wider text-muted-foreground">
+                    Cambiar estado del pedido:
+                  </p>
+                  <span className="text-[11px] text-muted-foreground">
+                    (Se sincroniza en tiempo real con la tienda web)
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                   {(Object.keys(STATUS_CONFIG) as OrderStatus[]).map((st) => {
                     const cfg = STATUS_CONFIG[st];
                     const isCurrent = selectedOrder.status === st;
+                    
+                    const activeBg =
+                      st === "pendiente" ? "bg-amber-500 text-white border-amber-600 shadow-md ring-2 ring-amber-400/40" :
+                      st === "confirmado" ? "bg-blue-600 text-white border-blue-700 shadow-md ring-2 ring-blue-400/40" :
+                      st === "en_preparacion" ? "bg-purple-600 text-white border-purple-700 shadow-md ring-2 ring-purple-400/40" :
+                      st === "listo" ? "bg-teal-600 text-white border-teal-700 shadow-md ring-2 ring-teal-400/40" :
+                      st === "entregado" ? "bg-emerald-600 text-white border-emerald-700 shadow-md ring-2 ring-emerald-400/40" :
+                      "bg-rose-600 text-white border-rose-700 shadow-md ring-2 ring-rose-400/40";
+
+                    const inactiveStyle =
+                      st === "pendiente" ? "border-amber-500/30 bg-amber-500/5 text-amber-900 dark:text-amber-200 hover:bg-amber-500/15" :
+                      st === "confirmado" ? "border-blue-500/30 bg-blue-500/5 text-blue-900 dark:text-blue-200 hover:bg-blue-500/15" :
+                      st === "en_preparacion" ? "border-purple-500/30 bg-purple-500/5 text-purple-900 dark:text-purple-200 hover:bg-purple-500/15" :
+                      st === "listo" ? "border-teal-500/30 bg-teal-500/5 text-teal-900 dark:text-teal-200 hover:bg-teal-500/15" :
+                      st === "entregado" ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-900 dark:text-emerald-200 hover:bg-emerald-500/15" :
+                      "border-rose-500/30 bg-rose-500/5 text-rose-900 dark:text-rose-200 hover:bg-rose-500/15";
+
                     return (
                       <button
                         key={st}
                         onClick={() => handleChangeStatus(selectedOrder, st)}
-                        className={`flex items-center gap-1.5 rounded-lg border p-2 text-left text-xs transition-all ${
-                          isCurrent
-                            ? "border-primary bg-primary/10 font-bold text-primary shadow-sm"
-                            : "border-border/60 hover:bg-muted"
+                        className={`flex items-center justify-between gap-1.5 rounded-xl border p-2.5 text-xs font-bold transition-all active:scale-95 ${
+                          isCurrent ? activeBg : inactiveStyle
                         }`}
                       >
-                        <cfg.icon className="size-3.5 shrink-0" style={{ color: cfg.colorHex }} />
-                        <span className="truncate">{cfg.label}</span>
+                        <div className="flex items-center gap-2 truncate">
+                          <cfg.icon className="size-4 shrink-0" style={{ color: isCurrent ? "#ffffff" : cfg.colorHex }} />
+                          <span className="truncate">{cfg.label}</span>
+                        </div>
+                        {isCurrent && (
+                          <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider shrink-0">
+                            Actual
+                          </span>
+                        )}
                       </button>
                     );
                   })}
@@ -910,45 +1350,75 @@ export function OrdersView({
 
               {/* Detalle de Artículos */}
               <div className="rounded-xl border p-4 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                     Artículos solicitados ({selectedOrder.totalUnits} pares / unidades)
                   </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handlePrintOrder(selectedOrder)}
-                    className="h-7 text-xs"
-                  >
-                    <Printer className="size-3.5 mr-1" />
-                    Imprimir Comanda
-                  </Button>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setPrepModalOrder(selectedOrder)}
+                      className="h-7 text-xs font-bold border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40 gap-1"
+                    >
+                      <ClipboardList className="size-3.5 text-purple-600 dark:text-purple-400" />
+                      Control Interno
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handlePrintOrder(selectedOrder, true)}
+                      className="h-7 text-xs gap-1"
+                    >
+                      <Printer className="size-3.5 mr-1" />
+                      Imprimir Hoja
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="divide-y divide-border/40 text-xs">
-                  {selectedOrder.items.map((item, idx) => (
-                    <div key={idx} className="py-2.5 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="font-bold text-foreground text-sm">{item.name}</p>
-                        <p className="text-muted-foreground">
-                          {item.brand && `Marca: ${item.brand} • `}
-                          {item.size ? (
-                            <strong className="text-foreground">Talle / Variante: {item.size}</strong>
+                  {selectedOrder.items.map((item, idx) => {
+                    const itemImg = resolveItemImage(item);
+                    return (
+                      <div key={idx} className="py-2.5 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          {itemImg ? (
+                            <img
+                              src={itemImg}
+                              alt={item.name}
+                              className="size-12 rounded-lg object-cover border shrink-0 bg-muted/40 shadow-xs"
+                              loading="lazy"
+                            />
                           ) : (
-                            "Estándar"
+                            <div className="size-12 rounded-lg bg-muted flex items-center justify-center shrink-0 text-muted-foreground border">
+                              <Package className="size-5 opacity-40" />
+                            </div>
                           )}
-                        </p>
+                          <div className="min-w-0">
+                            <p className="font-bold text-foreground text-sm truncate">{item.name}</p>
+                            <p className="text-muted-foreground text-xs mt-0.5">
+                              {item.brand && `Marca: ${item.brand} • `}
+                              {item.size ? (
+                                <strong className="text-blue-700 dark:text-blue-300 bg-blue-500/15 border border-blue-500/20 px-1.5 py-0.5 rounded font-bold">
+                                  Talle {item.size}
+                                </strong>
+                              ) : (
+                                "Estándar"
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-bold text-foreground">
+                            {item.qty} un. x {money(item.price)}
+                          </p>
+                          <p className="text-xs font-black text-foreground">
+                            {money(item.subtotal)}
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right shrink-0">
-                        <p className="font-bold text-foreground">
-                          {item.qty} un. x {money(item.price)}
-                        </p>
-                        <p className="text-xs font-black text-foreground">
-                          {money(item.subtotal)}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 <div className="flex items-center justify-between border-t pt-3">
@@ -985,6 +1455,274 @@ export function OrdersView({
                   </Button>
                 )}
                 <Button variant="outline" onClick={() => setSelectedOrder(null)}>
+                  Cerrar
+                </Button>
+              </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Modal de Control Interno y Preparación con Fotos */}
+      {prepModalOrder && (
+        <Dialog open={!!prepModalOrder} onOpenChange={(open) => !open && setPrepModalOrder(null)}>
+          <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto">
+            <DialogHeader>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pr-6">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/20">
+                      <ClipboardList className="size-5" />
+                    </div>
+                    <DialogTitle className="text-xl font-black">
+                      Control Interno y Preparación de Pedido
+                    </DialogTitle>
+                  </div>
+                  <DialogDescription className="text-xs mt-1">
+                    Pedido <strong>{prepModalOrder.orderNumber}</strong> • Canal {prepModalOrder.channel.toUpperCase()} • Creado el {formatDate(prepModalOrder.createdAt)}
+                  </DialogDescription>
+                </div>
+                <Badge
+                  className={`text-xs font-bold w-fit ${
+                    STATUS_CONFIG[prepModalOrder.status]?.badgeClass
+                  }`}
+                >
+                  {STATUS_CONFIG[prepModalOrder.status]?.label}
+                </Badge>
+              </div>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
+              {/* Información del Cliente y Entrega */}
+              <div className="rounded-xl border bg-muted/20 p-3.5 space-y-2 text-xs">
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-muted-foreground">Cliente:</span>
+                    <p className="font-bold text-sm text-foreground">{prepModalOrder.customerName}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-muted-foreground">{prepModalOrder.customerPhone}</span>
+                      <button
+                        type="button"
+                        onClick={() => openCustomerWhatsApp(prepModalOrder)}
+                        className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold text-emerald-600 hover:bg-emerald-500/20"
+                      >
+                        <MessageCircle className="size-3" />
+                        Chat WhatsApp
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Modalidad de entrega:</span>
+                    <p className="font-bold text-foreground">
+                      {prepModalOrder.deliveryType === "pickup"
+                        ? "Retiro en depósito / local"
+                        : "Envío a domicilio"}
+                    </p>
+                    {prepModalOrder.customerAddress && (
+                      <p className="text-muted-foreground mt-0.5">
+                        Dirección: <strong className="text-foreground">{prepModalOrder.customerAddress}</strong>
+                      </p>
+                    )}
+                  </div>
+                  {prepModalOrder.customerNotes && (
+                    <div className="sm:col-span-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2.5 text-amber-900 dark:text-amber-200">
+                      <span className="font-bold">Indicaciones del cliente:</span> "{prepModalOrder.customerNotes}"
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Artículos a preparar con fotos y checklist */}
+              <div className="rounded-xl border p-4 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3">
+                  <div>
+                    <h3 className="font-black text-sm text-foreground flex items-center gap-1.5">
+                      <Package className="size-4 text-purple-600 dark:text-purple-400" />
+                      Artículos a Empacar ({prepModalOrder.totalUnits} pares / unidades)
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Verificá las fotos del producto y marcá con [✓] cada ítem a medida que lo preparás
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer select-none text-muted-foreground hover:text-foreground bg-muted/40 px-2.5 py-1.5 rounded-lg border">
+                      <input
+                        type="checkbox"
+                        checked={includePhotosPrint}
+                        onChange={(e) => setIncludePhotosPrint(e.target.checked)}
+                        className="rounded border-border text-purple-600 focus:ring-purple-500 size-4"
+                      />
+                      Incluir fotos en impresión
+                    </label>
+                  </div>
+                </div>
+
+                <div className="space-y-3 divide-y divide-border/40">
+                  {prepModalOrder.items.map((item, idx) => {
+                    const itemImg = resolveItemImage(item);
+                    const itemSku = resolveItemSku(item);
+                    const isChecked = !!checkedItems[`${prepModalOrder.id}-${idx}`];
+                    return (
+                      <div
+                        key={idx}
+                        className={`pt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors rounded-xl p-2.5 ${
+                          isChecked ? "bg-emerald-500/10 border border-emerald-500/25" : "hover:bg-muted/30 border border-transparent"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          {/* Checkbox de control interactivo */}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCheckedItems((prev) => ({
+                                ...prev,
+                                [`${prepModalOrder.id}-${idx}`]: !prev[`${prepModalOrder.id}-${idx}`],
+                              }))
+                            }
+                            className={`size-7 rounded-lg border flex items-center justify-center shrink-0 transition-all ${
+                              isChecked
+                                ? "bg-emerald-600 border-emerald-600 text-white shadow-xs"
+                                : "border-muted-foreground/40 hover:border-foreground bg-background"
+                            }`}
+                            title={isChecked ? "Marcado como preparado" : "Click para marcar como preparado"}
+                          >
+                            {isChecked ? <Check className="size-4 stroke-[3]" /> : null}
+                          </button>
+
+                          {/* Foto grande y nítida del Calzado */}
+                          <div className="relative size-16 sm:size-20 rounded-xl overflow-hidden border bg-background shrink-0 shadow-sm">
+                            {itemImg ? (
+                              <img
+                                src={itemImg}
+                                alt={item.name}
+                                className="size-full object-cover transition-transform hover:scale-105"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="size-full flex flex-col items-center justify-center text-muted-foreground bg-muted/40">
+                                <Package className="size-6 opacity-40" />
+                                <span className="text-[9px] mt-0.5">Sin foto</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Detalles del producto */}
+                          <div className="min-w-0 flex-1">
+                            <p className={`font-bold text-sm text-foreground ${isChecked ? "line-through opacity-70" : ""}`}>
+                              {item.name}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1 text-xs">
+                              {item.brand && (
+                                <span className="text-muted-foreground">Marca: <b className="text-foreground">{item.brand}</b></span>
+                              )}
+                              {itemSku && (
+                                <span className="text-muted-foreground font-mono text-[11px]">SKU: {itemSku}</span>
+                              )}
+                              {item.size ? (
+                                <span className="inline-flex items-center rounded-md bg-blue-500/15 border border-blue-500/30 px-2 py-0.5 text-xs font-black text-blue-700 dark:text-blue-300">
+                                  TALLE: {item.size}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">Estándar</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3 shrink-0 pl-10 sm:pl-0">
+                          <div className="text-right">
+                            <span className="text-base font-black text-foreground">
+                              x{item.qty} {item.qty === 1 ? "par" : "pares"}
+                            </span>
+                            <p className="text-xs text-muted-foreground">
+                              {money(item.price)} c/u
+                            </p>
+                          </div>
+
+                          {/* Botón interactivo de Estado del Producto */}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCheckedItems((prev) => ({
+                                ...prev,
+                                [`${prepModalOrder.id}-${idx}`]: !prev[`${prepModalOrder.id}-${idx}`],
+                              }))
+                            }
+                            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all shadow-xs cursor-pointer active:scale-95 ${
+                              isChecked
+                                ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/30 ring-2 ring-emerald-500/20"
+                                : "bg-amber-500/15 border-2 border-amber-500/40 text-amber-900 dark:text-amber-200 hover:bg-amber-500/25"
+                            }`}
+                            title="Click para cambiar el estado de este calzado"
+                          >
+                            {isChecked ? (
+                              <>
+                                <Check className="size-4 stroke-[3]" />
+                                <span>Preparado / En Caja</span>
+                              </>
+                            ) : (
+                              <>
+                                <Clock className="size-4 text-amber-600 dark:text-amber-400" />
+                                <span>Pendiente de Armar</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center justify-between border-t pt-3 mt-2">
+                  <span className="text-xs font-bold text-muted-foreground">TOTAL A COBRAR / ENTREGAR:</span>
+                  <span className="text-xl font-black text-foreground">
+                    {money(prepModalOrder.totalAmount)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="flex flex-col sm:flex-row gap-2 justify-between">
+              <div className="flex items-center gap-2">
+                {prepModalOrder.status !== "en_preparacion" && (
+                  <Button
+                    size="sm"
+                    disabled={updatingId === prepModalOrder.id}
+                    onClick={async () => {
+                      await handleChangeStatus(prepModalOrder, "en_preparacion");
+                      setPrepModalOrder({ ...prepModalOrder, status: "en_preparacion" });
+                    }}
+                    className="h-9 px-4 text-xs font-black bg-purple-600 hover:bg-purple-700 text-white shadow-sm gap-1.5 rounded-lg active:scale-95"
+                  >
+                    <Package className="size-4" />
+                    Marcar "En Preparación"
+                  </Button>
+                )}
+                {prepModalOrder.status === "en_preparacion" && (
+                  <Button
+                    size="sm"
+                    disabled={updatingId === prepModalOrder.id}
+                    onClick={async () => {
+                      await handleChangeStatus(prepModalOrder, "listo");
+                      setPrepModalOrder({ ...prepModalOrder, status: "listo" });
+                    }}
+                    className="h-9 px-4 text-xs font-black bg-teal-600 hover:bg-teal-700 text-white shadow-sm gap-1.5 rounded-lg active:scale-95"
+                  >
+                    <Truck className="size-4" />
+                    Marcar "Listo para Entrega"
+                  </Button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => handlePrintOrder(prepModalOrder, includePhotosPrint)}
+                  className="gap-1.5 font-bold bg-purple-700 hover:bg-purple-800 text-white"
+                >
+                  <Printer className="size-4" />
+                  Imprimir Hoja de Control
+                </Button>
+                <Button variant="outline" onClick={() => setPrepModalOrder(null)}>
                   Cerrar
                 </Button>
               </div>
