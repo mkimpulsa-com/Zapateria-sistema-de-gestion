@@ -20,8 +20,10 @@ const text = (value: unknown, fallback="") => value===undefined ? fallback : Str
 const number = (value: unknown, fallback=0) => value===undefined ? fallback : Number(value)||0;
 
 const defaultSettings = {
-  business_name:"CR MAYORISTA", branch_name:"Sucursal principal", tax_id:"", email:"", whatsapp:"", logo_url:"",
-  receipt_type:"X", receipt_prefix:"X", next_receipt_number:1, currency:"BRL", secondary_currency:"ARS",
+  business_name:"CR BAZAR", branch_name:"Sucursal principal", tax_id:"", email:"", whatsapp:"", logo_url:"",
+  vat_condition:"responsable_inscripto", pos_number:"0001", default_vat_rate:0, prices_include_vat:true,
+  iibb_number:"", activity_start_date:"",
+  receipt_type:"X", receipt_prefix:"X", next_receipt_number:1, currency:"ARS", secondary_currency:"BRL",
   exchange_rate_brl:250, exchange_rate_ars:250, exchange_rate_usd:5.70, default_channel:"mayorista",
   payment_methods:"Efectivo,Transferencia,Tarjeta,Mercado Pago,Cuenta corriente", max_discount_percent:20, rounding_mode:"none",
   wholesale_min_qty:0, allow_mixed_sale:true, wholesale_terms:"Precios mayoristas directos sin mínimo de compra.",
@@ -67,8 +69,8 @@ async function ensureSeed(uid?: string) {
   // Cada usuario comienza con su propio espacio aislado y configuraciones básicas
   const currentUser = auth?.currentUser;
   const initialBusinessName = currentUser?.displayName
-    ? `CR MAYORISTA - ${currentUser.displayName.split(" ")[0]}`
-    : "CR MAYORISTA";
+    ? `CR BAZAR - ${currentUser.displayName.split(" ")[0]}`
+    : "CR BAZAR";
 
   await setDoc(settingsRef, {
     ...defaultSettings,
@@ -135,7 +137,7 @@ export async function createCashierAccount({
       name: name.trim(),
       role: "cajera",
       storeId: ownerUid,
-      storeName: storeName || "CR MAYORISTA",
+      storeName: storeName || "CR BAZAR",
       active: true,
       created_at: now(),
       created_by: ownerUid,
@@ -248,7 +250,7 @@ export async function loadStore(uid?: string) {
   const today = new Date().toISOString().slice(0,10);
   const todaySales = sales.filter((sale:any)=>String(sale.created_at).slice(0,10)===today);
   return {settings,products,customers,suppliers,sales,movements,stockMoves,customerMoves,supplierMoves,bankAccounts,bankMoves,categories,staff,stats:{
-    revenueToday:todaySales.reduce((sum:number,sale:any)=>sum+Number(sale.total_brl !== undefined ? sale.total_brl : (sale.total || 0)),0),
+    revenueToday:todaySales.reduce((sum:number,sale:any)=>sum+Number(sale.total !== undefined ? sale.total : (sale.total_ars || sale.total_brl || 0)),0),
     salesToday:todaySales.length,
     stockValue:products.reduce((sum:number,product:any)=>sum+Number(product.cost||0)*Number(product.total_stock||0),0),
     cashBalance:movements.reduce((sum:number,movement:any)=>sum+(movement.type==="ingreso"?Number(movement.amount||0):-Number(movement.amount||0)),0),
@@ -471,12 +473,14 @@ export async function runStoreAction(body: any, uid?: string) {
       barcode,
       name,
       brand: text(body.brand),
-      category: text(body.category, "Calzado"),
+      category: text(body.category, "Bazar General"),
       color: text(body.color),
-      gender: text(body.gender, "Unisex"),
+      location: text(body.location),
+      gender: text(body.gender, "No aplica"),
       cost: number(body.cost),
       retail_price: number(body.retailPrice),
       wholesale_price: number(body.wholesalePrice),
+      vat_rate: Number(body.vatRate !== undefined ? body.vatRate : (body.vat_rate !== undefined ? body.vat_rate : 0)),
       min_stock: Math.max(0, number(body.minStock, 3)),
       image_url: primaryImageUrl,
       images: imagesList,
@@ -553,14 +557,16 @@ export async function runStoreAction(body: any, uid?: string) {
     await updateDoc(productRef, {
       name,
       brand: text(body.brand, current.brand),
-      category: text(body.category, current.category || "Calzado"),
+      category: text(body.category, current.category || "Bazar General"),
       color: text(body.color, current.color),
-      gender: text(body.gender, current.gender || "Unisex"),
+      location: body.location !== undefined ? text(body.location) : (current.location || ""),
+      gender: text(body.gender, current.gender || "No aplica"),
       sku: skuRaw || current.sku,
       barcode: barcodeRaw || current.barcode,
       cost: body.cost !== undefined ? number(body.cost) : current.cost,
       retail_price: body.retailPrice !== undefined ? number(body.retailPrice) : (body.retail_price !== undefined ? number(body.retail_price) : current.retail_price),
       wholesale_price: body.wholesalePrice !== undefined ? number(body.wholesalePrice) : (body.wholesale_price !== undefined ? number(body.wholesale_price) : current.wholesale_price),
+      vat_rate: body.vatRate !== undefined ? Number(body.vatRate) : (body.vat_rate !== undefined ? Number(body.vat_rate) : (current.vat_rate !== undefined ? current.vat_rate : 0)),
       min_stock: body.minStock !== undefined ? Math.max(0, number(body.minStock)) : (body.min_stock !== undefined ? Math.max(0, number(body.min_stock)) : current.min_stock),
       image_url: primaryImageUrl,
       images: imagesList,
@@ -600,7 +606,9 @@ export async function runStoreAction(body: any, uid?: string) {
       type: text(body.type, "minorista"),
       phone: text(body.phone),
       email: text(body.email),
+      document_type: text(body.documentType || body.document_type, "DNI"),
       document: text(body.document || body.dni || body.cuit),
+      vat_condition: text(body.vatCondition || body.vat_condition, "Consumidor Final"),
       address: text(body.address),
       city: text(body.city),
       balance,
@@ -626,6 +634,7 @@ export async function runStoreAction(body: any, uid?: string) {
       id: customerRef.id,
       name: text(body.name),
       type: text(body.type, "minorista"),
+      vat_condition: text(body.vatCondition || body.vat_condition, "Consumidor Final"),
     };
     return store;
   } else if (action === "edit_customer") {
@@ -644,7 +653,9 @@ export async function runStoreAction(body: any, uid?: string) {
       type: body.type !== undefined ? text(body.type) : (current.type || "minorista"),
       phone: body.phone !== undefined ? text(body.phone) : (current.phone || ""),
       email: body.email !== undefined ? text(body.email) : (current.email || ""),
+      document_type: body.documentType !== undefined ? text(body.documentType) : (body.document_type !== undefined ? text(body.document_type) : (current.document_type || "DNI")),
       document: body.document !== undefined ? text(body.document) : (body.dni !== undefined ? text(body.dni) : (current.document || "")),
+      vat_condition: body.vatCondition !== undefined ? text(body.vatCondition) : (body.vat_condition !== undefined ? text(body.vat_condition) : (current.vat_condition || "Consumidor Final")),
       address: body.address !== undefined ? text(body.address) : (current.address || ""),
       city: body.city !== undefined ? text(body.city) : (current.city || ""),
       credit_limit: body.creditLimit !== undefined ? Math.max(0, number(body.creditLimit)) : (body.credit_limit !== undefined ? Math.max(0, number(body.credit_limit)) : (current.credit_limit || 0)),
@@ -723,7 +734,9 @@ export async function runStoreAction(body: any, uid?: string) {
       contact: text(body.contact),
       phone: text(body.phone),
       email: text(body.email),
+      document_type: text(body.documentType || body.document_type, "CUIT"),
       document: text(body.document || body.cuit),
+      vat_condition: text(body.vatCondition || body.vat_condition, "Responsable Inscripto"),
       address: text(body.address),
       city: text(body.city),
       bank_info: text(body.bankInfo || body.bank_info || body.cbu || body.alias),
@@ -737,6 +750,8 @@ export async function runStoreAction(body: any, uid?: string) {
       await addDoc(userCol("supplierMovements", userId), {
         supplier_id: supplierRef.id,
         supplier_name: text(body.name),
+        supplier_tax_id: text(body.document || body.cuit),
+        supplier_vat_condition: text(body.vatCondition || body.vat_condition, "Responsable Inscripto"),
         type: balance > 0 ? "cargo" : "pago",
         amount: Math.abs(balance),
         balance_before: 0,
@@ -761,7 +776,9 @@ export async function runStoreAction(body: any, uid?: string) {
       contact: body.contact !== undefined ? text(body.contact) : (current.contact || ""),
       phone: body.phone !== undefined ? text(body.phone) : (current.phone || ""),
       email: body.email !== undefined ? text(body.email) : (current.email || ""),
+      document_type: body.documentType !== undefined ? text(body.documentType) : (body.document_type !== undefined ? text(body.document_type) : (current.document_type || "CUIT")),
       document: body.document !== undefined ? text(body.document) : (body.cuit !== undefined ? text(body.cuit) : (current.document || "")),
+      vat_condition: body.vatCondition !== undefined ? text(body.vatCondition) : (body.vat_condition !== undefined ? text(body.vat_condition) : (current.vat_condition || "Responsable Inscripto")),
       address: body.address !== undefined ? text(body.address) : (current.address || ""),
       city: body.city !== undefined ? text(body.city) : (current.city || ""),
       bank_info: body.bankInfo !== undefined ? text(body.bankInfo) : (body.bank_info !== undefined ? text(body.bank_info) : (current.bank_info || "")),
@@ -785,6 +802,7 @@ export async function runStoreAction(body: any, uid?: string) {
     const adjustType = String(body.type || "pago");
     const amount = Math.abs(number(body.amount));
     const currentBalance = number(supplier.balance, 0);
+    const isPaidDirectly = Boolean(body.isPaidDirectly);
     let newBalance = currentBalance;
     let effectiveAmount = amount;
 
@@ -794,14 +812,14 @@ export async function runStoreAction(body: any, uid?: string) {
       effectiveAmount = amount;
     } else if (adjustType === "cargo") {
       if (amount <= 0) throw new Error("El importe de la factura o cargo debe ser mayor a 0.");
-      newBalance = currentBalance + amount;
+      newBalance = isPaidDirectly ? currentBalance : currentBalance + amount;
       effectiveAmount = amount;
     } else if (adjustType === "ajuste_manual") {
       newBalance = number(body.newBalance !== undefined ? body.newBalance : body.amount);
       effectiveAmount = Math.abs(newBalance - currentBalance);
     }
 
-    const note = text(body.note, adjustType === "pago" ? "Pago a cuenta de saldo" : (adjustType === "cargo" ? "Compra o factura en cuenta corriente" : "Ajuste manual de saldo"));
+    const note = text(body.note, adjustType === "pago" ? "Pago a cuenta de saldo" : (adjustType === "cargo" ? (isPaidDirectly ? "Compra de contado / factura pagada" : "Compra o factura en cuenta corriente") : "Ajuste manual de saldo"));
     const paymentMethod = text(body.paymentMethod, "Transferencia");
     const time = now();
 
@@ -810,15 +828,38 @@ export async function runStoreAction(body: any, uid?: string) {
       updated_at: time,
     });
 
+    const invoiceType = body.invoiceType || (adjustType === "cargo" ? "A" : undefined);
+    const invoiceNumber = text(body.invoiceNumber, "");
+    const netAmount = number(body.netAmount, 0);
+    const vatAmount = number(body.vatAmount, 0);
+    const vat21 = number(body.vat21, 0);
+    const vat105 = number(body.vat105, 0);
+    const vat27 = number(body.vat27, 0);
+    const exemptAmount = number(body.exemptAmount, 0);
+    const perceptions = number(body.perceptions, 0);
+
     await addDoc(userCol("supplierMovements", userId), {
       supplier_id: supplierId,
       supplier_name: supplier.name,
+      supplier_tax_id: supplier.document || "",
+      supplier_vat_condition: supplier.vat_condition || "Responsable Inscripto",
       type: adjustType,
       amount: effectiveAmount,
       balance_before: currentBalance,
       balance_after: newBalance,
       payment_method: paymentMethod,
       note,
+      invoice_type: invoiceType,
+      invoice_number: invoiceNumber,
+      invoice_date: body.invoiceDate || time,
+      net_amount: netAmount,
+      vat_amount: vatAmount,
+      vat_21: vat21,
+      vat_105: vat105,
+      vat_27: vat27,
+      exempt_amount: exemptAmount,
+      perceptions: perceptions,
+      payment_status: isPaidDirectly ? "pagada" : "cuenta_corriente",
       created_at: time,
     });
 
@@ -830,6 +871,15 @@ export async function runStoreAction(body: any, uid?: string) {
         amount: effectiveAmount,
         description: `Pago proveedor - ${supplier.name} (${paymentMethod})`,
         reference: text(body.reference, `Pago prov. ${supplier.name}`),
+        created_at: time,
+      });
+    } else if (adjustType === "cargo" && isPaidDirectly && registerCash && effectiveAmount > 0) {
+      await addDoc(userCol("cashMovements", userId), {
+        type: "egreso",
+        category: "Compra mercadería",
+        amount: effectiveAmount,
+        description: `Compra proveedor - ${supplier.name} (${invoiceType ? `Factura ${invoiceType}` : "Factura"}${invoiceNumber ? ` N° ${invoiceNumber}` : ""})`,
+        reference: text(body.reference, invoiceNumber ? `Fac. ${invoiceNumber}` : `Compra ${supplier.name}`),
         created_at: time,
       });
     }
@@ -1102,6 +1152,12 @@ export async function runStoreAction(body: any, uid?: string) {
       exchangeRateArs: "exchange_rate_ars",
       exchangeRateUsd: "exchange_rate_usd",
       exchangeRateBrl: "exchange_rate_brl",
+      vatCondition: "vat_condition",
+      posNumber: "pos_number",
+      defaultVatRate: "default_vat_rate",
+      pricesIncludeVat: "prices_include_vat",
+      iibbNumber: "iibb_number",
+      activityStartDate: "activity_start_date",
     };
     const changes: any = { updated_at: now() };
     for (const [source, target] of Object.entries(map) as Array<[string, string]>) {
@@ -1113,10 +1169,10 @@ export async function runStoreAction(body: any, uid?: string) {
     } else if (changes.exchange_rate_brl !== undefined && changes.exchange_rate_ars === undefined) {
       changes.exchange_rate_ars = changes.exchange_rate_brl;
     }
-    for (const key of ["allow_mixed_sale", "allow_negative_stock", "catalog_in_stock_only", "catalog_show_barcode", "scan_sound", "camera_enabled"]) {
+    for (const key of ["allow_mixed_sale", "allow_negative_stock", "catalog_in_stock_only", "catalog_show_barcode", "scan_sound", "camera_enabled", "prices_include_vat"]) {
       if (changes[key] !== undefined) changes[key] = bool(changes[key]);
     }
-    for (const key of ["next_receipt_number", "max_discount_percent", "wholesale_min_qty", "low_stock_at", "exchange_rate_brl", "exchange_rate_ars", "exchange_rate_usd"]) {
+    for (const key of ["next_receipt_number", "max_discount_percent", "wholesale_min_qty", "low_stock_at", "exchange_rate_brl", "exchange_rate_ars", "exchange_rate_usd", "default_vat_rate"]) {
       if (changes[key] !== undefined) changes[key] = number(changes[key]);
     }
     changes.receipt_prefix = changes.receipt_prefix === undefined ? current.receipt_prefix : text(changes.receipt_prefix, "X").toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 8) || "X";
@@ -1128,6 +1184,7 @@ export async function runStoreAction(body: any, uid?: string) {
     const customerId = String(body.customerId || "").trim();
 
     let createdSaleData: any = null;
+    let deltaResult: any = null;
     await runTransaction(database, async (transaction: any) => {
       const settingsRef = userSettingsDoc(userId);
       const uniqueIds: string[] = Array.from(new Set<string>(items.map((item: any) => String(item.productId))));
@@ -1194,29 +1251,38 @@ export async function runStoreAction(body: any, uid?: string) {
       const additionalChargeDescription = text(body.additionalChargeDescription || body.additional_charge_description || body.surchargeNote || "");
       const discountPercent = Number(body.discountPercent || body.discount_percent) || (subtotal > 0 ? (discount / subtotal) * 100 : 0);
 
-      let total = Math.max(0, subtotal - discount + additionalCharge);
+      const applyVat = body.applyVat !== undefined ? Boolean(body.applyVat) : (body.apply_vat !== undefined ? Boolean(body.apply_vat) : false);
+      const selectedVatRate = applyVat ? Number(body.vatRate !== undefined ? body.vatRate : (settings.default_vat_rate !== undefined ? settings.default_vat_rate : 21)) : 0;
+      const taxableBase = Math.max(0, subtotal - discount);
+      const calculatedVatAmount = applyVat
+        ? (body.vatAmount !== undefined ? Number(body.vatAmount) : Math.round((taxableBase * (selectedVatRate / 100)) * 100) / 100)
+        : 0;
+
+      let total = Math.max(0, taxableBase + additionalCharge + calculatedVatAmount);
       const rounding = settings.rounding_mode === "100" ? 100 : settings.rounding_mode === "10" ? 10 : 0;
       if (rounding) total = Math.round(total / rounding) * rounding;
 
+      const baseCurrency = (settings.currency || "ARS").toUpperCase();
       const saleCurrency = ["BRL", "ARS", "USD"].includes(String(body.currency || "").toUpperCase())
         ? String(body.currency).toUpperCase()
-        : (settings.currency || "BRL");
+        : baseCurrency;
 
       const rateArs = Math.max(0.0001, Number(body.exchangeRateArs || settings.exchange_rate_ars || settings.exchange_rate_brl || 250));
       const rateUsd = Math.max(0.0001, Number(body.exchangeRateUsd || settings.exchange_rate_usd || 5.70));
 
-      let totalBrl = total;
-      let totalArs = Math.round(total * rateArs);
-      let totalUsd = Math.round((total / rateUsd) * 100) / 100;
+      let totalArs = 0;
+      let totalBrl = 0;
+      let totalUsd = 0;
 
-      if (saleCurrency === "ARS" && body.isDirectArs) {
+      if (baseCurrency === "BRL") {
+        totalBrl = total;
+        totalArs = Math.round(total * rateArs);
+        totalUsd = Math.round((total / rateUsd) * 100) / 100;
+      } else {
+        // Base es ARS (predeterminada)
         totalArs = total;
         totalBrl = Math.round((total / rateArs) * 100) / 100;
         totalUsd = Math.round((totalBrl / rateUsd) * 100) / 100;
-      } else if (saleCurrency === "USD" && body.isDirectUsd) {
-        totalUsd = total;
-        totalBrl = Math.round((total * rateUsd) * 100) / 100;
-        totalArs = Math.round(totalBrl * rateArs);
       }
 
       let paidAmountBrl = 0;
@@ -1226,20 +1292,20 @@ export async function runStoreAction(body: any, uid?: string) {
       let paidAmountUsd = 0;
       let pendingAmountUsd = 0;
 
-      if (saleCurrency === "BRL") {
-        const rawPaid = body.paidAmountBrl !== undefined ? Number(body.paidAmountBrl) : (body.paidAmount !== undefined ? Number(body.paidAmount) : totalBrl);
-        paidAmountBrl = Math.max(0, Math.min(totalBrl, isNaN(rawPaid) ? totalBrl : rawPaid));
-        pendingAmountBrl = Math.max(0, Math.round((totalBrl - paidAmountBrl) * 100) / 100);
-        paidAmountArs = Math.round(paidAmountBrl * rateArs);
-        pendingAmountArs = Math.round(pendingAmountBrl * rateArs);
-        paidAmountUsd = Math.round((paidAmountBrl / rateUsd) * 100) / 100;
-        pendingAmountUsd = Math.round((pendingAmountBrl / rateUsd) * 100) / 100;
-      } else if (saleCurrency === "ARS") {
+      if (saleCurrency === "ARS") {
         const rawPaid = body.paidAmountArs !== undefined ? Number(body.paidAmountArs) : (body.paidAmount !== undefined ? Number(body.paidAmount) : totalArs);
         paidAmountArs = Math.max(0, Math.min(totalArs, isNaN(rawPaid) ? totalArs : rawPaid));
         pendingAmountArs = Math.max(0, totalArs - paidAmountArs);
         paidAmountBrl = Math.round((paidAmountArs / rateArs) * 100) / 100;
         pendingAmountBrl = Math.round((pendingAmountArs / rateArs) * 100) / 100;
+        paidAmountUsd = Math.round((paidAmountBrl / rateUsd) * 100) / 100;
+        pendingAmountUsd = Math.round((pendingAmountBrl / rateUsd) * 100) / 100;
+      } else if (saleCurrency === "BRL") {
+        const rawPaid = body.paidAmountBrl !== undefined ? Number(body.paidAmountBrl) : (body.paidAmount !== undefined ? Number(body.paidAmount) : totalBrl);
+        paidAmountBrl = Math.max(0, Math.min(totalBrl, isNaN(rawPaid) ? totalBrl : rawPaid));
+        pendingAmountBrl = Math.max(0, Math.round((totalBrl - paidAmountBrl) * 100) / 100);
+        paidAmountArs = Math.round(paidAmountBrl * rateArs);
+        pendingAmountArs = Math.round(pendingAmountBrl * rateArs);
         paidAmountUsd = Math.round((paidAmountBrl / rateUsd) * 100) / 100;
         pendingAmountUsd = Math.round((pendingAmountBrl / rateUsd) * 100) / 100;
       } else {
@@ -1259,7 +1325,23 @@ export async function runStoreAction(body: any, uid?: string) {
         pendingAmount === 0 ? "pagada" : paidAmount > 0 ? "pago_parcial" : "con_deuda";
 
       const receiptNumber = Math.max(1, Number(settings.next_receipt_number) || 1);
-      const receiptNo = `${settings.receipt_prefix || "X"}-${String(receiptNumber).padStart(8, "0")}`;
+      const sellerVatCondition = settings.vat_condition || "responsable_inscripto";
+      const customerVatCondition = customerData?.vat_condition || (customerData?.type === "mayorista" ? "Responsable Inscripto" : "Consumidor Final");
+      const customerDocType = customerData?.document_type || (customerData?.document && customerData.document.replace(/[^0-9]/g, "").length === 11 ? "CUIT" : "DNI");
+
+      // Determinar letra del comprobante (A, B, C, X)
+      let invoiceLetter = text(body.invoiceType || body.invoice_type || "").toUpperCase();
+      if (!invoiceLetter || !["A", "B", "C", "X"].includes(invoiceLetter)) {
+        if (sellerVatCondition === "responsable_inscripto") {
+          invoiceLetter = customerVatCondition === "Responsable Inscripto" ? "A" : "B";
+        } else if (sellerVatCondition === "monotributo") {
+          invoiceLetter = "C";
+        } else {
+          invoiceLetter = text(settings.receipt_prefix || "X", "X").toUpperCase();
+        }
+      }
+      const posNumber = String(settings.pos_number || "0001").padStart(4, "0");
+      const receiptNo = `${invoiceLetter}-${posNumber}-${String(receiptNumber).padStart(8, "0")}`;
       const createdAt = now();
 
       for (const productRef of productRefs) {
@@ -1274,29 +1356,69 @@ export async function runStoreAction(body: any, uid?: string) {
 
       const saleRef = doc(userCol("sales", userId));
 
-      const itemsDetailed = checked.map(item => ({
-        product_id: item.product.id,
-        variant_id: item.variant.id,
-        name: item.product.name,
-        brand: item.product.brand || "",
-        sku: item.product.sku || "",
-        size: item.variant.size,
-        quantity: item.quantity,
-        unit_price: item.unitPrice,
-        total: item.quantity * item.unitPrice,
-      }));
+      // Cálculos de IVA por cada ítem y acumulación
+      let totalNetAmount = taxableBase;
+      let totalVatAmount = calculatedVatAmount;
+      let vatAmount21 = 0;
+      let vatAmount105 = 0;
+      let vatAmount27 = 0;
+      let exemptAmount = 0;
+
+      if (applyVat) {
+        if (selectedVatRate === 21) vatAmount21 = calculatedVatAmount;
+        else if (selectedVatRate === 10.5) vatAmount105 = calculatedVatAmount;
+        else if (selectedVatRate === 27) vatAmount27 = calculatedVatAmount;
+        else vatAmount21 = calculatedVatAmount;
+      } else {
+        exemptAmount = taxableBase;
+      }
+
+      const itemsDetailed = checked.map(item => {
+        const itemGrossTotal = item.quantity * item.unitPrice;
+        const itemVatRate = applyVat ? selectedVatRate : 0;
+        const itemVat = applyVat ? Math.round((itemGrossTotal * (itemVatRate / 100)) * 100) / 100 : 0;
+        const netUnitPrice = item.unitPrice;
+        const netTotal = itemGrossTotal;
+
+        return {
+          product_id: item.product.id,
+          variant_id: item.variant.id,
+          name: item.product.name,
+          brand: item.product.brand || "",
+          sku: item.product.sku || "",
+          size: item.variant.size,
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
+          total: itemGrossTotal + itemVat,
+          vat_rate: itemVatRate,
+          net_unit_price: netUnitPrice,
+          net_total: netTotal,
+          vat_amount: itemVat,
+        };
+      });
 
       createdSaleData = {
         id: saleRef.id,
         receipt_no: receiptNo,
+        invoice_type: invoiceLetter,
+        invoice_letter: invoiceLetter,
+        pos_number: posNumber,
+        seller_tax_id: settings.tax_id || "",
+        seller_vat_condition: sellerVatCondition,
+        seller_iibb: settings.iibb_number || "",
         customer_id: customerId,
         customer_name: customerName,
+        customer_document_type: customerDocType,
         customer_document: customerData?.document || "",
+        customer_vat_condition: customerVatCondition,
         customer_phone: customerData?.phone || "",
         customer_address: customerData?.address || "",
         customer_city: customerData?.city || "",
         customer_type: customerData?.type || (body.channel === "minorista" ? "minorista" : "mayorista"),
         channel: body.channel || "minorista",
+        apply_vat: applyVat,
+        vat_rate: applyVat ? selectedVatRate : 0,
+        vat_charge: calculatedVatAmount,
         subtotal,
         discount,
         discount_percent: Math.round(discountPercent * 100) / 100,
@@ -1317,6 +1439,12 @@ export async function runStoreAction(body: any, uid?: string) {
         paid_amount_usd: paidAmountUsd,
         pending_amount_usd: pendingAmountUsd,
         total: totalBrl,
+        net_amount: Math.round(totalNetAmount * 100) / 100,
+        vat_amount: Math.round(totalVatAmount * 100) / 100,
+        vat_amount_21: Math.round(vatAmount21 * 100) / 100,
+        vat_amount_105: Math.round(vatAmount105 * 100) / 100,
+        vat_amount_27: Math.round(vatAmount27 * 100) / 100,
+        exempt_amount: Math.round(exemptAmount * 100) / 100,
         paid_amount: paidAmount,
         debt_amount: pendingAmount,
         pending_amount: pendingAmount,
@@ -1417,13 +1545,33 @@ export async function runStoreAction(body: any, uid?: string) {
       }
 
       transaction.update(settingsRef, { next_receipt_number: receiptNumber + 1, updated_at: createdAt });
+
+      deltaResult = {
+        _fastUpdate: true,
+        createdSale: createdSaleData,
+        updatedProductsVariants: productRefs.map(pRef => {
+          const p: any = products.get(pRef.id);
+          const productItems = checked.filter(item => item.product.id === pRef.id);
+          const variants = p.variants.map((v: any) => {
+            const sold = productItems.filter(item => String(item.variant.id) === String(v.id)).reduce((sum, item) => sum + item.quantity, 0);
+            return sold ? { ...v, stock: Number(v.stock) - sold } : v;
+          });
+          return { id: pRef.id, variants };
+        }),
+        nextReceiptNumber: receiptNumber + 1,
+        paidAmountBrl,
+        totalBrl,
+        saleCurrency,
+        depositAmount: depositAmount > 0 ? depositAmount : 0,
+        bankAccountId: bankAccountId || null,
+        bankAccountName: bankAccountName || null,
+        customerId: (pendingAmount > 0 && customerId) ? customerId : null,
+        pendingAmountBrl: (pendingAmount > 0) ? pendingAmountBrl : 0,
+        createdAt,
+      };
     });
 
-    const store = await loadStore(userId);
-    if (createdSaleData) {
-      (store as any).createdSale = createdSaleData;
-    }
-    return store;
+    return deltaResult;
   } else if (action === "create_cashier") {
     const email = text(body.email).toLowerCase();
     const password = String(body.password || "");
@@ -1435,7 +1583,7 @@ export async function runStoreAction(body: any, uid?: string) {
       throw new Error("La contraseña debe tener al menos 6 caracteres.");
     }
     const storeSettings = (await getDoc(userSettingsDoc(userId))).data() || {};
-    const storeName = storeSettings.business_name || "CR MAYORISTA";
+    const storeName = storeSettings.business_name || "CR BAZAR";
     await createCashierAccount({
       email,
       password,

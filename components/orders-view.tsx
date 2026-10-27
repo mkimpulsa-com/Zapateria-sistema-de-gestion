@@ -93,7 +93,7 @@ const STATUS_CONFIG: Record<OrderStatus, {
 export function OrdersView({
   orders,
   storeUid,
-  currency = "BRL",
+  currency = "ARS",
   products = [],
   businessSettings,
   onSelectOrderForSale,
@@ -269,7 +269,7 @@ export function OrdersView({
       return;
     }
 
-    const businessName = businessSettings?.business_name || "CR MAYORISTA";
+    const businessName = businessSettings?.business_name || "CR BAZAR";
     const branchName = businessSettings?.branch_name || "";
     const businessPhone = businessSettings?.phone || businessSettings?.whatsapp || "";
     const businessAddress = businessSettings?.address || "";

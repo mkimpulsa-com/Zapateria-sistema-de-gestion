@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import {
   Archive, ArrowDownLeft, ArrowRight, ArrowRightLeft, ArrowUpRight, BarChart3, Barcode, Bell, BellRing, Boxes, Building2,
   Camera, Check, CircleDollarSign, ClipboardList, Database, Download,
-  FileText, FolderTree, Landmark, LayoutDashboard, Moon, PackagePlus, Pencil, Percent, Plus, Printer, ScanLine,
+  FileText, FolderTree, Landmark, LayoutDashboard, Moon, PackagePlus, Pencil, Percent, Plus, Printer, Receipt, ScanLine,
   Search, Settings, ShieldAlert, ShoppingBag, ShoppingCart, SlidersHorizontal, Store, Sun, Tags, Trash2, TrendingUp, Truck,
   Upload, UserPlus, UserRound, Users, Wallet, WalletCards, Monitor, Palette, Save, Volume2, X,
 } from "lucide-react";
@@ -49,7 +49,7 @@ import { ProductBarcodeModal } from "@/components/product-barcode-modal";
 import { BarcodeView } from "@/components/barcode-view";
 import { StaffSettingsView } from "@/components/staff-settings-view";
 import { cleanBarcodeScan, isBarcodeMatch } from "@/lib/barcode";
-import { formatMoney, formatNumber, convertAmount, getCurrencyEquivalents, CURRENCIES } from "@/lib/currency";
+import { formatMoney, formatNumber, convertAmount, getCurrencyEquivalents, CURRENCIES, setSystemCurrency, getSystemCurrency } from "@/lib/currency";
 
 type Variant = { id:number; product_id:number; size:string; stock:number };
 type Product = { id:number; sku:string; barcode:string; name:string; brand:string; category:string; color:string; gender:string; cost:number; retail_price:number; wholesale_price:number; min_stock:number; total_stock:number; image_url?:string; images?:string[]; variants:Variant[] };
@@ -78,7 +78,7 @@ const cashierNav = [
   ["catalogos", "Catálogos", FileText],
 ] as const;
 
-const money = (value: number, curr = "BRL") => formatMoney(value, curr);
+const money = (value: number, curr?: string) => formatMoney(value, curr);
 const date = (value:string) => new Intl.DateTimeFormat("es-AR", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" }).format(new Date(value));
 
 function Field({ label, name, defaultValue, type="text", placeholder, required=false, step }: {label:string;name:string;defaultValue?:string|number;type?:string;placeholder?:string;required?:boolean;step?:string}) {
@@ -97,7 +97,7 @@ function StatCard({ label, value, note, icon:Icon, tone="blue" }:any) {
       <CardContent className="flex items-start justify-between px-5">
         <div>
           <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
-          <p className="mt-2 text-2xl font-black tracking-tight">{value}</p>
+          <p className="mt-2 break-words text-2xl font-semibold tracking-tight tabular-nums">{value}</p>
           <p className="mt-1 text-xs text-muted-foreground">{note}</p>
         </div>
         <span className={`clay-pill-3d size-12 shrink-0 ${tones[tone] || tones.blue}`}>
@@ -234,9 +234,15 @@ export default function StoreApp({
     const timer = setTimeout(() => setNewOrderAlert(null), 14000);
     return () => clearTimeout(timer);
   }, [newOrderAlert]);
-  useEffect(()=>{document.documentElement.classList.toggle("dark",dark);},[dark]);
+  if (data?.settings?.currency) {
+    setSystemCurrency(data.settings.currency);
+  } else {
+    setSystemCurrency("ARS");
+  }
+
   useEffect(()=>{
     if(!data?.settings)return;
+    setSystemCurrency(data.settings.currency || "ARS");
     const theme=data.settings.theme_default;
     if(theme==="dark")setDark(true);
     else if(theme==="light")setDark(false);
@@ -246,7 +252,7 @@ export default function StoreApp({
     setCatalogPrice((data.settings.catalog_default_price as any) || "both");
     const methods=String(data.settings.payment_methods||"Efectivo").split(",").map((x:string)=>x.trim()).filter(Boolean);
     if(methods.length&&!methods.includes(payment))setPayment(methods[0]);
-  },[data?.settings?.theme_default,data?.settings?.default_channel,data?.settings?.catalog_default_price,data?.settings?.payment_methods]);
+  },[data?.settings?.currency, data?.settings?.theme_default,data?.settings?.default_channel,data?.settings?.catalog_default_price,data?.settings?.payment_methods]);
   useEffect(()=>{
     if(data?.bankAccounts?.length && (!bankAccountId || !data.bankAccounts.some((a:any)=>String(a.id)===String(bankAccountId)))){
       setBankAccountId(String(data.bankAccounts[0].id));
@@ -260,7 +266,180 @@ export default function StoreApp({
     return()=>life.abort();
   },[data,channel]);
 
-  const action=async(body:any,success:string)=>{setBusy(true);try{const nextData:any=await runStoreAction(body,uid);setData(nextData as StoreData);setToast(success);if(body.action!=="create_category")setModal("");if(nextData?.createdCustomer?.id){setCustomerId(String(nextData.createdCustomer.id));if(nextData.createdCustomer.type==="mayorista")setChannel("mayorista");}if(nextData?.createdBankAccount?.id){setBankAccountId(String(nextData.createdBankAccount.id));}return nextData;}catch(e:any){setToast(e.message||"No se pudo guardar");return false;}finally{setBusy(false);}};
+  // Atajos de teclado en mostrador (F2: buscar/escanear, F4: cobrar, Esc: limpiar)
+  // y Buffer de alta velocidad para pistola lectora de código de barras USB
+  useEffect(() => {
+    let scanBuffer = "";
+    let lastKeyTime = 0;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!e || typeof e.key !== "string") return;
+
+      // F2: Enfocar escáner / buscador de productos en mostrador
+      if (e.key === "F2") {
+        e.preventDefault();
+        if (section !== "ventas") setSection("ventas");
+        requestAnimationFrame(() => {
+          const input = document.getElementById("pos-scan-input") as HTMLInputElement | null;
+          if (input) {
+            input.focus();
+            input.select();
+          }
+        });
+        return;
+      }
+
+      // F4: Disparar cobro si hay carrito activo
+      if (e.key === "F4") {
+        e.preventDefault();
+        if (section === "ventas" && cart.length > 0 && !busy) {
+          const checkoutBtn = document.getElementById("pos-checkout-btn") as HTMLButtonElement | null;
+          if (checkoutBtn && !checkoutBtn.disabled) {
+            checkoutBtn.click();
+          }
+        }
+        return;
+      }
+
+      // Escape: Cerrar modal o limpiar búsqueda
+      if (e.key === "Escape") {
+        if (modal) {
+          setModal("");
+        } else if (scan) {
+          setScan("");
+        }
+        return;
+      }
+
+      // Detección automática de lector de código de barras USB
+      const now = Date.now();
+      const isInput = ["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName || "");
+      const isScannerInput = (e.target as HTMLElement)?.id === "pos-scan-input";
+
+      if (e.key === "Enter") {
+        if (scanBuffer.length >= 8 && now - lastKeyTime < 250) {
+          const codeToScan = scanBuffer;
+          scanBuffer = "";
+          if (section !== "ventas") setSection("ventas");
+          scanProduct(codeToScan);
+          e.preventDefault();
+          return;
+        }
+        scanBuffer = "";
+      } else if (Boolean(e.key) && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (!isInput || isScannerInput) {
+          const elapsed = now - lastKeyTime;
+          if (elapsed > 70) {
+            scanBuffer = e.key;
+          } else {
+            scanBuffer += e.key;
+          }
+          lastKeyTime = now;
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [section, cart.length, busy, modal, scan]);
+
+  const action=async(body:any,success:string)=>{
+    setBusy(true);
+    try{
+      const nextData:any=await runStoreAction(body,uid);
+      if(nextData?._fastUpdate){
+        setData((prevData:any)=>{
+          if(!prevData) return prevData;
+          // 1. Actualización rápida de variantes vendidas
+          const updatedProducts = (prevData.products||[]).map((p:any)=>{
+            const found = (nextData.updatedProductsVariants||[]).find((up:any)=>String(up.id)===String(p.id));
+            if(found){
+              const total_stock = (found.variants||[]).reduce((sum:number,v:any)=>sum+Number(v.stock||0),0);
+              return {...p, variants: found.variants, total_stock};
+            }
+            return p;
+          });
+
+          // 2. Insertar la nueva venta al principio
+          const updatedSales = [nextData.createdSale, ...(prevData.sales||[])].slice(0, 50);
+
+          // 3. Movimiento de caja si hubo cobro
+          let updatedMovements = prevData.movements||[];
+          if(nextData.paidAmountBrl>0){
+            const newCashMove = {
+              id: `cm-${Date.now()}`,
+              type: "ingreso",
+              category: "Venta",
+              amount: nextData.paidAmountBrl,
+              currency: nextData.createdSale.currency,
+              amount_currency: nextData.depositAmount,
+              description: `Venta ${nextData.createdSale.channel} · ${nextData.createdSale.bank_account_name || "Caja general"}`,
+              reference: nextData.createdSale.receipt_no,
+              created_at: nextData.createdAt,
+            };
+            updatedMovements = [newCashMove, ...updatedMovements].slice(0, 50);
+          }
+
+          // 4. Actualizar saldo del cliente si quedó deuda
+          let updatedCustomers = prevData.customers||[];
+          if(nextData.customerId && nextData.pendingAmountBrl>0){
+            updatedCustomers = updatedCustomers.map((c:any)=>{
+              if(String(c.id)===String(nextData.customerId)){
+                return {...c, balance: Number(c.balance||0) + nextData.pendingAmountBrl};
+              }
+              return c;
+            });
+          }
+
+          // 5. Actualizar saldo bancario si corresponde
+          let updatedBankAccounts = prevData.bankAccounts||[];
+          if(nextData.bankAccountId && nextData.depositAmount>0){
+            updatedBankAccounts = updatedBankAccounts.map((b:any)=>{
+              if(String(b.id)===String(nextData.bankAccountId)){
+                return {...b, balance: Number(b.balance||0) + nextData.depositAmount};
+              }
+              return b;
+            });
+          }
+
+          // 6. Estadísticas rápidas
+          const prevStats = prevData.stats || {};
+          const updatedStats = {
+            ...prevStats,
+            salesToday: (prevStats.salesToday||0) + 1,
+            revenueToday: (prevStats.revenueToday||0) + (nextData.paidAmountBrl||0),
+            cashBalance: (prevStats.cashBalance||0) + (nextData.paidAmountBrl||0),
+          };
+
+          return {
+            ...prevData,
+            products: updatedProducts,
+            sales: updatedSales,
+            movements: updatedMovements,
+            customers: updatedCustomers,
+            bankAccounts: updatedBankAccounts,
+            stats: updatedStats,
+            settings: {
+              ...prevData.settings,
+              next_receipt_number: nextData.nextReceiptNumber,
+            },
+          };
+        });
+      } else {
+        setData(nextData as StoreData);
+      }
+      setToast(success);
+      if(body.action!=="create_category" && !body.keepModalOpen)setModal("");
+      if(nextData?.createdCustomer?.id){setCustomerId(String(nextData.createdCustomer.id));if(nextData.createdCustomer.type==="mayorista")setChannel("mayorista");}
+      if(nextData?.createdBankAccount?.id){setBankAccountId(String(nextData.createdBankAccount.id));}
+      return nextData;
+    }catch(e:any){
+      setToast(e.message||"No se pudo guardar");
+      return false;
+    }finally{
+      setBusy(false);
+    }
+  };
   const fromForm=(e:FormEvent<HTMLFormElement>)=>Object.fromEntries(new FormData(e.currentTarget).entries());
   const filtered=useMemo(()=>{
     const q=cleanBarcodeScan(query).toLowerCase();
@@ -384,7 +563,7 @@ export default function StoreApp({
       setToast(`Código "${value}" no encontrado`);
     }
   };
-  const closeSale=async(paidAmountOverride?:number, options?: { discount?: number; discountPercent?: number; additionalCharge?: number; additionalChargeDescription?: string; currency?: "BRL" | "ARS" | "USD" | string; exchangeRate?: number; exchangeRateArs?: number; exchangeRateUsd?: number })=>{
+  const closeSale=async(paidAmountOverride?:number, options?: { discount?: number; discountPercent?: number; additionalCharge?: number; additionalChargeDescription?: string; currency?: "BRL" | "ARS" | "USD" | string; exchangeRate?: number; exchangeRateArs?: number; exchangeRateUsd?: number; invoiceType?: string; applyVat?: boolean; vatRate?: number; vatAmount?: number })=>{
     const finalDiscount = options?.discount !== undefined ? options.discount : discount;
     const finalDiscountPercent = options?.discountPercent !== undefined ? options.discountPercent : discountPercent;
     const finalAdditionalCharge = options?.additionalCharge !== undefined ? options.additionalCharge : additionalCharge;
@@ -404,10 +583,14 @@ export default function StoreApp({
       paidAmount: paidAmountOverride,
       cashierId: isCashier ? user?.uid : null,
       cashierName: isCashier ? (staffProfile?.name || user?.email || "Cajera") : "Administrador",
-      currency: options?.currency || data?.settings?.currency || "BRL",
+      currency: options?.currency || data?.settings?.currency || "ARS",
       exchangeRate: options?.exchangeRate,
       exchangeRateArs: options?.exchangeRateArs,
       exchangeRateUsd: options?.exchangeRateUsd,
+      invoiceType: options?.invoiceType,
+      applyVat: options?.applyVat,
+      vatRate: options?.vatRate,
+      vatAmount: options?.vatAmount,
     },"Venta registrada exitosamente");
     if(res){
       if(res.createdSale){
@@ -435,11 +618,11 @@ export default function StoreApp({
   if(!data && !error) return <div className="flex min-h-screen items-center justify-center bg-background"><div className="text-center"><div className="mx-auto mb-4 size-12 animate-spin rounded-full border-4 border-primary/20 border-t-primary"/><p className="text-sm text-muted-foreground">Preparando tu sistema…</p></div></div>;
   if(error) return <div className="flex min-h-screen items-center justify-center p-6"><Card className="max-w-md"><CardContent><h1 className="text-xl font-bold">No pudimos abrir el sistema</h1><p className="mt-2 text-sm text-muted-foreground">{error}</p><Button className="mt-5" onClick={load}>Reintentar</Button></CardContent></Card></div>;
 
-  const business=data!.settings?.business_name||"CR MAYORISTA";
+  const business=data!.settings?.business_name||"CR BAZAR";
   const activeNavList = isCashier ? cashierNav : nav;
   const pageTitle=activeNavList.find(n=>n[0]===section)?.[1]||(isCashier ? "Punto de venta" : "Resumen");
 
-  return <div className={`min-h-screen bg-background text-foreground ${data!.settings?.nav_density==="compact"?"nav-compact":""} ${data!.settings?.motion_level==="reduced"?"motion-reduced":""}`}>
+  return <div className={`app-shell min-h-screen bg-background text-foreground ${data!.settings?.nav_density==="compact"?"nav-compact":""} ${data!.settings?.motion_level==="reduced"?"motion-reduced":""}`}>
     <header className="top-shell no-print sticky top-0 z-40">
       <div className="top-brandbar mx-auto flex min-h-20 max-w-[1800px] flex-wrap items-center gap-3 px-4 py-3 sm:flex-nowrap sm:px-7 lg:px-9">
         <button className="brand-block flex shrink-0 items-center gap-3 text-left" onClick={()=>setSection(isCashier ? "ventas" : "resumen")} aria-label="Ir al inicio">
@@ -455,8 +638,8 @@ export default function StoreApp({
           </div>
         ) : (
           user?.email && (
-            <div className="hidden lg:flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-1.5 border border-border/60 text-xs font-medium text-muted-foreground shrink-0">
-              <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+            <div className="session-identity hidden lg:flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-1.5 border border-border/60 text-xs font-medium text-muted-foreground shrink-0">
+              <span className="size-1.5 rounded-full bg-emerald-500" />
               <span className="truncate max-w-[150px]" title={user.email}>{user.email}</span>
             </div>
           )
@@ -485,7 +668,7 @@ export default function StoreApp({
         </Button>
       </div>
       <div className="top-nav-rail">
-        <nav className="top-section-nav mx-auto flex max-w-[1800px] items-start gap-1.5 overflow-x-auto px-4 py-2.5 sm:gap-3.5 sm:px-7 lg:px-9 2xl:justify-center" aria-label="Secciones principales">
+        <nav className="top-section-nav mx-auto flex max-w-[1800px] overflow-x-auto" aria-label="Secciones principales">
           {activeNavList.map(([id, label, Icon]) => {
             const pendingOrdersCount = id === "pedidos" ? orders.filter((o) => o.status === "pendiente").length : 0;
             return (
@@ -494,24 +677,17 @@ export default function StoreApp({
                 data-nav-id={id}
                 onClick={() => setSection(id)}
                 aria-current={section === id ? "page" : undefined}
-                className={`top-section-button relative flex shrink-0 flex-col items-center gap-2 px-2.5 py-1.5 text-xs font-bold ${
+                className={`top-section-button relative shrink-0 ${
                   section === id ? "is-active" : ""
                 }`}
               >
-                <div className="relative shrink-0">
-                  <span className="section-icon shrink-0">
-                    <Icon className="size-6 shrink-0" strokeWidth={2.3} />
-                  </span>
-                  {pendingOrdersCount > 0 && (
-                    <span
-                      title={`${pendingOrdersCount} pedidos pendientes`}
-                      className="absolute -top-1 -right-1 z-30 flex size-5 items-center justify-center rounded-full bg-rose-600 text-[10px] font-black text-white shadow-md ring-2 ring-background animate-bounce"
-                    >
-                      {pendingOrdersCount}
-                    </span>
-                  )}
-                </div>
+                <span className="section-icon shrink-0" aria-hidden="true"><Icon /></span>
                 <span className="section-label">{label}</span>
+                {pendingOrdersCount > 0 && (
+                  <span className="nav-count" aria-label={`${pendingOrdersCount} pedidos pendientes`}>
+                    {pendingOrdersCount}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -519,7 +695,7 @@ export default function StoreApp({
       </div>
     </header>
 
-      <main className="glass-grid min-h-[calc(100vh-148px)] p-4 sm:p-7 lg:p-9">
+      <main className="app-main glass-grid min-h-[calc(100vh-176px)] p-4 sm:p-7 lg:p-9">
         {!isCashier && section==="resumen"&&<DashboardView data={data!} setSection={setSection} addVariant={addVariant} setModal={setModal}/>} 
         {section==="ventas"&&<SalesPOSConfigured data={data!} filtered={filtered} channel={channel} setChannel={handleChannelChange} cart={cart} setCart={setCart} addVariant={addVariant} scan={scan} setScan={setScan} scanProduct={scanProduct} setModal={setModal} discount={discount} setDiscount={setDiscount} discountPercent={discountPercent} setDiscountPercent={setDiscountPercent} additionalCharge={additionalCharge} setAdditionalCharge={setAdditionalCharge} additionalChargeDescription={additionalChargeDescription} setAdditionalChargeDescription={setAdditionalChargeDescription} payment={payment} setPayment={setPayment} customerId={customerId} setCustomerId={setCustomerId} bankAccountId={bankAccountId} setBankAccountId={setBankAccountId} cartTotal={cartTotal} closeSale={closeSale} busy={busy}/>}
         {section==="pedidos"&&<OrdersView orders={orders} storeUid={uid} currency={data?.settings?.currency || "BRL"} products={data?.products || []} businessSettings={data?.settings || {}} onSelectOrderForSale={handleOrderToSale} setToast={setToast}/>}
@@ -544,8 +720,8 @@ export default function StoreApp({
         return await action({ action: "create_category", name }, `Categoría "${name}" creada exitosamente`);
       }}
       busy={busy}
-      onSubmit={async (payload)=>{
-        return await action({ action: "create_product", ...payload }, "Producto y curva de stock creados exitosamente");
+      onSubmit={async (payload, keepOpen)=>{
+        return await action({ action: "create_product", ...payload, keepModalOpen: keepOpen }, "Producto y stock guardados exitosamente");
       }}
     />
     <EditProductModal
@@ -1062,7 +1238,7 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
         eyebrow="Catálogo maestro" 
         title="Productos y Artículos Mayoristas" 
         text="Artículos generales, calzados, indumentaria, precios de venta por mayor y costos." 
-        action={<Button onClick={()=>setModal("product")} className="bg-orange-600 hover:bg-orange-700 text-white font-semibold"><PackagePlus/>Nuevo producto</Button>}
+        action={<Button onClick={()=>setModal("product")} className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"><PackagePlus/>Nuevo producto</Button>}
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -1097,9 +1273,9 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
                 <TableHead>Producto / Artículo</TableHead>
                 <TableHead>Código</TableHead>
                 <TableHead>Stock / Variantes</TableHead>
-                <TableHead>Precio Mayorista</TableHead>
-                <TableHead>PVP Sugerido</TableHead>
-                <TableHead>Margen</TableHead>
+                <TableHead className="text-right">Precio Mayorista</TableHead>
+                <TableHead className="text-right">PVP Sugerido</TableHead>
+                <TableHead className="text-right">Margen</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
@@ -1122,13 +1298,13 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
                       <p className="font-mono text-[11px] text-muted-foreground">{p.barcode}</p>
                     </TableCell>
                     <TableCell>
-                      <div className="flex max-w-xs flex-wrap gap-1">
+                      <div className="flex min-w-32 max-w-xs flex-wrap gap-1">
                         {p.variants.map(v=><Badge key={v.id} variant={v.stock?"secondary":"outline"}>{["Único", "Unico", "General"].includes(v.size) ? `${v.stock} u.` : `${v.size}: ${v.stock}`}</Badge>)}
                       </div>
                     </TableCell>
-                    <TableCell className="font-extrabold text-orange-600 dark:text-orange-400">{money(p.wholesale_price)}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{p.retail_price ? money(p.retail_price) : "—"}</TableCell>
-                    <TableCell><Badge className="bg-emerald-100 text-emerald-800">{margin}%</Badge></TableCell>
+                    <TableCell className="text-right font-semibold text-primary">{money(p.wholesale_price)}</TableCell>
+                    <TableCell className="text-right text-xs text-muted-foreground">{p.retail_price ? money(p.retail_price) : "—"}</TableCell>
+                    <TableCell className="text-right"><Badge variant="secondary">{margin}%</Badge></TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         <Button variant="outline" size="xs" className="h-8 gap-1 rounded-lg" onClick={()=>onAdjust(p)} title="Ajustar stock">
@@ -1366,12 +1542,1006 @@ function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier}:any){
 
 function Catalog({data,products,price,setPrice}:any){return <div className="print-only-area"><div className="no-print"><SectionTitle eyebrow="Venta visual" title="Generador de catálogos" text="Elegí la lista de precios y compartí o imprimí los productos disponibles." action={<div className="flex gap-2"><Button variant="outline" onClick={()=>window.print()}><Printer/>Imprimir / PDF</Button></div>}/><div className="mb-6 flex items-center gap-2 rounded-2xl border bg-card p-2"><button onClick={()=>setPrice("retail")} className={`rounded-xl px-4 py-2 text-sm font-semibold ${price==="retail"?"bg-primary text-primary-foreground":""}`}>Precio minorista</button><button onClick={()=>setPrice("wholesale")} className={`rounded-xl px-4 py-2 text-sm font-semibold ${price==="wholesale"?"bg-primary text-primary-foreground":""}`}>Precio mayorista</button><Badge variant="outline" className="ml-auto">Solo productos con stock</Badge></div></div><div className="mb-7 hidden print:block"><h1 className="text-3xl font-bold">{data.settings?.business_name}</h1><p>{data.settings?.phone} · {data.settings?.address}</p><p className="mt-2 text-sm">Catálogo {price==="retail"?"minorista":"mayorista"}</p></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{products.filter((p:Product)=>p.total_stock>0).map((p:Product)=><Card key={p.id} className="print-card gap-3 overflow-hidden border-0 py-0 shadow-sm"><div className="flex h-28 items-center justify-center bg-gradient-to-br from-[#e8f0ff] to-[#fff0ec] text-[#0f2137]"><ShoppingBag className="size-14 opacity-70"/></div><CardContent className="px-5 pb-5"><div className="flex justify-between gap-3"><div><p className="text-lg font-bold">{p.name}</p><p className="text-xs text-muted-foreground">{p.brand} · {p.color}</p></div><p className="text-xl font-black text-primary">{money(price==="retail"?p.retail_price:p.wholesale_price)}</p></div><div className="my-4 flex flex-wrap gap-1.5">{p.variants.filter(v=>v.stock>0).map(v=><Badge key={v.id} variant="outline">{v.size}</Badge>)}</div><BarcodeLabel value={p.barcode}/></CardContent></Card>)}</div></div>}
 
-function Reports({data,onSelectSale}:any){
-  const max=Math.max(...data.products.map((p:Product)=>p.total_stock),1);
-  const wholesale=data.sales.filter((s:Sale)=>s.channel==="mayorista").reduce((a:number,s:Sale)=>a+s.total,0);
-  const retail=data.sales.filter((s:Sale)=>s.channel!=="mayorista").reduce((a:number,s:Sale)=>a+s.total,0);
-  const totalPairs=data.sales.reduce((sum:number, s:Sale)=>{if(Array.isArray((s as any).items)){return sum+(s as any).items.reduce((acc:number,it:any)=>acc+Number(it.quantity||1),0);}return sum+1;},0);
-  return <><SectionTitle eyebrow="Inteligencia del negocio" title="Reportes Comerciales" text="Indicadores de ventas minoristas y mayoristas, rotación de productos y margen comercial."/><div className="grid gap-6 lg:grid-cols-2"><Card className="border-0 shadow-sm"><CardHeader><CardTitle>Stock por producto</CardTitle></CardHeader><CardContent className="space-y-4">{data.products.map((p:Product)=><div key={p.id}><div className="mb-1 flex justify-between text-sm"><span className="font-medium">{p.name}</span><span>{p.total_stock} u.</span></div><div className="h-3 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{width:`${Math.max(4,p.total_stock/max*100)}%`}}/></div></div>)}</CardContent></Card><Card className="border-0 shadow-sm"><CardHeader><CardTitle>Rendimiento por Canal</CardTitle></CardHeader><CardContent><div className="grid grid-cols-2 gap-3"><div className="rounded-2xl bg-orange-50 p-4 dark:bg-orange-950/30"><p className="text-xs text-muted-foreground font-semibold">Facturación Mayorista</p><p className="mt-1 text-xl font-black text-orange-600 dark:text-orange-400">{money(wholesale)}</p></div><div className="rounded-2xl bg-blue-50 p-4 dark:bg-blue-950/30"><p className="text-xs text-muted-foreground font-semibold">Facturación Minorista</p><p className="mt-1 text-xl font-black text-blue-600 dark:text-blue-400">{money(retail)}</p></div><div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/30"><p className="text-xs text-muted-foreground font-semibold">Unidades Vendidas</p><p className="mt-1 text-xl font-black text-emerald-600 dark:text-emerald-400">{totalPairs}</p></div><div className="rounded-2xl border p-4"><p className="text-xs text-muted-foreground font-semibold">Capital en mercadería</p><p className="mt-1 text-xl font-black">{money(data.stats.stockValue)}</p></div></div></CardContent></Card><Card className="border-0 shadow-sm lg:col-span-2"><CardHeader><CardTitle>Ventas recientes</CardTitle></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Comprobante</TableHead><TableHead>Fecha</TableHead><TableHead>Cliente</TableHead><TableHead>Canal</TableHead><TableHead>Pago</TableHead><TableHead>Estado</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Comprobante</TableHead></TableRow></TableHeader><TableBody>{data.sales.map((s:Sale)=><TableRow key={s.id} className="hover:bg-muted/30"><TableCell className="font-mono font-bold text-primary">{s.receipt_no}</TableCell><TableCell>{date(s.created_at)}</TableCell><TableCell>{s.customer_name||(s.channel==="mayorista"?"Cliente mayorista":"Consumidor final")}</TableCell><TableCell className={`capitalize font-semibold ${s.channel==="mayorista"?"text-orange-600 dark:text-orange-400":"text-primary"}`}>{s.channel||"Minorista"}</TableCell><TableCell>{s.payment_method}</TableCell><TableCell><span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-bold ${s.status==="pagada"?"bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40":s.status==="pago_parcial"?"bg-amber-50 text-amber-700 dark:bg-amber-950/40":"bg-red-50 text-red-700 dark:bg-red-950/40"}`}>{s.status==="pagada"?"Pagada":s.status==="pago_parcial"?"Pago Parcial":"Con Deuda"}</span></TableCell><TableCell className="text-right font-bold">{money(s.total)}</TableCell><TableCell className="text-right">{onSelectSale&&<Button variant="outline" size="xs" onClick={()=>onSelectSale(s)} className="h-7 gap-1 rounded-lg text-xs" title="Ver Factura X / Remito"><FileText className="size-3 text-primary"/>Factura X</Button>}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card></div></>}
+function Reports({ data, onSelectSale }: any) {
+  const [reportTab, setReportTab] = useState<"ventas" | "compras" | "posicion" | "comercial">("ventas");
+  const [filterType, setFilterType] = useState<string>("todos");
+  const [purchaseFilterType, setPurchaseFilterType] = useState<string>("todos");
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [purchaseSearchTerm, setPurchaseSearchTerm] = useState<string>("");
+
+  const max = Math.max(...(data.products || []).map((p: Product) => p.total_stock), 1);
+  const wholesale = (data.sales || []).filter((s: Sale) => s.channel === "mayorista").reduce((a: number, s: Sale) => a + Number(s.total || 0), 0);
+  const retail = (data.sales || []).filter((s: Sale) => s.channel !== "mayorista").reduce((a: number, s: Sale) => a + Number(s.total || 0), 0);
+  const totalPairs = (data.sales || []).reduce((sum: number, s: Sale) => {
+    if (Array.isArray((s as any).items)) {
+      return sum + (s as any).items.reduce((acc: number, it: any) => acc + Number(it.quantity || 1), 0);
+    }
+    return sum + 1;
+  }, 0);
+
+  const defaultRate = Number(data.settings?.default_vat_rate) || 21;
+
+  // --- 1. COMPUTACIÓN FISCAL DE VENTAS (DÉBITO FISCAL) ---
+  const fiscalSales = useMemo(() => {
+    return (data.sales || []).map((s: any) => {
+      const receiptNo = s.receipt_no || "X-0001-00000000";
+      const letter = (s.invoice_letter || s.invoice_type || (receiptNo.includes("-") ? receiptNo.split("-")[0] : "X")).toUpperCase();
+      const items: any[] = Array.isArray(s.items) ? s.items : [];
+      const grossTotal = Number(s.total || 0);
+
+      let net = s.net_amount !== undefined ? Number(s.net_amount) : 0;
+      let vat = s.vat_amount !== undefined ? Number(s.vat_amount) : 0;
+      let vat21 = Number(s.vat_amount_21 || 0);
+      let vat105 = Number(s.vat_amount_105 || 0);
+      let vat27 = Number(s.vat_amount_27 || 0);
+      let exempt = Number(s.exempt_amount || 0);
+
+      if (s.net_amount === undefined) {
+        if (items.length > 0) {
+          items.forEach((it: any) => {
+            const r = Number(it.vat_rate !== undefined ? it.vat_rate : (it.vatRate !== undefined ? it.vatRate : defaultRate));
+            const itGross = Number(it.total || (Number(it.quantity || 1) * Number(it.unit_price || 0)));
+            const itNet = itGross / (1 + r / 100);
+            const itVat = itGross - itNet;
+            net += itNet;
+            vat += itVat;
+            if (r === 21) vat21 += itVat;
+            else if (r === 10.5) vat105 += itVat;
+            else if (r === 27) vat27 += itVat;
+            else if (r === 0) exempt += itGross;
+          });
+        } else {
+          net = Math.round((grossTotal / (1 + defaultRate / 100)) * 100) / 100;
+          vat = Math.round((grossTotal - net) * 100) / 100;
+          vat21 = vat;
+        }
+      }
+
+      return {
+        ...s,
+        computedLetter: letter,
+        computedNet: Math.round(net * 100) / 100,
+        computedVat: Math.round(vat * 100) / 100,
+        computedVat21: Math.round(vat21 * 100) / 100,
+        computedVat105: Math.round(vat105 * 100) / 100,
+        computedVat27: Math.round(vat27 * 100) / 100,
+        computedExempt: Math.round(exempt * 100) / 100,
+      };
+    });
+  }, [data.sales, data.settings, defaultRate]);
+
+  const filteredSales = useMemo(() => {
+    return fiscalSales.filter((s: any) => {
+      if (filterType !== "todos" && s.computedLetter !== filterType) {
+        return false;
+      }
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase().trim();
+        const str = [
+          s.receipt_no,
+          s.customer_name,
+          s.customer_document,
+          s.customer_vat_condition,
+          s.payment_method,
+        ].filter(Boolean).join(" ").toLowerCase();
+        if (!str.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [fiscalSales, filterType, searchTerm]);
+
+  // Totales Ventas
+  const totalBilled = filteredSales.reduce((acc: number, s: any) => acc + Number(s.total || 0), 0);
+  const totalNet = filteredSales.reduce((acc: number, s: any) => acc + Number(s.computedNet || 0), 0);
+  const totalVat = filteredSales.reduce((acc: number, s: any) => acc + Number(s.computedVat || 0), 0);
+  const totalVat21 = filteredSales.reduce((acc: number, s: any) => acc + Number(s.computedVat21 || 0), 0);
+  const totalVat105 = filteredSales.reduce((acc: number, s: any) => acc + Number(s.computedVat105 || 0), 0);
+  const totalVat27 = filteredSales.reduce((acc: number, s: any) => acc + Number(s.computedVat27 || 0), 0);
+  const totalExempt = filteredSales.reduce((acc: number, s: any) => acc + Number(s.computedExempt || 0), 0);
+
+  const countA = fiscalSales.filter((s: any) => s.computedLetter === "A").length;
+  const countB = fiscalSales.filter((s: any) => s.computedLetter === "B").length;
+  const countC = fiscalSales.filter((s: any) => s.computedLetter === "C").length;
+  const countX = fiscalSales.filter((s: any) => s.computedLetter === "X").length;
+
+  // --- 2. COMPUTACIÓN FISCAL DE COMPRAS (CRÉDITO FISCAL) ---
+  const fiscalPurchases = useMemo(() => {
+    return (data.supplierMoves || [])
+      .filter((m: any) => m.type === "cargo" || m.invoice_type || Number(m.vat_amount || 0) > 0)
+      .map((m: any) => {
+        const total = Number(m.amount || 0);
+        const letter = (m.invoice_type || "A").toUpperCase();
+        const net = m.net_amount !== undefined && Number(m.net_amount) > 0
+          ? Number(m.net_amount)
+          : (letter === "A" ? Math.round((total / 1.21) * 100) / 100 : total);
+        const vat = m.vat_amount !== undefined && Number(m.vat_amount) > 0
+          ? Number(m.vat_amount)
+          : (letter === "A" ? Math.round((total - net) * 100) / 100 : 0);
+        const vat21 = Number(m.vat_21 !== undefined ? m.vat_21 : (letter === "A" ? vat : 0));
+        const vat105 = Number(m.vat_105 || 0);
+        const vat27 = Number(m.vat_27 || 0);
+        const exempt = Number(m.exempt_amount || 0);
+        const perc = Number(m.perceptions || 0);
+
+        return {
+          ...m,
+          computedLetter: letter,
+          computedNet: net,
+          computedVat: vat,
+          computedVat21: vat21,
+          computedVat105: vat105,
+          computedVat27: vat27,
+          computedExempt: exempt,
+          computedPerceptions: perc,
+          computedTotal: total,
+        };
+      });
+  }, [data.supplierMoves]);
+
+  const filteredPurchases = useMemo(() => {
+    return fiscalPurchases.filter((m: any) => {
+      if (purchaseFilterType !== "todos" && m.computedLetter !== purchaseFilterType) {
+        return false;
+      }
+      if (purchaseSearchTerm.trim()) {
+        const q = purchaseSearchTerm.toLowerCase().trim();
+        const str = [
+          m.invoice_number,
+          m.supplier_name,
+          m.supplier_tax_id,
+          m.note,
+        ].filter(Boolean).join(" ").toLowerCase();
+        if (!str.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [fiscalPurchases, purchaseFilterType, purchaseSearchTerm]);
+
+  // Totales Compras
+  const totalPurchaseBilled = filteredPurchases.reduce((acc: number, m: any) => acc + Number(m.computedTotal || 0), 0);
+  const totalPurchaseNet = filteredPurchases.reduce((acc: number, m: any) => acc + Number(m.computedNet || 0), 0);
+  const totalPurchaseVat = filteredPurchases.reduce((acc: number, m: any) => acc + Number(m.computedVat || 0), 0);
+  const totalPurchaseVat21 = filteredPurchases.reduce((acc: number, m: any) => acc + Number(m.computedVat21 || 0), 0);
+  const totalPurchaseVat105 = filteredPurchases.reduce((acc: number, m: any) => acc + Number(m.computedVat105 || 0), 0);
+  const totalPurchaseVat27 = filteredPurchases.reduce((acc: number, m: any) => acc + Number(m.computedVat27 || 0), 0);
+  const totalPurchaseExempt = filteredPurchases.reduce((acc: number, m: any) => acc + Number(m.computedExempt || 0), 0);
+  const totalPurchasePerceptions = filteredPurchases.reduce((acc: number, m: any) => acc + Number(m.computedPerceptions || 0), 0);
+
+  const purchaseCountA = fiscalPurchases.filter((m: any) => m.computedLetter === "A").length;
+  const purchaseCountB = fiscalPurchases.filter((m: any) => m.computedLetter === "B").length;
+  const purchaseCountC = fiscalPurchases.filter((m: any) => m.computedLetter === "C").length;
+  const purchaseCountX = fiscalPurchases.filter((m: any) => m.computedLetter === "X").length;
+
+  // --- 3. LIQUIDACIÓN Y POSICIÓN MENSUAL (DÉBITO vs CRÉDITO) ---
+  const allVatDebito = fiscalSales.reduce((acc: number, s: any) => acc + Number(s.computedVat || 0), 0);
+  const allVatCredito = fiscalPurchases.reduce((acc: number, m: any) => acc + Number(m.computedVat || 0), 0);
+  const allPerceptions = fiscalPurchases.reduce((acc: number, m: any) => acc + Number(m.computedPerceptions || 0), 0);
+
+  const saldoIva = allVatDebito - allVatCredito;
+  const saldoAPagar = Math.max(0, saldoIva - allPerceptions);
+  const saldoAFavor = saldoIva < 0 ? Math.abs(saldoIva) : 0;
+
+  // Exportar Libro IVA Ventas CSV
+  const exportIvaVentasCsv = () => {
+    const headers = [
+      "Fecha",
+      "Hora",
+      "Comprobante",
+      "Letra",
+      "Punto de Venta",
+      "Nro Comprobante",
+      "Cliente",
+      "Tipo Documento",
+      "Documento / CUIT",
+      "Condición IVA",
+      "Canal",
+      "Medio de Pago",
+      "Neto Gravado",
+      "IVA 21%",
+      "IVA 10.5%",
+      "IVA 27%",
+      "Exento",
+      "Total IVA",
+      "Total Facturado",
+      "Moneda",
+    ];
+
+    const rows = filteredSales.map((s: any) => {
+      const parts = (s.receipt_no || "").split("-");
+      const pos = parts.length > 1 ? parts[1] : (data.settings?.pos_number || "0001");
+      const num = parts.length > 2 ? parts[2] : (s.receipt_no || "");
+      const createdDate = s.created_at ? new Date(s.created_at) : new Date();
+
+      return [
+        createdDate.toISOString().slice(0, 10),
+        createdDate.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }),
+        s.receipt_no || "",
+        s.computedLetter || "X",
+        pos,
+        num,
+        s.customer_name || "Consumidor Final",
+        s.customer_document_type || (s.customer_document?.length === 11 ? "CUIT" : "DNI"),
+        s.customer_document || "",
+        s.customer_vat_condition || (s.computedLetter === "A" ? "Responsable Inscripto" : "Consumidor Final"),
+        s.channel || "minorista",
+        s.payment_method || "Efectivo",
+        s.computedNet.toFixed(2),
+        s.computedVat21.toFixed(2),
+        s.computedVat105.toFixed(2),
+        s.computedVat27.toFixed(2),
+        s.computedExempt.toFixed(2),
+        s.computedVat.toFixed(2),
+        Number(s.total || 0).toFixed(2),
+        s.currency || data.settings?.currency || "BRL",
+      ];
+    });
+
+    const csvContent = [
+      headers.join(";"),
+      ...rows.map((row: any[]) => row.map((val) => `"${String(val).replaceAll('"', '""')}"`).join(";")),
+    ].join("\r\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `Libro_IVA_Ventas_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Exportar Libro IVA Compras CSV
+  const exportIvaComprasCsv = () => {
+    const headers = [
+      "Fecha",
+      "Tipo Comprobante",
+      "Nro Comprobante Proveedor",
+      "Proveedor / Razon Social",
+      "CUIT Proveedor",
+      "Condicion IVA",
+      "Neto Gravado",
+      "IVA 21%",
+      "IVA 10.5%",
+      "IVA 27%",
+      "Exento",
+      "Total IVA Credito Fiscal",
+      "Percepciones IIBB/IVA",
+      "Total Compra",
+      "Estado de Pago",
+      "Concepto",
+    ];
+
+    const rows = filteredPurchases.map((m: any) => {
+      const createdDate = m.invoice_date ? new Date(m.invoice_date) : (m.created_at ? new Date(m.created_at) : new Date());
+
+      return [
+        createdDate.toISOString().slice(0, 10),
+        m.computedLetter ? `Factura ${m.computedLetter}` : "Factura",
+        m.invoice_number || "—",
+        m.supplier_name || "Proveedor",
+        m.supplier_tax_id || "—",
+        m.supplier_vat_condition || "Responsable Inscripto",
+        m.computedNet.toFixed(2),
+        m.computedVat21.toFixed(2),
+        m.computedVat105.toFixed(2),
+        m.computedVat27.toFixed(2),
+        m.computedExempt.toFixed(2),
+        m.computedVat.toFixed(2),
+        m.computedPerceptions.toFixed(2),
+        m.computedTotal.toFixed(2),
+        m.payment_status === "pagada" ? "Pagada de contado" : "Cuenta corriente",
+        m.note || "",
+      ];
+    });
+
+    const csvContent = [
+      headers.join(";"),
+      ...rows.map((row: any[]) => row.map((val) => `"${String(val).replaceAll('"', '""')}"`).join(";")),
+    ].join("\r\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `Libro_IVA_Compras_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <SectionTitle
+          eyebrow="Gestión Fiscal & Comercial"
+          title="Reportes, Libro IVA y Liquidación AFIP"
+          text="Módulo impositivo integral: Libro IVA Ventas (Débito), Libro IVA Compras (Crédito), Liquidación mensual y rotación comercial."
+        />
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center rounded-xl bg-muted p-1 text-xs font-bold flex-wrap">
+            <button
+              type="button"
+              onClick={() => setReportTab("ventas")}
+              className={`rounded-lg px-3 py-1.5 transition-all ${
+                reportTab === "ventas"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              IVA Ventas
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportTab("compras")}
+              className={`rounded-lg px-3 py-1.5 transition-all ${
+                reportTab === "compras"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              IVA Compras
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportTab("posicion")}
+              className={`rounded-lg px-3 py-1.5 transition-all ${
+                reportTab === "posicion"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Liquidación AFIP
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportTab("comercial")}
+              className={`rounded-lg px-3 py-1.5 transition-all ${
+                reportTab === "comercial"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Rendimiento
+            </button>
+          </div>
+
+          {reportTab === "ventas" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportIvaVentasCsv}
+              className="h-9 gap-1.5 rounded-xl border-primary/30 text-xs font-bold hover:bg-primary/10 hover:text-primary shadow-xs"
+              title="Descargar Libro IVA Ventas en archivo CSV oficial"
+            >
+              <Download className="size-3.5" />
+              <span>Exportar IVA Ventas (CSV)</span>
+            </Button>
+          )}
+
+          {reportTab === "compras" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportIvaComprasCsv}
+              className="h-9 gap-1.5 rounded-xl border-primary/30 text-xs font-bold hover:bg-primary/10 hover:text-primary shadow-xs"
+              title="Descargar Libro IVA Compras en archivo CSV oficial"
+            >
+              <Download className="size-3.5" />
+              <span>Exportar IVA Compras (CSV)</span>
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* --- TAB 1: LIBRO IVA VENTAS (DÉBITO FISCAL) --- */}
+      {reportTab === "ventas" && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-900 to-slate-800 text-white">
+              <CardContent className="p-4 space-y-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                  Total Facturado Bruto
+                </span>
+                <p className="text-2xl font-black font-mono">{money(totalBilled)}</p>
+                <p className="text-[10px] text-slate-400">
+                  {filteredSales.length} comprobantes emitidos
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-sm bg-muted/40">
+              <CardContent className="p-4 space-y-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Subtotal Neto Gravado
+                </span>
+                <p className="text-2xl font-black font-mono text-foreground">{money(totalNet)}</p>
+                <p className="text-[10px] text-muted-foreground">Base imponible ventas</p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-sm bg-blue-50/70 dark:bg-blue-950/30 border-blue-200/50">
+              <CardContent className="p-4 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300">
+                    Débito Fiscal IVA Total
+                  </span>
+                  <Badge variant="outline" className="border-blue-400/40 text-[10px] font-bold text-blue-700 dark:text-blue-300">
+                    AFIP
+                  </Badge>
+                </div>
+                <p className="text-2xl font-black font-mono text-blue-700 dark:text-blue-300">
+                  {money(totalVat)}
+                </p>
+                <div className="flex items-center gap-2 pt-0.5 text-[10px] text-blue-600 dark:text-blue-400 font-medium flex-wrap">
+                  <span>21%: {money(totalVat21)}</span>
+                  {totalVat105 > 0 && <span>· 10.5%: {money(totalVat105)}</span>}
+                  {totalVat27 > 0 && <span>· 27%: {money(totalVat27)}</span>}
+                  {totalExempt > 0 && <span>· Exento: {money(totalExempt)}</span>}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-sm bg-muted/40">
+              <CardContent className="p-4 space-y-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Comprobantes Emitidos
+                </span>
+                <div className="flex items-center gap-2 pt-1 flex-wrap">
+                  <span className="px-2 py-0.5 rounded bg-blue-500/15 text-blue-700 dark:text-blue-400 text-xs font-bold font-mono">
+                    A: {countA}
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 text-xs font-bold font-mono">
+                    B: {countB}
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs font-bold font-mono">
+                    C: {countC}
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-slate-500/15 text-slate-700 dark:text-slate-400 text-xs font-bold font-mono">
+                    X: {countX}
+                  </span>
+                </div>
+                <p className="text-[10px] text-muted-foreground pt-1">Punto de venta: {data.settings?.pos_number || "0001"}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 rounded-2xl border bg-card shadow-xs">
+            <div className="relative w-full sm:w-80">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por N° comprobante, cliente o CUIT…"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9 h-9 text-xs"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+              {[
+                { id: "todos", label: "Todos los tipos" },
+                { id: "A", label: `Factura A (${countA})` },
+                { id: "B", label: `Factura B (${countB})` },
+                { id: "C", label: `Factura C (${countC})` },
+                { id: "X", label: `Remito X (${countX})` },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setFilterType(tab.id)}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-lg shrink-0 transition-all ${
+                    filterType === tab.id
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "bg-muted/60 text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <Card className="border-0 shadow-sm overflow-hidden">
+            <CardHeader className="border-b bg-muted/20 pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <FileText className="size-4 text-primary" />
+                    Libro IVA Ventas Oficial
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Registro de facturación con alícuotas y débito fiscal generado conforme a R.G. AFIP 1415
+                  </p>
+                </div>
+                <Badge variant="outline" className="font-mono text-xs">
+                  {filteredSales.length} registros
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40">
+                    <TableHead className="w-14 text-center">Tipo</TableHead>
+                    <TableHead>Comprobante</TableHead>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Cliente / Receptor</TableHead>
+                    <TableHead>Documento / CUIT</TableHead>
+                    <TableHead>Condición IVA</TableHead>
+                    <TableHead className="text-right">Neto Gravado</TableHead>
+                    <TableHead className="text-right">IVA Débito</TableHead>
+                    <TableHead className="text-right">Total Facturado</TableHead>
+                    <TableHead className="text-center w-28">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredSales.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={10} className="py-8 text-center text-muted-foreground italic">
+                        No se encontraron comprobantes de venta con los filtros seleccionados
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredSales.map((s: any) => (
+                      <TableRow key={s.id} className="hover:bg-muted/30">
+                        <TableCell className="text-center">
+                          <span className={`inline-grid size-7 place-items-center rounded-lg font-black font-serif text-xs ${
+                            s.computedLetter === "A"
+                              ? "bg-blue-600 text-white"
+                              : s.computedLetter === "B"
+                              ? "bg-emerald-600 text-white"
+                              : s.computedLetter === "C"
+                              ? "bg-amber-600 text-white"
+                              : "bg-slate-700 text-white"
+                          }`}>
+                            {s.computedLetter}
+                          </span>
+                        </TableCell>
+                        <TableCell className="font-mono font-bold text-foreground">
+                          {s.receipt_no || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                          {date(s.created_at)}
+                        </TableCell>
+                        <TableCell className="font-medium text-xs">
+                          {s.customer_name || (s.channel === "mayorista" ? "Cliente Mayorista" : "Consumidor Final")}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {s.customer_document || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          <span className="text-[11px] text-muted-foreground font-semibold">
+                            {s.customer_vat_condition || (s.computedLetter === "A" ? "Resp. Inscripto" : "Consumidor Final")}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-semibold text-xs text-muted-foreground">
+                          {money(s.computedNet)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-semibold text-xs text-blue-600 dark:text-blue-400">
+                          {money(s.computedVat)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-bold text-xs text-foreground">
+                          {money(s.total)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {onSelectSale && (
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              onClick={() => onSelectSale(s)}
+                              className="h-7 gap-1 rounded-lg text-xs"
+                              title="Ver e imprimir comprobante oficial"
+                            >
+                              <FileText className="size-3 text-primary" />
+                              <span>Ver {s.computedLetter}</span>
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* --- TAB 2: LIBRO IVA COMPRAS (CRÉDITO FISCAL) --- */}
+      {reportTab === "compras" && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-900 to-slate-800 text-white">
+              <CardContent className="p-4 space-y-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                  Total Compras Facturadas
+                </span>
+                <p className="text-2xl font-black font-mono">{money(totalPurchaseBilled)}</p>
+                <p className="text-[10px] text-slate-400">
+                  {filteredPurchases.length} comprobantes de proveedores
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-sm bg-muted/40">
+              <CardContent className="p-4 space-y-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Neto Gravado Compras
+                </span>
+                <p className="text-2xl font-black font-mono text-foreground">{money(totalPurchaseNet)}</p>
+                <p className="text-[10px] text-muted-foreground">Base imponible de mercadería</p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-sm bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200/50">
+              <CardContent className="p-4 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                    Crédito Fiscal IVA Total
+                  </span>
+                  <Badge variant="outline" className="border-emerald-400/40 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+                    A FAVOR
+                  </Badge>
+                </div>
+                <p className="text-2xl font-black font-mono text-emerald-700 dark:text-emerald-300">
+                  {money(totalPurchaseVat)}
+                </p>
+                <div className="flex items-center gap-2 pt-0.5 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex-wrap">
+                  <span>21%: {money(totalPurchaseVat21)}</span>
+                  {totalPurchaseVat105 > 0 && <span>· 10.5%: {money(totalPurchaseVat105)}</span>}
+                  {totalPurchaseVat27 > 0 && <span>· 27%: {money(totalPurchaseVat27)}</span>}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-sm bg-muted/40">
+              <CardContent className="p-4 space-y-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Percepciones Sufridas
+                </span>
+                <p className="text-2xl font-black font-mono text-foreground">{money(totalPurchasePerceptions)}</p>
+                <p className="text-[10px] text-muted-foreground">Pagos a cuenta IIBB / IVA</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 rounded-2xl border bg-card shadow-xs">
+            <div className="relative w-full sm:w-80">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por N° comprobante, proveedor o CUIT…"
+                value={purchaseSearchTerm}
+                onChange={(e) => setPurchaseSearchTerm(e.target.value)}
+                className="pl-9 h-9 text-xs"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+              {[
+                { id: "todos", label: "Todas las compras" },
+                { id: "A", label: `Factura A (${purchaseCountA})` },
+                { id: "B", label: `Factura B (${purchaseCountB})` },
+                { id: "C", label: `Factura C (${purchaseCountC})` },
+                { id: "X", label: `Remitos X (${purchaseCountX})` },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setPurchaseFilterType(tab.id)}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-lg shrink-0 transition-all ${
+                    purchaseFilterType === tab.id
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "bg-muted/60 text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <Card className="border-0 shadow-sm overflow-hidden">
+            <CardHeader className="border-b bg-muted/20 pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Truck className="size-4 text-primary" />
+                    Libro IVA Compras Oficial
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Comprobantes de proveedores con cómputo de crédito fiscal y retenciones según AFIP
+                  </p>
+                </div>
+                <Badge variant="outline" className="font-mono text-xs">
+                  {filteredPurchases.length} registros
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40">
+                    <TableHead className="w-14 text-center">Tipo</TableHead>
+                    <TableHead>N° Comprobante</TableHead>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Proveedor / Razón Social</TableHead>
+                    <TableHead>CUIT</TableHead>
+                    <TableHead className="text-right">Neto Gravado</TableHead>
+                    <TableHead className="text-right">IVA Crédito</TableHead>
+                    <TableHead className="text-right">Percepciones</TableHead>
+                    <TableHead className="text-right">Total Factura</TableHead>
+                    <TableHead className="text-center">Estado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredPurchases.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={10} className="py-8 text-center text-muted-foreground italic">
+                        No hay facturas de compras registradas aún. Podés cargar una factura de proveedor desde la sección Proveedores.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredPurchases.map((m: any) => (
+                      <TableRow key={m.id} className="hover:bg-muted/30">
+                        <TableCell className="text-center">
+                          <span className={`inline-grid size-7 place-items-center rounded-lg font-black font-serif text-xs ${
+                            m.computedLetter === "A"
+                              ? "bg-blue-600 text-white"
+                              : m.computedLetter === "B"
+                              ? "bg-emerald-600 text-white"
+                              : m.computedLetter === "C"
+                              ? "bg-amber-600 text-white"
+                              : "bg-slate-700 text-white"
+                          }`}>
+                            {m.computedLetter}
+                          </span>
+                        </TableCell>
+                        <TableCell className="font-mono font-bold text-foreground">
+                          {m.invoice_number || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                          {date(m.invoice_date || m.created_at)}
+                        </TableCell>
+                        <TableCell className="font-medium text-xs">
+                          {m.supplier_name || "Proveedor"}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {m.supplier_tax_id || "—"}
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-semibold text-xs text-muted-foreground">
+                          {money(m.computedNet)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-semibold text-xs text-emerald-600 dark:text-emerald-400">
+                          {money(m.computedVat)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-xs text-muted-foreground">
+                          {m.computedPerceptions > 0 ? money(m.computedPerceptions) : "—"}
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-bold text-xs text-foreground">
+                          {money(m.computedTotal)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold ${
+                            m.payment_status === "pagada"
+                              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40"
+                              : "bg-amber-50 text-amber-700 dark:bg-amber-950/40"
+                          }`}>
+                            {m.payment_status === "pagada" ? "Pagada" : "Cta. Cte."}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* --- TAB 3: POSICIÓN MENSUAL DE IVA (LIQUIDACIÓN AFIP) --- */}
+      {reportTab === "posicion" && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <Card className="border-0 shadow-sm bg-blue-50/60 dark:bg-blue-950/30 border-blue-200/50">
+              <CardContent className="p-5 space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300">
+                  Débito Fiscal Total (Ventas)
+                </span>
+                <p className="text-3xl font-black font-mono text-blue-700 dark:text-blue-300">
+                  {money(allVatDebito)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  IVA cobrado en facturas A y B emitidas a clientes.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-sm bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-200/50">
+              <CardContent className="p-5 space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                  Crédito Fiscal Total (Compras)
+                </span>
+                <p className="text-3xl font-black font-mono text-emerald-700 dark:text-emerald-300">
+                  {money(allVatCredito)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  IVA pagado en facturas A recibidas de proveedores.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className={`border-2 shadow-sm ${
+              saldoIva > 0
+                ? "border-amber-500 bg-amber-500/10 text-amber-950 dark:text-amber-100"
+                : "border-emerald-500 bg-emerald-500/10 text-emerald-950 dark:text-emerald-100"
+            }`}>
+              <CardContent className="p-5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider">
+                    {saldoIva > 0 ? "Saldo a Pagar al Fisco (AFIP)" : "Saldo Técnico a Favor"}
+                  </span>
+                  <Badge className={saldoIva > 0 ? "bg-amber-600 text-white" : "bg-emerald-600 text-white"}>
+                    {saldoIva > 0 ? "A ABONAR" : "A FAVOR"}
+                  </Badge>
+                </div>
+                <p className="text-3xl font-black font-mono">
+                  {money(saldoIva > 0 ? saldoAPagar : saldoAFavor)}
+                </p>
+                <p className="text-xs opacity-80">
+                  {saldoIva > 0
+                    ? `Débito ($ ${money(allVatDebito)}) − Crédito ($ ${money(allVatCredito)})${allPerceptions > 0 ? ` − Percepciones ($ ${money(allPerceptions)})` : ""}`
+                    : "Crédito mayor que débito: computable para el mes siguiente."}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card className="border-0 shadow-sm overflow-hidden">
+            <CardHeader className="border-b bg-muted/20">
+              <CardTitle className="text-base">Cuadro Comparativo de Liquidación Impositiva</CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Cálculo de la posición fiscal mensual de IVA según Ley 23.349 / R.G. AFIP
+              </p>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40">
+                    <TableHead>Concepto Impositivo</TableHead>
+                    <TableHead className="text-right">Débito Fiscal (Ventas)</TableHead>
+                    <TableHead className="text-right">Crédito Fiscal (Compras)</TableHead>
+                    <TableHead className="text-right">Posición Neta</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow>
+                    <TableCell className="font-semibold text-xs">Alícuota General 21%</TableCell>
+                    <TableCell className="text-right font-mono text-xs">{money(totalVat21)}</TableCell>
+                    <TableCell className="text-right font-mono text-xs">{money(totalPurchaseVat21)}</TableCell>
+                    <TableCell className={`text-right font-mono font-bold text-xs ${totalVat21 - totalPurchaseVat21 > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+                      {money(totalVat21 - totalPurchaseVat21)}
+                    </TableCell>
+                  </TableRow>
+
+                  <TableRow>
+                    <TableCell className="font-semibold text-xs">Alícuota Reducida 10.5%</TableCell>
+                    <TableCell className="text-right font-mono text-xs">{money(totalVat105)}</TableCell>
+                    <TableCell className="text-right font-mono text-xs">{money(totalPurchaseVat105)}</TableCell>
+                    <TableCell className={`text-right font-mono font-bold text-xs ${totalVat105 - totalPurchaseVat105 > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+                      {money(totalVat105 - totalPurchaseVat105)}
+                    </TableCell>
+                  </TableRow>
+
+                  <TableRow>
+                    <TableCell className="font-semibold text-xs">Alícuota Especial 27%</TableCell>
+                    <TableCell className="text-right font-mono text-xs">{money(totalVat27)}</TableCell>
+                    <TableCell className="text-right font-mono text-xs">{money(totalPurchaseVat27)}</TableCell>
+                    <TableCell className={`text-right font-mono font-bold text-xs ${totalVat27 - totalPurchaseVat27 > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+                      {money(totalVat27 - totalPurchaseVat27)}
+                    </TableCell>
+                  </TableRow>
+
+                  <TableRow>
+                    <TableCell className="font-semibold text-xs">Operaciones Exentas / No Gravadas</TableCell>
+                    <TableCell className="text-right font-mono text-xs text-muted-foreground">{money(totalExempt)}</TableCell>
+                    <TableCell className="text-right font-mono text-xs text-muted-foreground">{money(totalPurchaseExempt)}</TableCell>
+                    <TableCell className="text-right font-mono text-xs text-muted-foreground">—</TableCell>
+                  </TableRow>
+
+                  {allPerceptions > 0 && (
+                    <TableRow>
+                      <TableCell className="font-semibold text-xs text-blue-700 dark:text-blue-400">
+                        Percepciones de IVA / IIBB sufridas (Pagos a cuenta)
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground">—</TableCell>
+                      <TableCell className="text-right font-mono text-xs text-blue-700 dark:text-blue-400 font-bold">
+                        - {money(allPerceptions)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs text-emerald-600 font-bold">
+                        {money(-allPerceptions)}
+                      </TableCell>
+                    </TableRow>
+                  )}
+
+                  <TableRow className="bg-muted/30 font-bold border-t-2">
+                    <TableCell className="text-sm">TOTAL LIQUIDACIÓN PERÍODO</TableCell>
+                    <TableCell className="text-right font-mono text-sm text-blue-700 dark:text-blue-400">{money(allVatDebito)}</TableCell>
+                    <TableCell className="text-right font-mono text-sm text-emerald-700 dark:text-emerald-400">{money(allVatCredito + allPerceptions)}</TableCell>
+                    <TableCell className={`text-right font-mono text-base font-black ${saldoIva > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+                      {saldoIva > 0 ? `Pagar: ${money(saldoAPagar)}` : `A Favor: ${money(saldoAFavor)}`}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* --- TAB 4: RENDIMIENTO COMERCIAL --- */}
+      {reportTab === "comercial" && (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card className="border-0 shadow-sm">
+            <CardHeader>
+              <CardTitle>Stock por producto</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {(data.products || []).map((p: Product) => (
+                <div key={p.id}>
+                  <div className="mb-1 flex justify-between text-sm">
+                    <span className="font-medium">{p.name}</span>
+                    <span>{p.total_stock} u.</span>
+                  </div>
+                  <div className="h-3 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{ width: `${Math.max(4, (p.total_stock / max) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card className="border-0 shadow-sm">
+            <CardHeader>
+              <CardTitle>Rendimiento por Canal</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-2xl bg-orange-50 p-4 dark:bg-orange-950/30">
+                  <p className="text-xs text-muted-foreground font-semibold">Facturación Mayorista</p>
+                  <p className="mt-1 text-xl font-black text-orange-600 dark:text-orange-400">
+                    {money(wholesale)}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-blue-50 p-4 dark:bg-blue-950/30">
+                  <p className="text-xs text-muted-foreground font-semibold">Facturación Minorista</p>
+                  <p className="mt-1 text-xl font-black text-blue-600 dark:text-blue-400">
+                    {money(retail)}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/30">
+                  <p className="text-xs text-muted-foreground font-semibold">Unidades Vendidas</p>
+                  <p className="mt-1 text-xl font-black text-emerald-600 dark:text-emerald-400">
+                    {totalPairs}
+                  </p>
+                </div>
+                <div className="rounded-2xl border p-4">
+                  <p className="text-xs text-muted-foreground font-semibold">Capital en mercadería</p>
+                  <p className="mt-1 text-xl font-black">{money(data.stats?.stockValue || 0)}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </>
+  );
+}
 
 function SettingsPage({data,setModal}:any){
   const rows=[
@@ -1463,29 +2633,54 @@ function SalesPOSConfigured({
   };
 
   const chargeAmount = Math.max(0, Number(additionalCharge) || 0);
-  const rawTotal = Math.max(0, subtotal - discount + chargeAmount);
+
+  // Cargo de IVA opcional (se suma como recargo si aplica)
+  const defaultVatRate = Number(data.settings?.default_vat_rate) || 21;
+  const [applyVat, setApplyVat] = useState<boolean>(false);
+  const [vatRate, setVatRate] = useState<number>(defaultVatRate);
+
+  const taxableBase = Math.max(0, subtotal - discount);
+  const vatCharge = applyVat ? Math.round((taxableBase * (vatRate / 100)) * 100) / 100 : 0;
+  const rawTotal = Math.max(0, taxableBase + chargeAmount + vatCharge);
   const rounding = data.settings?.rounding_mode === "100" ? 100 : data.settings?.rounding_mode === "10" ? 10 : 0;
   const displayTotal = rounding ? Math.round(rawTotal / rounding) * rounding : rawTotal;
 
-  // Multi-moneda: Reales (R$ BRL) [Predeterminada], Pesos ($ ARS), Dólares (US$ USD)
-  const defaultCurr = (data.settings?.currency || "BRL") as "BRL" | "ARS" | "USD";
-  const [saleCurrency, setSaleCurrency] = useState<"BRL" | "ARS" | "USD">(defaultCurr);
+  // Multi-moneda: Pesos ($ ARS) [Predeterminada], Reales (R$ BRL), Dólares (US$ USD)
+  const baseCurrency = (data.settings?.currency || "ARS") as "BRL" | "ARS" | "USD";
+  const [saleCurrency, setSaleCurrency] = useState<"BRL" | "ARS" | "USD">(baseCurrency);
   const rateArs = Number(data.settings?.exchange_rate_ars || data.settings?.exchange_rate_brl) || 250;
   const rateUsd = Number(data.settings?.exchange_rate_usd) || 5.70;
 
-  // El total base está en Reales (BRL)
-  const displayTotalBrl = displayTotal;
-  const displayTotalArs = Math.round(displayTotal * rateArs);
-  const displayTotalUsd = Math.round((displayTotal / rateUsd) * 100) / 100;
+  useEffect(() => {
+    if (data.settings?.currency) {
+      setSaleCurrency(data.settings.currency);
+    }
+  }, [data.settings?.currency]);
 
-  const currentTotal = saleCurrency === "BRL" ? displayTotalBrl : (saleCurrency === "ARS" ? displayTotalArs : displayTotalUsd);
+  // Totales según si la base del negocio es ARS o BRL
+  const displayTotalArs = baseCurrency === "ARS" ? displayTotal : Math.round(displayTotal * rateArs);
+  const displayTotalBrl = baseCurrency === "ARS" ? Math.round((displayTotal / rateArs) * 100) / 100 : displayTotal;
+  const displayTotalUsd = baseCurrency === "ARS" ? Math.round((displayTotalBrl / rateUsd) * 100) / 100 : Math.round((displayTotal / rateUsd) * 100) / 100;
+
+  const currentTotal = saleCurrency === "ARS" ? displayTotalArs : (saleCurrency === "BRL" ? displayTotalBrl : displayTotalUsd);
+
+  // Desgloses de IVA en la moneda de cobro actual
+  const vatChargeArs = baseCurrency === "ARS" ? vatCharge : Math.round(vatCharge * rateArs);
+  const vatChargeBrl = baseCurrency === "ARS" ? Math.round((vatCharge / rateArs) * 100) / 100 : vatCharge;
+  const vatChargeUsd = baseCurrency === "ARS" ? Math.round((vatChargeBrl / rateUsd) * 100) / 100 : Math.round((vatCharge / rateUsd) * 100) / 100;
+  const displayVatCharge = saleCurrency === "ARS" ? vatChargeArs : (saleCurrency === "BRL" ? vatChargeBrl : vatChargeUsd);
+
+  const taxableBaseArs = baseCurrency === "ARS" ? taxableBase : Math.round(taxableBase * rateArs);
+  const taxableBaseBrl = baseCurrency === "ARS" ? Math.round((taxableBase / rateArs) * 100) / 100 : taxableBase;
+  const taxableBaseUsd = baseCurrency === "ARS" ? Math.round((taxableBaseBrl / rateUsd) * 100) / 100 : Math.round((taxableBase / rateUsd) * 100) / 100;
+  const displayTaxableBase = saleCurrency === "ARS" ? taxableBaseArs : (saleCurrency === "BRL" ? taxableBaseBrl : taxableBaseUsd);
 
   const handleCurrencyChange = (newCur: "BRL" | "ARS" | "USD") => {
     setSaleCurrency(newCur);
     setIsCustomPaid(false);
-    const matching = (data.bankAccounts || []).filter((a: any) => (a.currency || "BRL") === newCur);
+    const matching = (data.bankAccounts || []).filter((a: any) => (a.currency || "ARS") === newCur);
     const currentAcc = (data.bankAccounts || []).find((a: any) => String(a.id) === String(bankAccountId));
-    if (!currentAcc || (currentAcc.currency || "BRL") !== newCur) {
+    if (!currentAcc || (currentAcc.currency || "ARS") !== newCur) {
       if (matching.length > 0) {
         setBankAccountId(String(matching[0].id));
       } else {
@@ -1509,6 +2704,36 @@ function SalesPOSConfigured({
   const pendingAmount = Math.max(0, Math.round((currentTotal - paidAmount) * 100) / 100);
   const saleStatus: "pagada" | "pago_parcial" | "con_deuda" =
     pendingAmount === 0 ? "pagada" : paidAmount > 0 ? "pago_parcial" : "con_deuda";
+
+  const [invoiceType, setInvoiceType] = useState<"B" | "A" | "C" | "X">(() => {
+    const defaultPrefix = String(data.settings?.receipt_prefix || "B").toUpperCase();
+    return ["A", "B", "C", "X"].includes(defaultPrefix) ? (defaultPrefix as any) : "B";
+  });
+
+  const handleSelectInvoiceType = (type: "B" | "A" | "C" | "X") => {
+    setInvoiceType(type);
+    if (type === "A") {
+      setApplyVat(true);
+    } else if (type === "X") {
+      setApplyVat(false);
+    }
+  };
+
+  // Reaccionar al cliente seleccionado para sugerir Factura A si es Responsable Inscripto
+  const selectedCustomer = useMemo(() => {
+    return (data.customers || []).find((c: any) => String(c.id) === String(customerId));
+  }, [data.customers, customerId]);
+
+  useEffect(() => {
+    if (selectedCustomer) {
+      if (selectedCustomer.vat_condition === "Responsable Inscripto") {
+        setInvoiceType("A");
+        setApplyVat(true);
+      } else if (invoiceType === "A" && selectedCustomer.vat_condition !== "Responsable Inscripto") {
+        setInvoiceType("B");
+      }
+    }
+  }, [selectedCustomer]);
 
   const formatCurr = (val: number) => formatMoney(val, saleCurrency);
 
@@ -1541,15 +2766,29 @@ function SalesPOSConfigured({
   }, [filtered, catalogLimit]);
 
   return <>
-    <SectionTitle eyebrow="Venta rápida" title="Punto de venta" text="Escaneá, elegí el talle y cobrá sin salir de la pantalla."/>
+    <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <SectionTitle eyebrow="Venta rápida" title="Punto de venta" text="Escaneá, elegí el talle y cobrá sin salir de la pantalla."/>
+      <div className="flex items-center gap-1.5 flex-wrap pb-4 sm:pb-0">
+        <kbd className="inline-flex items-center gap-1 rounded-lg bg-muted/80 px-2.5 py-1 font-mono text-[11px] font-semibold text-foreground border border-border/70 shadow-xs">
+          <span className="text-primary font-bold">F2</span> Buscar / Escanear
+        </kbd>
+        <kbd className="inline-flex items-center gap-1 rounded-lg bg-muted/80 px-2.5 py-1 font-mono text-[11px] font-semibold text-foreground border border-border/70 shadow-xs">
+          <span className="text-emerald-600 font-bold">F4</span> Cobrar Venta
+        </kbd>
+        <kbd className="inline-flex items-center gap-1 rounded-lg bg-muted/80 px-2.5 py-1 font-mono text-[11px] font-semibold text-foreground border border-border/70 shadow-xs">
+          <span className="text-muted-foreground font-bold">Esc</span> Limpiar
+        </kbd>
+      </div>
+    </div>
     
     <div className="mb-5 grid gap-3 rounded-2xl border bg-card p-3 sm:p-4 shadow-sm md:grid-cols-[1fr_auto_auto_auto]">
       <div className="relative">
         <Barcode className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-primary"/>
         <Input
+          id="pos-scan-input"
           autoFocus
           className="h-12 pl-10 pr-9 text-sm"
-          placeholder="Escaneá con lector USB/Bluetooth o escribí código, modelo, marca..."
+          placeholder="Escaneá con lector USB/Bluetooth o escribí código, modelo, marca... [F2]"
           value={scan}
           onChange={e => setScan(e.target.value)}
           onKeyDown={e => e.key === "Enter" && scanProduct()}
@@ -2209,17 +3448,6 @@ function SalesPOSConfigured({
             <div className="flex rounded-lg bg-background border p-0.5 shadow-xs">
               <button
                 type="button"
-                onClick={() => handleCurrencyChange("BRL")}
-                className={`rounded-md px-2.5 py-1 text-xs font-bold transition-all ${
-                  saleCurrency === "BRL"
-                    ? "bg-emerald-600 text-white shadow"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                🇧🇷 R$ BRL
-              </button>
-              <button
-                type="button"
                 onClick={() => handleCurrencyChange("ARS")}
                 className={`rounded-md px-2.5 py-1 text-xs font-bold transition-all ${
                   saleCurrency === "ARS"
@@ -2228,6 +3456,17 @@ function SalesPOSConfigured({
                 }`}
               >
                 🇦🇷 $ ARS
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCurrencyChange("BRL")}
+                className={`rounded-md px-2.5 py-1 text-xs font-bold transition-all ${
+                  saleCurrency === "BRL"
+                    ? "bg-emerald-600 text-white shadow"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                🇧🇷 R$ BRL
               </button>
               <button
                 type="button"
@@ -2244,23 +3483,136 @@ function SalesPOSConfigured({
           </div>
           
           <div className="flex items-center justify-between rounded-lg bg-muted/60 border border-border/60 px-2.5 py-1.5 text-xs text-muted-foreground">
-            {saleCurrency === "BRL" ? (
+            {saleCurrency === "ARS" ? (
               <>
-                <span>Base: <strong>1 R$ = ${rateArs.toLocaleString("es-AR")} ARS</strong> · 1 US$ = R$ {rateUsd.toFixed(2)}</span>
-                <span className="font-extrabold text-foreground">{formatCurr(displayTotalBrl)}</span>
-              </>
-            ) : saleCurrency === "ARS" ? (
-              <>
-                <span>Cotización: <strong>1 R$ = ${rateArs.toLocaleString("es-AR")} ARS</strong></span>
+                <span>Moneda: <strong>Pesos ($ ARS)</strong> · Paridad: 1 R$ = ${rateArs.toLocaleString("es-AR")} ARS</span>
                 <span className="font-extrabold text-foreground">{formatCurr(displayTotalArs)}</span>
+              </>
+            ) : saleCurrency === "BRL" ? (
+              <>
+                <span>Moneda: <strong>Reales (R$ BRL)</strong> · Paridad: 1 R$ = ${rateArs.toLocaleString("es-AR")} ARS</span>
+                <span className="font-extrabold text-foreground">{formatCurr(displayTotalBrl)}</span>
               </>
             ) : (
               <>
-                <span>Cotización: <strong>1 US$ = R$ {rateUsd.toFixed(2)} BRL</strong></span>
+                <span>Moneda: <strong>Dólares (US$ USD)</strong> · 1 US$ = R$ {rateUsd.toFixed(2)}</span>
                 <span className="font-extrabold text-foreground">{formatCurr(displayTotalUsd)}</span>
               </>
             )}
           </div>
+        </div>
+
+        {/* Selector de Tipo de Comprobante / Letra Fiscal */}
+        <div className="rounded-xl border border-border/80 bg-muted/30 p-2.5 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+              <FileText className="size-3.5 text-primary" />
+              Tipo de Comprobante
+            </span>
+            <Badge variant="outline" className="text-[10px] font-mono font-bold">
+              Punto {String(data.settings?.pos_number || "0001").padStart(4, "0")}
+            </Badge>
+          </div>
+
+          <div className="grid grid-cols-4 gap-1 p-0.5 rounded-lg bg-background border shadow-xs">
+            {[
+              { id: "B", label: "Factura B", desc: "Cons. Final" },
+              { id: "A", label: "Factura A", desc: "Resp. Inscripto" },
+              { id: "X", label: "Ticket X", desc: "Remito" },
+              { id: "C", label: "Factura C", desc: "Monotributo" },
+            ].map((type) => (
+              <button
+                key={type.id}
+                type="button"
+                onClick={() => handleSelectInvoiceType(type.id as any)}
+                className={`py-1.5 px-1 rounded-md text-center transition-all cursor-pointer ${
+                  invoiceType === type.id
+                    ? "bg-primary text-primary-foreground font-black shadow-xs"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted font-medium"
+                }`}
+                title={type.desc}
+              >
+                <span className="block text-xs leading-none">{type.label}</span>
+                <span className={`block text-[9px] mt-0.5 truncate leading-tight ${invoiceType === type.id ? "text-primary-foreground/80" : "text-muted-foreground/70"}`}>
+                  {type.desc}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {invoiceType === "A" && (
+            <div className={`p-2 rounded-lg text-xs border ${
+              selectedCustomer?.vat_condition === "Responsable Inscripto" && selectedCustomer?.document
+                ? "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border-emerald-500/30"
+                : "bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-500/30"
+            }`}>
+              <p className="font-semibold flex items-center gap-1.5">
+                <span>{selectedCustomer?.vat_condition === "Responsable Inscripto" && selectedCustomer?.document ? "✓" : "⚠"} Factura A:</span>
+                <span>{selectedCustomer?.vat_condition === "Responsable Inscripto" && selectedCustomer?.document ? `${selectedCustomer.name} (CUIT: ${selectedCustomer.document})` : "Requiere cliente con CUIT y Resp. Inscripto"}</span>
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Cargo de IVA Opcional (se suma como recargo) */}
+        <div className="rounded-xl border border-border/80 bg-muted/20 p-3 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Receipt className="size-3.5 text-primary" />
+              <span className="text-xs font-bold text-foreground">Cargo de IVA</span>
+              {applyVat ? (
+                <Badge className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] h-5 px-1.5">
+                  +{vatRate}% sumado
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-[10px] h-5 px-1.5 font-medium text-muted-foreground">
+                  No aplica (0%)
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold text-muted-foreground">
+                {applyVat ? "Aplicar IVA" : "Sin IVA"}
+              </span>
+              <Switch
+                id="pos-apply-vat-switch"
+                checked={applyVat}
+                onCheckedChange={setApplyVat}
+              />
+            </div>
+          </div>
+
+          {applyVat ? (
+            <div className="space-y-2 pt-1 border-t border-border/50 animate-in fade-in duration-150">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-muted-foreground font-medium">Alícuota a aplicar:</span>
+                <div className="flex items-center gap-1">
+                  {[21, 10.5, 27].map(rate => (
+                    <button
+                      key={rate}
+                      type="button"
+                      onClick={() => setVatRate(rate)}
+                      className={`text-[10px] px-2 py-0.5 rounded-md border font-bold transition-colors cursor-pointer ${
+                        vatRate === rate
+                          ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                          : "bg-background hover:bg-muted text-muted-foreground border-border/60"
+                      }`}
+                    >
+                      {rate}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center justify-between text-xs rounded-lg bg-blue-500/10 border border-blue-500/20 px-2.5 py-1.5 text-blue-700 dark:text-blue-300">
+                <span className="font-semibold">Recargo de IVA (+{vatRate}%):</span>
+                <span className="font-mono font-bold">+ {formatCurr(displayVatCharge)}</span>
+              </div>
+            </div>
+          ) : (
+            <p className="text-[11px] text-muted-foreground leading-tight">
+              Precios base sin recargo de IVA. El cobro final no añade alícuota fiscal.
+            </p>
+          )}
         </div>
 
         {/* Medio de pago */}
@@ -2307,9 +3659,47 @@ function SalesPOSConfigured({
               <span className="font-mono shrink-0">+ {money(chargeAmount)}</span>
             </div>
           )}
+          {applyVat && vatCharge > 0 && (
+            <div className="flex justify-between text-blue-600 dark:text-blue-400 font-semibold">
+              <span>Cargo IVA (+{vatRate}%)</span>
+              <span className="font-mono shrink-0">+ {formatCurr(displayVatCharge)}</span>
+            </div>
+          )}
+
+          {/* Desglose Fiscal IVA en tiempo real */}
+          <div className="pt-2 border-t border-dashed border-border/70 space-y-1 text-xs">
+            <div className="flex justify-between text-muted-foreground">
+              <span>Condición IVA:</span>
+              <span className="font-semibold text-foreground">
+                {applyVat ? `Gravado (+${vatRate}%)` : "Sin recargo de IVA (0%)"}
+              </span>
+            </div>
+            {applyVat ? (
+              <>
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Base Imponible neta</span>
+                  <span className="font-mono">{formatCurr(displayTaxableBase)}</span>
+                </div>
+                <div className="flex justify-between text-muted-foreground">
+                  <span>IVA Débito Fiscal ({vatRate}%)</span>
+                  <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
+                    + {formatCurr(displayVatCharge)}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="flex justify-between text-muted-foreground">
+                <span>IVA Débito Fiscal</span>
+                <span className="font-mono font-medium text-muted-foreground">
+                  {formatCurr(0)} (No aplica)
+                </span>
+              </div>
+            )}
+          </div>
+
           <div className="mt-2 flex items-end justify-between border-t pt-2">
             <div>
-              <span className="font-bold text-sm sm:text-base">Total a cobrar</span>
+              <span className="font-bold text-sm sm:text-base">Total {invoiceType === "X" ? "Ticket X" : `Factura ${invoiceType}`}</span>
               <p className="text-[11px] text-muted-foreground font-medium">
                 {saleCurrency === "BRL" ? (
                   <>Eq. ${displayTotalArs.toLocaleString("es-AR")} ARS · US$ {displayTotalUsd.toFixed(2)}</>
@@ -2422,6 +3812,7 @@ function SalesPOSConfigured({
         </div>
 
         <Button
+          id="pos-checkout-btn"
           className={`h-12 w-full rounded-xl text-base font-bold shadow-md transition-all ${
             saleStatus === "pagada"
               ? "bg-emerald-600 hover:bg-emerald-700 text-white"
@@ -2429,7 +3820,7 @@ function SalesPOSConfigured({
               ? "bg-amber-600 hover:bg-amber-700 text-white"
               : "bg-slate-900 hover:bg-slate-800 text-white"
           }`}
-          disabled={!cart.length || busy || (pendingAmount > 0 && !customerId)}
+          disabled={!cart.length || busy || (pendingAmount > 0 && !customerId) || (invoiceType === "A" && (!selectedCustomer || selectedCustomer.vat_condition !== "Responsable Inscripto" || !selectedCustomer.document))}
           onClick={() => closeSale(paidAmount, {
             discount,
             discountPercent,
@@ -2438,10 +3829,16 @@ function SalesPOSConfigured({
             currency: saleCurrency,
             exchangeRateArs: rateArs,
             exchangeRateUsd: rateUsd,
+            invoiceType,
+            applyVat,
+            vatRate: applyVat ? vatRate : 0,
+            vatAmount: vatCharge,
           })}
         >
           {busy
             ? "Procesando…"
+            : invoiceType === "A" && (!selectedCustomer || selectedCustomer.vat_condition !== "Responsable Inscripto" || !selectedCustomer.document)
+            ? "Factura A requiere cliente con CUIT *"
             : pendingAmount > 0 && !customerId
             ? "Seleccioná cliente para registrar deuda *"
             : paidAmount === 0 && pendingAmount > 0
@@ -2450,13 +3847,18 @@ function SalesPOSConfigured({
             ? `Cobrar ${formatCurr(paidAmount)} (Deuda: ${formatCurr(pendingAmount)})`
             : `Cobrar ${formatCurr(currentTotal)}`}
         </Button>
+        {invoiceType === "A" && (!selectedCustomer || selectedCustomer.vat_condition !== "Responsable Inscripto" || !selectedCustomer.document) && (
+          <p className="text-center text-xs font-semibold text-amber-600 dark:text-amber-400">
+            * Para emitir Factura A debés seleccionar un cliente con CUIT y condición Responsable Inscripto.
+          </p>
+        )}
         {pendingAmount > 0 && !customerId && cart.length > 0 && (
           <p className="text-center text-xs font-semibold text-destructive">
             * Para registrar una venta con saldo pendiente / deuda es obligatorio asignar un cliente registrado.
           </p>
         )}
         <p className="text-center text-xs text-muted-foreground">
-          Genera comprobante {data.settings?.receipt_prefix||"X"} y descuenta el stock automáticamente.
+          Genera comprobante oficial {invoiceType} y descuenta el stock automáticamente.
         </p>
       </CardContent></Card>
     </div>
@@ -2671,7 +4073,7 @@ function SettingsCenter({data,onSave,busy,dark,setDark,setToast,uid,setModal,onE
   return <>
     <SectionTitle eyebrow="Centro de control" title="Configuración" text="Administrá la sucursal, las reglas comerciales y la seguridad de los datos desde un solo lugar."/>
     <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {[[Store,settings.business_name||"CR MAYORISTA",settings.branch_name||"Sucursal principal"],[FileText,`${settings.receipt_prefix||"X"}-${String(settings.next_receipt_number||1).padStart(8,"0")}`,"Próximo comprobante"],[Tags,Number(settings.wholesale_min_qty) > 1 ? `${settings.wholesale_min_qty} unidades` : "Sin mínimo (libre)","Condición mayorista"],[Database,`${data.products.length} productos`,`${data.sales.length} ventas recientes`]].map(([Icon,value,label]:any)=><Card key={label} className="settings-summary border-0 py-4 shadow-sm"><CardContent className="flex items-center gap-3 px-4"><span className="grid size-10 place-items-center rounded-full bg-primary/10 text-primary"><Icon className="size-4"/></span><div className="min-w-0"><p className="truncate font-bold">{value}</p><p className="text-xs text-muted-foreground">{label}</p></div></CardContent></Card>)}
+      {[[Store,settings.business_name||"CR BAZAR",settings.branch_name||"Sucursal principal"],[FileText,`${settings.receipt_prefix||"X"}-${String(settings.next_receipt_number||1).padStart(8,"0")}`,"Próximo comprobante"],[Tags,Number(settings.wholesale_min_qty) > 1 ? `${settings.wholesale_min_qty} unidades` : "Sin mínimo (libre)","Condición mayorista"],[Database,`${data.products.length} productos`,`${data.sales.length} ventas recientes`]].map(([Icon,value,label]:any)=><Card key={label} className="settings-summary border-0 py-4 shadow-sm"><CardContent className="flex items-center gap-3 px-4"><span className="grid size-10 place-items-center rounded-full bg-primary/10 text-primary"><Icon className="size-4"/></span><div className="min-w-0"><p className="truncate font-bold">{value}</p><p className="text-xs text-muted-foreground">{label}</p></div></CardContent></Card>)}
     </div>
     <Tabs defaultValue="negocio" className="settings-center">
       <TabsList className="settings-tabs-list flex-wrap h-auto gap-1">
@@ -2686,7 +4088,51 @@ function SettingsCenter({data,onSave,busy,dark,setDark,setToast,uid,setModal,onE
         <TabsTrigger value="apariencia"><Palette/>Apariencia</TabsTrigger>
         <TabsTrigger value="datos"><Database/>Datos</TabsTrigger>
       </TabsList>
-      <TabsContent value="negocio"><SettingsFormCard title="Identidad del negocio" description="Información de la única sucursal y datos que aparecerán en catálogos y comprobantes." icon={Store} onSubmit={submitSettings} busy={busy}><Field label="Nombre del negocio / empresa" name="businessName" defaultValue={settings.business_name} required/><Field label="Nombre de la sucursal" name="branchName" defaultValue={settings.branch_name}/><Field label="CUIT" name="taxId" defaultValue={settings.tax_id}/><Field label="Teléfono" name="phone" defaultValue={settings.phone}/><Field label="WhatsApp" name="whatsapp" defaultValue={settings.whatsapp}/><Field label="Correo electrónico" name="email" type="email" defaultValue={settings.email}/><Field label="Dirección" name="address" defaultValue={settings.address}/><Field label="URL del logo" name="logoUrl" defaultValue={settings.logo_url} placeholder="https://…"/><div className="md:col-span-2 flex flex-wrap items-center gap-3 rounded-2xl border bg-muted/30 p-4"><div className="min-w-0 flex-1"><p className="text-sm font-bold">Subir logo a Firebase Storage</p><p className="text-xs text-muted-foreground">PNG, JPG o WebP de hasta 5 MB.</p></div><input ref={logoRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={uploadLogo}/><Button type="button" variant="outline" disabled={uploadingLogo} onClick={()=>logoRef.current?.click()}><Upload/>{uploadingLogo?"Subiendo…":"Elegir imagen"}</Button></div></SettingsFormCard></TabsContent>
+      <TabsContent value="negocio" className="space-y-6">
+        <SettingsFormCard title="Identidad del negocio" description="Información de la sucursal y datos generales." icon={Store} onSubmit={submitSettings} busy={busy}>
+          <Field label="Nombre del negocio / empresa" name="businessName" defaultValue={settings.business_name} required/>
+          <Field label="Nombre de la sucursal" name="branchName" defaultValue={settings.branch_name}/>
+          <SelectField label="Moneda principal del sistema" name="currency" defaultValue={settings.currency||"ARS"}>
+            <option value="ARS">🇦🇷 Pesos Argentinos ($ ARS / $) - Predeterminada</option>
+            <option value="BRL">🇧🇷 Reales Brasileños (R$ BRL)</option>
+            <option value="USD">🇺🇸 Dólares Estadounidenses (US$ USD)</option>
+          </SelectField>
+          <Field label="Teléfono" name="phone" defaultValue={settings.phone}/>
+          <Field label="WhatsApp" name="whatsapp" defaultValue={settings.whatsapp}/>
+          <Field label="Correo electrónico" name="email" type="email" defaultValue={settings.email}/>
+          <Field label="Dirección" name="address" defaultValue={settings.address}/>
+          <Field label="URL del logo" name="logoUrl" defaultValue={settings.logo_url} placeholder="https://…"/>
+          <div className="md:col-span-2 flex flex-wrap items-center gap-3 rounded-2xl border bg-muted/30 p-4">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold">Subir logo a Firebase Storage</p>
+              <p className="text-xs text-muted-foreground">PNG, JPG o WebP de hasta 5 MB.</p>
+            </div>
+            <input ref={logoRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={uploadLogo}/>
+            <Button type="button" variant="outline" disabled={uploadingLogo} onClick={()=>logoRef.current?.click()}><Upload/>{uploadingLogo?"Subiendo…":"Elegir imagen"}</Button>
+          </div>
+        </SettingsFormCard>
+
+        <SettingsFormCard title="Datos Fiscales y Régimen de IVA (AFIP)" description="Configuración impositiva para la emisión y discriminación legal de Facturas A, B, C y Remitos X." icon={Landmark} onSubmit={submitSettings} busy={busy}>
+          <Field label="CUIT / Clave Fiscal" name="taxId" defaultValue={settings.tax_id} placeholder="20-12345678-9"/>
+          <SelectField label="Condición frente al IVA" name="vatCondition" defaultValue={settings.vat_condition||"responsable_inscripto"}>
+            <option value="responsable_inscripto">Responsable Inscripto (Emite A y B con IVA discriminado)</option>
+            <option value="monotributo">Monotributo (Emite Factura C)</option>
+            <option value="exento">Sujeto Exento (Emite Factura B/C)</option>
+          </SelectField>
+          <Field label="Punto de venta fiscal (4 dígitos)" name="posNumber" defaultValue={settings.pos_number||"0001"} placeholder="0001"/>
+          <Field label="Número de Ingresos Brutos (IIBB)" name="iibbNumber" defaultValue={settings.iibb_number} placeholder="Ej. 901-123456-7 o Convenio Multilateral"/>
+          <Field label="Fecha de inicio de actividades" name="activityStartDate" defaultValue={settings.activity_start_date} placeholder="Ej. 01/03/2021"/>
+          <SelectField label="Alícuota IVA general predeterminada" name="defaultVatRate" defaultValue={String(settings.default_vat_rate !== undefined ? settings.default_vat_rate : 0)}>
+            <option value="0">0% (Sin IVA / Exento) - Predeterminado</option>
+            <option value="21">21% (Tasa General AFIP)</option>
+            <option value="10.5">10.5% (Tasa Reducida AFIP)</option>
+            <option value="27">27% (Tasa Especial AFIP)</option>
+          </SelectField>
+          <div className="md:col-span-2">
+            <SettingToggle name="pricesIncludeVat" label="Precios de venta con IVA incluido" description="Los precios mayoristas y minoristas ingresados en los productos ya contemplan el IVA (cálculo inverso automático)." defaultChecked={settings.prices_include_vat !== false}/>
+          </div>
+        </SettingsFormCard>
+      </TabsContent>
       <TabsContent value="personal">
         <StaffSettingsView
           staff={data.staff || []}
@@ -2715,7 +4161,7 @@ function SettingsCenter({data,onSave,busy,dark,setDark,setToast,uid,setModal,onE
           onTransfer={onTransferModal}
         />
       </TabsContent>
-      <TabsContent value="ventas"><SettingsFormCard title="Ventas, Monedas y Comprobantes X" description="Configurá la moneda base (Reales por defecto), cotizaciones en Pesos y Dólares, cobros y condiciones comerciales." icon={FileText} onSubmit={submitSettings} busy={busy}><SelectField label="Moneda base predeterminada" name="currency" defaultValue={settings.currency||"BRL"}><option value="BRL">🇧🇷 Reales Brasileños (R$ BRL) - Predeterminada</option><option value="ARS">🇦🇷 Pesos Argentinos ($ ARS)</option><option value="USD">🇺🇸 Dólares Estadounidenses (US$ USD)</option></SelectField><Field label="Cotización: 1 Real (R$ BRL) en Pesos ($ ARS)" name="exchangeRateArs" type="number" step="any" defaultValue={settings.exchange_rate_ars||settings.exchange_rate_brl||250} placeholder="Ej: 250"/><Field label="Cotización: 1 Dólar (US$ USD) en Reales (R$ BRL)" name="exchangeRateUsd" type="number" step="any" defaultValue={settings.exchange_rate_usd||5.70} placeholder="Ej: 5.70"/><input type="hidden" name="exchangeRateBrl" value={settings.exchange_rate_ars||settings.exchange_rate_brl||250} /><div className="md:col-span-2 rounded-xl bg-muted/40 border p-3 text-xs text-muted-foreground flex flex-wrap items-center justify-between gap-2"><span>Paridades activas: <strong>1 R$ = ${Number(settings.exchange_rate_ars||settings.exchange_rate_brl||250).toLocaleString("es-AR")} ARS</strong> · <strong>1 US$ = R$ {Number(settings.exchange_rate_usd||5.70).toFixed(2)} BRL</strong> · <strong>1 US$ ≈ ${(Number(settings.exchange_rate_usd||5.70) * Number(settings.exchange_rate_ars||settings.exchange_rate_brl||250)).toLocaleString("es-AR")} ARS</strong></span><Badge variant="outline" className="font-mono text-[10px]">Multi-moneda CR</Badge></div><Field label="Prefijo del comprobante" name="receiptPrefix" defaultValue={settings.receipt_prefix||"X"}/><Field label="Próximo número" name="nextReceiptNumber" type="number" defaultValue={settings.next_receipt_number||1}/><SelectField label="Canal de venta predeterminado" name="defaultChannel" defaultValue={settings.default_channel||"minorista"}><option value="minorista">Minorista (Público general / Consumidor final)</option><option value="mayorista">Mayorista (Comercios y revendedores)</option></SelectField><Field label="Medios de pago separados por coma" name="paymentMethods" defaultValue={settings.payment_methods}/><Field label="Descuento máximo (%)" name="maxDiscountPercent" type="number" defaultValue={settings.max_discount_percent}/><SelectField label="Redondeo del total" name="roundingMode" defaultValue={settings.rounding_mode}><option value="none">Sin redondeo</option><option value="10">Al múltiplo de $10</option><option value="100">Al múltiplo de $100</option></SelectField><Field label="Mínimo mayorista (pares) - dejar en 0 para sin mínimo" name="wholesaleMinQty" type="number" defaultValue={settings.wholesale_min_qty ?? 0}/><SettingToggle name="allowMixedSale" label="Combinar modelos" description="Permite alcanzar el mínimo mayorista sumando distintos modelos." defaultChecked={Boolean(settings.allow_mixed_sale)}/><div className="md:col-span-2"><TextAreaField label="Condiciones mayoristas" name="wholesaleTerms" defaultValue={settings.wholesale_terms}/></div></SettingsFormCard></TabsContent>
+      <TabsContent value="ventas"><SettingsFormCard title="Ventas, Monedas y Comprobantes X" description="Configurá la moneda principal del sistema completo (Pesos Argentinos por defecto o Reales Brasileños), cotizaciones y cobros." icon={FileText} onSubmit={submitSettings} busy={busy}><SelectField label="Moneda principal del sistema completo" name="currency" defaultValue={settings.currency||"ARS"}><option value="ARS">🇦🇷 Pesos Argentinos ($ ARS / $) - Predeterminada</option><option value="BRL">🇧🇷 Reales Brasileños (R$ BRL)</option><option value="USD">🇺🇸 Dólares Estadounidenses (US$ USD)</option></SelectField><Field label="Cotización: 1 Real (R$ BRL) en Pesos ($ ARS)" name="exchangeRateArs" type="number" step="any" defaultValue={settings.exchange_rate_ars||settings.exchange_rate_brl||250} placeholder="Ej: 250"/><Field label="Cotización: 1 Dólar (US$ USD) en Reales (R$ BRL)" name="exchangeRateUsd" type="number" step="any" defaultValue={settings.exchange_rate_usd||5.70} placeholder="Ej: 5.70"/><input type="hidden" name="exchangeRateBrl" value={settings.exchange_rate_ars||settings.exchange_rate_brl||250} /><div className="md:col-span-2 rounded-xl bg-muted/40 border p-3 text-xs text-muted-foreground flex flex-wrap items-center justify-between gap-2"><span>Paridades activas: <strong>1 R$ = ${Number(settings.exchange_rate_ars||settings.exchange_rate_brl||250).toLocaleString("es-AR")} ARS</strong> · <strong>1 US$ = R$ {Number(settings.exchange_rate_usd||5.70).toFixed(2)} BRL</strong> · <strong>1 US$ ≈ ${(Number(settings.exchange_rate_usd||5.70) * Number(settings.exchange_rate_ars||settings.exchange_rate_brl||250)).toLocaleString("es-AR")} ARS</strong></span><Badge variant="outline" className="font-mono text-[10px]">Multi-moneda CR</Badge></div><Field label="Prefijo del comprobante" name="receiptPrefix" defaultValue={settings.receipt_prefix||"X"}/><Field label="Próximo número" name="nextReceiptNumber" type="number" defaultValue={settings.next_receipt_number||1}/><SelectField label="Canal de venta predeterminado" name="defaultChannel" defaultValue={settings.default_channel||"minorista"}><option value="minorista">Minorista (Público general / Consumidor final)</option><option value="mayorista">Mayorista (Comercios y revendedores)</option></SelectField><Field label="Medios de pago separados por coma" name="paymentMethods" defaultValue={settings.payment_methods}/><Field label="Descuento máximo (%)" name="maxDiscountPercent" type="number" defaultValue={settings.max_discount_percent}/><SelectField label="Redondeo del total" name="roundingMode" defaultValue={settings.rounding_mode}><option value="none">Sin redondeo</option><option value="10">Al múltiplo de $10</option><option value="100">Al múltiplo de $100</option></SelectField><Field label="Mínimo mayorista (pares) - dejar en 0 para sin mínimo" name="wholesaleMinQty" type="number" defaultValue={settings.wholesale_min_qty ?? 0}/><SettingToggle name="allowMixedSale" label="Combinar modelos" description="Permite alcanzar el mínimo mayorista sumando distintos modelos." defaultChecked={Boolean(settings.allow_mixed_sale)}/><div className="md:col-span-2"><TextAreaField label="Condiciones mayoristas" name="wholesaleTerms" defaultValue={settings.wholesale_terms}/></div></SettingsFormCard></TabsContent>
       <TabsContent value="inventario"><SettingsFormCard title="Reglas de inventario" description="Definí alertas, talles habituales y el comportamiento cuando no hay existencias." icon={Boxes} onSubmit={submitSettings} busy={busy}><Field label="Alerta de stock mínimo" name="lowStockAt" type="number" defaultValue={settings.low_stock_at}/><Field label="Talles predeterminados" name="defaultSizes" defaultValue={settings.default_sizes}/><Field label="Prefijo para códigos propios" name="barcodePrefix" defaultValue={settings.barcode_prefix}/><SettingToggle name="allowNegativeStock" label="Permitir stock negativo" description="Habilita ventas aunque el talle figure sin existencias. Usalo con control." defaultChecked={Boolean(settings.allow_negative_stock)}/><div className="md:col-span-2 rounded-2xl border bg-muted/35 p-4"><p className="font-bold">Estado actual</p><div className="mt-3 grid gap-3 sm:grid-cols-3"><div><p className="text-2xl font-black">{data.stats.productCount}</p><p className="text-xs text-muted-foreground">Modelos activos</p></div><div><p className="text-2xl font-black">{data.stats.lowStock}</p><p className="text-xs text-muted-foreground">Alertas vigentes</p></div><div><p className="text-2xl font-black">{data.products.reduce((sum:number,p:Product)=>sum+p.total_stock,0)}</p><p className="text-xs text-muted-foreground">Pares registrados</p></div></div></div></SettingsFormCard></TabsContent>
       <TabsContent value="catalogo"><SettingsFormCard title="Catálogos comerciales" description="Elegí qué información se imprime y comparte con clientes." icon={Tags} onSubmit={submitSettings} busy={busy}><SelectField label="Lista de precios predeterminada en catálogos" name="catalogDefaultPrice" defaultValue={settings.catalog_default_price||"both"}><option value="wholesale">Solo Precios Mayoristas</option><option value="retail">Solo Precios Minoristas</option><option value="both">Ambas listas (Mayorista + PVP)</option></SelectField><Field label="Contacto visible" name="catalogContact" defaultValue={settings.catalog_contact} placeholder="WhatsApp, teléfono o Instagram"/><SettingToggle name="catalogInStockOnly" label="Solo productos con stock" description="Oculta automáticamente modelos agotados." defaultChecked={Boolean(settings.catalog_in_stock_only)}/><SettingToggle name="catalogShowBarcode" label="Mostrar códigos de barras" description="Incluye el código en cada ficha impresa." defaultChecked={Boolean(settings.catalog_show_barcode)}/><div className="md:col-span-2"><TextAreaField label="Condiciones al pie del catálogo" name="catalogTerms" defaultValue={settings.catalog_terms}/></div></SettingsFormCard></TabsContent>
       <TabsContent value="lectores"><SettingsFormCard title="Lectores y cámara" description="Configurá y verificá los dispositivos usados en el punto de venta." icon={ScanLine} onSubmit={submitSettings} busy={busy}><SettingToggle name="scanSound" label="Confirmación sonora" description="Reproduce un sonido breve al reconocer un código." defaultChecked={Boolean(settings.scan_sound)}/><SettingToggle name="cameraEnabled" label="Lector con cámara" description="Habilita el escaneo mediante la cámara del dispositivo." defaultChecked={Boolean(settings.camera_enabled)}/><div className="md:col-span-2 grid gap-3 rounded-2xl border bg-muted/30 p-4 md:grid-cols-[1fr_auto_auto]"><div><p className="mb-2 text-sm font-bold">Prueba de lector USB o Bluetooth</p><Input value={readerCode} onChange={e=>setReaderCode(e.target.value)} onKeyDown={e=>e.key==="Enter"&&testReader()} placeholder="Escaneá un código aquí"/><p className="mt-2 text-xs text-muted-foreground">{readerResult||"El lector debe escribir el código y enviar Enter."}</p></div><Button type="button" variant="outline" className="self-end" onClick={testReader}><ScanLine/>Probar lector</Button><Button type="button" variant="outline" className="self-end" onClick={testCamera}><Camera/>Probar cámara</Button></div></SettingsFormCard></TabsContent>

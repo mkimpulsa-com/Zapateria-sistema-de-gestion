@@ -288,7 +288,19 @@ export function SupplierDetailModal({
                             </span>
                           </TableCell>
                           <TableCell className="text-xs">
-                            <p className="font-medium text-foreground">{m.note || "Sin nota"}</p>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="font-medium text-foreground">{m.note || "Sin nota"}</p>
+                              {m.invoice_type && (
+                                <span className="px-1.5 py-0.2 rounded bg-primary/10 text-primary font-mono font-bold text-[10px]">
+                                  Fac. {m.invoice_type} {m.invoice_number}
+                                </span>
+                              )}
+                              {Number(m.vat_amount || 0) > 0 && (
+                                <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-mono text-[10px]">
+                                  IVA CF: {money(m.vat_amount)}
+                                </span>
+                              )}
+                            </div>
                             {m.payment_method && (
                               <p className="text-muted-foreground text-[11px]">{m.payment_method}</p>
                             )}

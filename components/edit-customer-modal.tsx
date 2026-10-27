@@ -38,10 +38,14 @@ export function EditCustomerModal({
   onSubmit,
 }: EditCustomerModalProps) {
   const [type, setType] = useState<"minorista" | "mayorista">(customer?.type === "mayorista" ? "mayorista" : "minorista");
+  const [documentType, setDocumentType] = useState<string>(customer?.document_type || "DNI");
+  const [vatCondition, setVatCondition] = useState<string>(customer?.vat_condition || (customer?.type === "mayorista" ? "Responsable Inscripto" : "Consumidor Final"));
 
   useEffect(() => {
     if (customer) {
       setType(customer.type === "mayorista" ? "mayorista" : "minorista");
+      setDocumentType(customer.document_type || (customer.document && customer.document.replace(/[^0-9]/g, "").length === 11 ? "CUIT" : "DNI"));
+      setVatCondition(customer.vat_condition || (customer.type === "mayorista" ? "Responsable Inscripto" : "Consumidor Final"));
     }
   }, [customer]);
 
@@ -55,7 +59,9 @@ export function EditCustomerModal({
       customerId: customer.id,
       name: String(form.get("name") || "").trim(),
       type,
+      documentType,
       document: String(form.get("document") || "").trim(),
+      vatCondition,
       phone: String(form.get("phone") || "").trim(),
       email: String(form.get("email") || "").trim(),
       address: String(form.get("address") || "").trim(),
@@ -130,18 +136,53 @@ export function EditCustomerModal({
               </label>
             </div>
 
-            <label className="grid gap-1.5 text-sm font-semibold">
-              <span className="flex items-center gap-1.5">
-                <FileText className="size-3.5 text-muted-foreground" />
-                DNI / CUIT
-              </span>
-              <Input
-                name="document"
-                defaultValue={customer.document || ""}
-                placeholder="Ej. 35.123.456 o 20-35123456-9"
-                className="rounded-xl"
-              />
-            </label>
+            <div>
+              <label className="grid gap-1.5 text-sm font-semibold">
+                <span className="flex items-center gap-1.5">
+                  <FileText className="size-3.5 text-muted-foreground" />
+                  Identificación Fiscal
+                </span>
+                <div className="flex gap-2">
+                  <select
+                    value={documentType}
+                    onChange={(e) => setDocumentType(e.target.value)}
+                    className="h-10 w-28 rounded-xl border bg-background px-2 text-xs font-bold text-foreground"
+                  >
+                    <option value="DNI">DNI</option>
+                    <option value="CUIT">CUIT</option>
+                    <option value="CUIL">CUIL</option>
+                    <option value="Extranjero">Extranjero</option>
+                  </select>
+                  <Input
+                    name="document"
+                    defaultValue={customer.document || ""}
+                    placeholder={documentType === "CUIT" ? "20-12345678-9" : "Número de documento"}
+                    className="rounded-xl flex-1"
+                  />
+                </div>
+              </label>
+            </div>
+
+            <div>
+              <label className="grid gap-1.5 text-sm font-semibold">
+                <span className="flex items-center justify-between">
+                  <span>Condición frente al IVA</span>
+                  <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-primary/40 text-primary">
+                    AFIP
+                  </Badge>
+                </span>
+                <select
+                  value={vatCondition}
+                  onChange={(e) => setVatCondition(e.target.value)}
+                  className="h-10 w-full rounded-xl border bg-background px-3 text-xs font-bold text-foreground"
+                >
+                  <option value="Consumidor Final">Consumidor Final (Factura B / X)</option>
+                  <option value="Responsable Inscripto">Responsable Inscripto (Factura A)</option>
+                  <option value="Monotributo">Monotributo (Factura B / X)</option>
+                  <option value="Exento">Exento (Factura B / X)</option>
+                </select>
+              </label>
+            </div>
 
             <label className="grid gap-1.5 text-sm font-semibold">
               <span className="flex items-center gap-1.5">

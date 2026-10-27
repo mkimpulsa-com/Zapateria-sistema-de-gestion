@@ -10,14 +10,6 @@ export interface CurrencyConfig {
 }
 
 export const CURRENCIES: Record<CurrencyCode, CurrencyConfig> = {
-  BRL: {
-    code: "BRL",
-    name: "Real Brasileño",
-    symbol: "R$",
-    flag: "🇧🇷",
-    locale: "pt-BR",
-    defaultDecimals: 2,
-  },
   ARS: {
     code: "ARS",
     name: "Peso Argentino",
@@ -25,6 +17,14 @@ export const CURRENCIES: Record<CurrencyCode, CurrencyConfig> = {
     flag: "🇦🇷",
     locale: "es-AR",
     defaultDecimals: 0,
+  },
+  BRL: {
+    code: "BRL",
+    name: "Real Brasileño",
+    symbol: "R$",
+    flag: "🇧🇷",
+    locale: "pt-BR",
+    defaultDecimals: 2,
   },
   USD: {
     code: "USD",
@@ -35,6 +35,19 @@ export const CURRENCIES: Record<CurrencyCode, CurrencyConfig> = {
     defaultDecimals: 2,
   },
 };
+
+let currentSystemCurrency: CurrencyCode = "ARS";
+
+export function setSystemCurrency(currency?: CurrencyCode | string | null): void {
+  const code = String(currency || "ARS").toUpperCase();
+  if (code in CURRENCIES) {
+    currentSystemCurrency = code as CurrencyCode;
+  }
+}
+
+export function getSystemCurrency(): CurrencyCode {
+  return currentSystemCurrency;
+}
 
 export interface ExchangeRates {
   /** Cantidad de Pesos Argentinos (ARS) por 1 Real (BRL). Ej: 250 */
@@ -54,20 +67,20 @@ export function extractRates(rates?: ExchangeRates): { rateArs: number; rateUsd:
 }
 
 /**
- * Formatea un valor monetario según la moneda indicada.
- * Por defecto formatea en Reales (BRL) con 'pt-BR' y 2 decimales.
+ * Formatea un valor monetario según la moneda indicada (por defecto Pesos Argentinos ARS, o Reales BRL si está configurado).
  */
 export function formatMoney(
   value: number | string | null | undefined,
-  currency: CurrencyCode | string = "BRL",
+  currency?: CurrencyCode | string,
   options?: { maximumFractionDigits?: number; minimumFractionDigits?: number }
 ): string {
   const num = Number(value) || 0;
-  const curr = (String(currency || "BRL").toUpperCase() as CurrencyCode) in CURRENCIES
-    ? (String(currency || "BRL").toUpperCase() as CurrencyCode)
-    : "BRL";
+  const targetCode = currency ? String(currency).toUpperCase() : currentSystemCurrency;
+  const curr = (targetCode as CurrencyCode) in CURRENCIES
+    ? (targetCode as CurrencyCode)
+    : currentSystemCurrency;
 
-  const config = CURRENCIES[curr];
+  const config = CURRENCIES[curr] || CURRENCIES.ARS;
 
   return new Intl.NumberFormat(config.locale, {
     style: "currency",
@@ -82,15 +95,16 @@ export function formatMoney(
  */
 export function formatNumber(
   value: number | string | null | undefined,
-  currency: CurrencyCode | string = "BRL",
+  currency?: CurrencyCode | string,
   decimals?: number
 ): string {
   const num = Number(value) || 0;
-  const curr = (String(currency || "BRL").toUpperCase() as CurrencyCode) in CURRENCIES
-    ? (String(currency || "BRL").toUpperCase() as CurrencyCode)
-    : "BRL";
+  const targetCode = currency ? String(currency).toUpperCase() : currentSystemCurrency;
+  const curr = (targetCode as CurrencyCode) in CURRENCIES
+    ? (targetCode as CurrencyCode)
+    : currentSystemCurrency;
 
-  const config = CURRENCIES[curr];
+  const config = CURRENCIES[curr] || CURRENCIES.ARS;
   const dec = decimals ?? config.defaultDecimals;
 
   return new Intl.NumberFormat(config.locale, {
@@ -101,7 +115,6 @@ export function formatNumber(
 
 /**
  * Convierte un monto entre cualquiera de las 3 monedas (BRL, ARS, USD).
- * La moneda base interna del sistema es BRL.
  * - rateArs: Cuántos ARS vale 1 BRL (ej: 250)
  * - rateUsd: Cuántos BRL vale 1 USD (ej: 5.70)
  */
@@ -117,18 +130,18 @@ export function convertAmount({
   rates?: ExchangeRates;
 }): number {
   const val = Number(amount) || 0;
-  const fromCode = (String(from || "BRL").toUpperCase() as CurrencyCode) in CURRENCIES
-    ? (String(from || "BRL").toUpperCase() as CurrencyCode)
-    : "BRL";
-  const toCode = (String(to || "BRL").toUpperCase() as CurrencyCode) in CURRENCIES
-    ? (String(to || "BRL").toUpperCase() as CurrencyCode)
-    : "BRL";
+  const fromCode = (String(from || "ARS").toUpperCase() as CurrencyCode) in CURRENCIES
+    ? (String(from || "ARS").toUpperCase() as CurrencyCode)
+    : "ARS";
+  const toCode = (String(to || "ARS").toUpperCase() as CurrencyCode) in CURRENCIES
+    ? (String(to || "ARS").toUpperCase() as CurrencyCode)
+    : "ARS";
 
   if (fromCode === toCode || val === 0) return val;
 
   const { rateArs, rateUsd } = extractRates(rates);
 
-  // 1. Convertir 'from' a BRL (moneda base)
+  // 1. Convertir 'from' a BRL como pivote
   let amountInBrl = val;
   if (fromCode === "ARS") {
     amountInBrl = val / rateArs;
@@ -151,18 +164,29 @@ export function convertAmount({
 }
 
 /**
- * Obtiene los equivalentes de un monto base en BRL en las 3 monedas.
+ * Obtiene los equivalentes de un monto base en las 3 monedas.
  */
 export function getCurrencyEquivalents(
-  amountInBrl: number | string | null | undefined,
+  amount: number | string | null | undefined,
+  baseCurrency: CurrencyCode | string = "ARS",
   rates?: ExchangeRates
 ): { BRL: number; ARS: number; USD: number } {
-  const brl = Number(amountInBrl) || 0;
+  const val = Number(amount) || 0;
+  const base = (String(baseCurrency || "ARS").toUpperCase() as CurrencyCode) in CURRENCIES
+    ? (String(baseCurrency || "ARS").toUpperCase() as CurrencyCode)
+    : "ARS";
   const { rateArs, rateUsd } = extractRates(rates);
 
+  let amountInBrl = val;
+  if (base === "ARS") {
+    amountInBrl = val / rateArs;
+  } else if (base === "USD") {
+    amountInBrl = val * rateUsd;
+  }
+
   return {
-    BRL: Math.round(brl * 100) / 100,
-    ARS: Math.round(brl * rateArs),
-    USD: Math.round((brl / rateUsd) * 100) / 100,
+    BRL: Math.round(amountInBrl * 100) / 100,
+    ARS: Math.round(amountInBrl * rateArs),
+    USD: Math.round((amountInBrl / rateUsd) * 100) / 100,
   };
 }

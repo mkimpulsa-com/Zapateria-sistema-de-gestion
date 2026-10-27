@@ -87,10 +87,10 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
     }
   }, [channel]);
 
-  const currency = settings?.currency || "BRL";
+  const currency = settings?.currency || "ARS";
   const money = (val: number) => formatMoney(val, currency);
 
-  const businessName = settings?.business_name || (isMayorista ? "CR MAYORISTA" : "CR CALZADOS");
+  const businessName = settings?.business_name || (isMayorista ? "CR BAZAR" : "CR BAZAR");
   const branchName = settings?.branch_name || "";
   const rawWhatsapp = settings?.whatsapp || settings?.phone || "";
   const rawMinQty = Number(settings?.wholesale_min_qty);

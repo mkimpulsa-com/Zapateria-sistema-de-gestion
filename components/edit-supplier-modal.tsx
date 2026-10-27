@@ -37,10 +37,12 @@ export function EditSupplierModal({
   onSubmit,
 }: EditSupplierModalProps) {
   const [category, setCategory] = useState("Calzado y zapatillas");
+  const [vatCondition, setVatCondition] = useState("Responsable Inscripto");
 
   useEffect(() => {
     if (supplier) {
       setCategory(supplier.category || "Calzado y zapatillas");
+      setVatCondition(supplier.vat_condition || "Responsable Inscripto");
     }
   }, [supplier]);
 
@@ -55,6 +57,7 @@ export function EditSupplierModal({
       name: String(form.get("name") || "").trim(),
       contact: String(form.get("contact") || "").trim(),
       document: String(form.get("document") || "").trim(),
+      vatCondition,
       phone: String(form.get("phone") || "").trim(),
       email: String(form.get("email") || "").trim(),
       address: String(form.get("address") || "").trim(),
@@ -126,6 +129,22 @@ export function EditSupplierModal({
                 placeholder="Ej. 30-71234567-8"
                 className="rounded-xl"
               />
+            </label>
+
+            <label className="grid gap-1.5 text-sm font-semibold">
+              <span className="flex items-center gap-1.5">
+                <FileText className="size-3.5 text-muted-foreground" />
+                Condición frente al IVA
+              </span>
+              <select
+                value={vatCondition}
+                onChange={(e) => setVatCondition(e.target.value)}
+                className="h-10 rounded-xl border bg-background px-3 text-sm font-medium"
+              >
+                <option value="Responsable Inscripto">Responsable Inscripto (Factura A)</option>
+                <option value="Monotributo">Monotributo (Factura C)</option>
+                <option value="Exento">Exento</option>
+              </select>
             </label>
 
             <label className="grid gap-1.5 text-sm font-semibold">

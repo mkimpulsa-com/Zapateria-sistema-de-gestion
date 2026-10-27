@@ -32,7 +32,7 @@ export function NewBankAccountModal({
   const [bankName, setBankName] = useState("");
   const [accountType, setAccountType] = useState("corriente");
   const [accountNumber, setAccountNumber] = useState("");
-  const [currency, setCurrency] = useState("BRL");
+  const [currency, setCurrency] = useState("ARS");
   const [initialBalance, setInitialBalance] = useState("0");
   const [notes, setNotes] = useState("");
 
@@ -42,7 +42,7 @@ export function NewBankAccountModal({
       setBankName("");
       setAccountType("corriente");
       setAccountNumber("");
-      setCurrency("BRL");
+      setCurrency("ARS");
       setInitialBalance("0");
       setNotes("");
     }
@@ -136,8 +136,8 @@ export function NewBankAccountModal({
                 onChange={(e) => setCurrency(e.target.value)}
                 className="h-10 rounded-xl border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary font-bold"
               >
-                <option value="BRL">🇧🇷 BRL (R$ - Reales Brasileños) [Predeterminada]</option>
-                <option value="ARS">🇦🇷 ARS ($ - Pesos Argentinos)</option>
+                <option value="ARS">🇦🇷 ARS ($ - Pesos Argentinos) [Predeterminada]</option>
+                <option value="BRL">🇧🇷 BRL (R$ - Reales Brasileños)</option>
                 <option value="USD">🇺🇸 USD (US$ - Dólares Estadounidenses)</option>
               </select>
             </div>

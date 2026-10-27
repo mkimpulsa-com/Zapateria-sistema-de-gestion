@@ -95,8 +95,8 @@ const dateFull = (value: string) => {
 };
 
 const CHANNEL_COLORS = {
-  minorista: "#3b82f6", // Blue
-  mayorista: "#f97316", // Orange
+  minorista: "var(--chart-2)",
+  mayorista: "var(--chart-1)",
 };
 
 export type PeriodFilter = "dia" | "semanas" | "mes" | "historico";
@@ -161,7 +161,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
     setMounted(true);
   }, []);
 
-  const businessName = data.settings?.business_name || "CR MAYORISTA";
+  const businessName = data.settings?.business_name || "CR BAZAR";
   const products = data.products || [];
   const sales = data.sales || [];
   const customers = data.customers || [];
@@ -406,7 +406,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
       map.set(method, (map.get(method) || 0) + Number(s.total || 0));
     }
 
-    const palette = ["#f97316", "#3b82f6", "#10b981", "#8b5cf6", "#ec4899", "#06b6d4"];
+    const palette = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "#80858C"];
     const total = Array.from(map.values()).reduce((a, b) => a + b, 0);
 
     if (total === 0 || map.size === 0) {
@@ -646,16 +646,16 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <span className="flex size-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="flex size-2 rounded-full bg-primary" />
             <p className="text-xs font-bold uppercase tracking-[.18em] text-primary">
-              Panel de Control General
+              Tu negocio, en un vistazo
             </p>
           </div>
-          <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl text-foreground">
-            Resumen de {businessName}
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl text-foreground">
+            Resumen del negocio
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Métricas clave, análisis de ventas, mejores productos y clientes en tiempo real.
+            {businessName} · Ventas, caja e inventario en un solo lugar.
           </p>
         </div>
 
@@ -665,7 +665,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
 
           <Button
             onClick={() => setSection("ventas")}
-            className="rounded-xl shadow-sm bg-gradient-to-r from-[#ff7a5c] to-[#e9684c] text-white hover:opacity-95"
+            className="rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
           >
             <ShoppingCart className="size-4" />
             Nueva venta
@@ -673,18 +673,17 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
         </div>
       </div>
 
-      {/* KPI METRIC CARDS 3D CLAYMORPHISM */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {/* Indicadores principales */}
+      <div className="dashboard-metrics grid gap-4 sm:grid-cols-2 min-[1440px]:grid-cols-4">
         {/* Total Sales */}
         <Card className="group relative overflow-hidden">
-          <div className="absolute top-0 left-0 h-1.5 w-full bg-gradient-to-r from-blue-500 to-indigo-600" />
           <CardContent className="p-5 flex flex-col justify-between h-full gap-3">
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                   Ventas · {PERIOD_LABELS[period]}
                 </p>
-                <p className="mt-1.5 text-2xl sm:text-3xl font-black tracking-tight text-foreground">
+                <p className="mt-1.5 metric-value text-2xl sm:text-3xl font-semibold tracking-tight text-foreground">
                   {money(periodStats.revenue)}
                 </p>
               </div>
@@ -707,14 +706,13 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
 
         {/* Cash Balance */}
         <Card className="group relative overflow-hidden">
-          <div className="absolute top-0 left-0 h-1.5 w-full bg-gradient-to-r from-emerald-500 to-teal-500" />
           <CardContent className="p-5 flex flex-col justify-between h-full gap-3">
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                   Saldo en Caja ({PERIOD_LABELS[period]})
                 </p>
-                <p className={`mt-1.5 text-2xl sm:text-3xl font-black tracking-tight ${data.stats.cashBalance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                <p className={`mt-1.5 metric-value text-2xl sm:text-3xl font-semibold tracking-tight ${data.stats.cashBalance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
                   {money(data.stats.cashBalance)}
                 </p>
               </div>
@@ -738,14 +736,13 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
 
         {/* Capital Stock */}
         <Card className="group relative overflow-hidden">
-          <div className="absolute top-0 left-0 h-1.5 w-full bg-gradient-to-r from-purple-500 to-violet-600" />
           <CardContent className="p-5 flex flex-col justify-between h-full gap-3">
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                   Capital en Inventario
                 </p>
-                <p className="mt-1.5 text-2xl sm:text-3xl font-black tracking-tight text-foreground">
+                <p className="mt-1.5 metric-value text-2xl sm:text-3xl font-semibold tracking-tight text-foreground">
                   {money(data.stats.stockValue)}
                 </p>
               </div>
@@ -762,7 +759,6 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
 
         {/* Operational Alerts & Debt */}
         <Card className="group relative overflow-hidden">
-          <div className="absolute top-0 left-0 h-1.5 w-full bg-gradient-to-r from-amber-500 to-orange-500" />
           <CardContent className="p-5 flex flex-col justify-between h-full gap-3">
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -770,7 +766,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                   Alertas y Saldos a Cobrar
                 </p>
                 <div className="mt-1.5 flex items-baseline gap-2">
-                  <p className="text-2xl sm:text-3xl font-black tracking-tight text-amber-600 dark:text-amber-400">
+                  <p className="metric-value text-2xl sm:text-3xl font-semibold tracking-tight text-amber-600 dark:text-amber-400">
                     {data.stats.lowStock}
                   </p>
                   <span className="text-xs text-muted-foreground">modelos a reponer</span>
@@ -821,20 +817,20 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                   <AreaChart data={salesTimelineData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ff7a5c" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#ff7a5c" stopOpacity={0.0} />
+                        <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0.0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border/50" />
                     <XAxis
                       dataKey="displayDate"
-                      stroke="#888888"
+                      stroke="var(--muted-foreground)"
                       fontSize={11}
                       tickLine={false}
                       axisLine={false}
                     />
                     <YAxis
-                      stroke="#888888"
+                      stroke="var(--muted-foreground)"
                       fontSize={11}
                       tickLine={false}
                       axisLine={false}
@@ -865,7 +861,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                       type="monotone"
                       dataKey="total"
                       name="Facturación"
-                      stroke="#ff7a5c"
+                      stroke="var(--chart-1)"
                       strokeWidth={2.5}
                       fillOpacity={1}
                       fill="url(#colorTotal)"

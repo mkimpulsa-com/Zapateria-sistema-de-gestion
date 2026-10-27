@@ -66,7 +66,7 @@ export function CashReceiptModal({
   if (!movement) return null;
 
   const isIncome = movement.type === "ingreso";
-  const businessName = settings.business_name || "CR MAYORISTA";
+  const businessName = settings.business_name || "CR BAZAR";
   const branchName = settings.branch_name || "Casa Central";
   const logoUrl = settings.logo_url || "";
   const phone = settings.phone || settings.whatsapp || "";

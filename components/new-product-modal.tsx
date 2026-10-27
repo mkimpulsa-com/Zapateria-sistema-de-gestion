@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -41,7 +41,7 @@ interface NewProductModalProps {
   onNewCategory?: (name: string) => Promise<any>;
   settings?: any;
   busy: boolean;
-  onSubmit: (data: any) => Promise<boolean>;
+  onSubmit: (data: any, keepOpen?: boolean) => Promise<boolean>;
 }
 
 type ProductType = "simple" | "calzado" | "indumentaria" | "variantes";
@@ -61,16 +61,17 @@ const ROPA_CURVES = [
 ];
 
 const DEFAULT_CATEGORIES = [
-  "General",
-  "Bazar",
-  "Indumentaria",
-  "Calzado",
-  "Accesorios",
-  "Marroquinería",
-  "Electrónica",
-  "Hogar",
+  "Bazar General",
+  "Cocina y Mesa",
+  "Hogar y Deco",
   "Juguetería",
-  "Librería",
+  "Librería y Escolar",
+  "Ferretería",
+  "Electrónica y Accesorios",
+  "Baño y Limpieza",
+  "Calzado",
+  "Indumentaria",
+  "Accesorios y Regalería",
 ];
 
 export function NewProductModal({
@@ -84,8 +85,22 @@ export function NewProductModal({
   onSubmit,
 }: NewProductModalProps) {
   const [hasVariants, setHasVariants] = useState<boolean>(false);
-  const [productType, setProductType] = useState<ProductType>("calzado");
+  const [productType, setProductType] = useState<ProductType>("simple");
   const [simpleStock, setSimpleStock] = useState<number>(10);
+  const [name, setName] = useState("");
+  const [brand, setBrand] = useState("");
+  const [location, setLocation] = useState("");
+  const [color, setColor] = useState("");
+  const [sku, setSku] = useState("");
+  const [gender, setGender] = useState("No aplica");
+  const [minStock, setMinStock] = useState(3);
+  const [submitMode, setSubmitMode] = useState<"close" | "continue">("close");
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  const currency = (settings?.currency === "BRL" ? "BRL" : "ARS");
+  const isArs = currency === "ARS";
+  const currLabel = isArs ? "$ AR" : "R$ BRL";
+  const rateArs = Number(settings?.exchange_rate_ars || settings?.exchange_rate_brl) || 250;
 
   const initialCalzadoSizes = useMemo(() => {
     return defaultSizes
@@ -102,15 +117,58 @@ export function NewProductModal({
   const [cost, setCost] = useState<number>(0);
   const [wholesalePrice, setWholesalePrice] = useState<number>(0);
   const [retailPrice, setRetailPrice] = useState<number>(0);
+  const defaultVat = settings?.default_vat_rate !== undefined ? Number(settings.default_vat_rate) : 0;
+  const [vatRate, setVatRate] = useState<number>(defaultVat);
+  const [isCustomVat, setIsCustomVat] = useState<boolean>(false);
   const [barcode, setBarcode] = useState("");
 
   useEffect(() => {
     if (open) {
       setBarcode("");
       setHasVariants(false);
+      setProductType("simple");
       setSimpleStock(10);
+      setName("");
+      setCost(0);
+      setWholesalePrice(0);
+      setRetailPrice(0);
+      const initialVat = settings?.default_vat_rate !== undefined ? Number(settings.default_vat_rate) : 0;
+      setVatRate(initialVat);
+      setIsCustomVat(![0, 10.5, 21, 27].includes(initialVat));
+      setColor("");
+      setLocation("");
+      setSku("");
+      setGender("No aplica");
+      setSubmitMode("close");
     }
-  }, [open]);
+  }, [open, settings?.default_vat_rate]);
+
+  // Cálculos de margen porcentual en tiempo real
+  const wholesaleMargin = useMemo(() => {
+    if (!cost || !wholesalePrice || cost <= 0) return null;
+    const diff = wholesalePrice - cost;
+    const pct = Math.round((diff / cost) * 100);
+    return { diff, pct };
+  }, [cost, wholesalePrice]);
+
+  const retailMargin = useMemo(() => {
+    if (!cost || !retailPrice || cost <= 0) return null;
+    const diff = retailPrice - cost;
+    const pct = Math.round((diff / cost) * 100);
+    return { diff, pct };
+  }, [cost, retailPrice]);
+
+  const applyWholesaleMargin = (pct: number) => {
+    if (!cost || cost <= 0) return;
+    const calculated = Math.round(cost * (1 + pct / 100) * 100) / 100;
+    setWholesalePrice(calculated);
+  };
+
+  const applyRetailMargin = (pct: number) => {
+    if (!cost || cost <= 0) return;
+    const calculated = Math.round(cost * (1 + pct / 100) * 100) / 100;
+    setRetailPrice(calculated);
+  };
 
   const handleEnableVariants = () => {
     setHasVariants(true);
@@ -258,6 +316,18 @@ export function NewProductModal({
 
     const payload = {
       ...data,
+      name: name.trim(),
+      brand: brand.trim(),
+      location: location.trim(),
+      sku: sku.trim(),
+      color: color.trim(),
+      gender,
+      barcode: barcode.trim(),
+      cost: Number(cost) || 0,
+      wholesalePrice: Number(wholesalePrice) || 0,
+      retailPrice: Number(retailPrice) || 0,
+      vatRate: isNaN(Number(vatRate)) ? 0 : Number(vatRate),
+      minStock: Number(minStock) || 3,
       images: imagesList,
       imagesJson: JSON.stringify(imagesList),
       imageUrl: imagesList[0] || "",
@@ -266,9 +336,28 @@ export function NewProductModal({
       variantsJson: JSON.stringify(finalVariants),
     };
 
-    const ok = await onSubmit(payload);
+    const isContinue = submitMode === "continue";
+    const ok = await onSubmit(payload, isContinue);
     if (ok) {
-      onOpenChange(false);
+      if (isContinue) {
+        // Modo carga rápida: limpiar datos del producto pero mantener categoría y marca
+        setName("");
+        setBarcode("");
+        setSku("");
+        setCost(0);
+        setWholesalePrice(0);
+        setRetailPrice(0);
+        setSimpleStock(10);
+        setColor("");
+        setLocation("");
+        setHasVariants(false);
+        setProductType("simple");
+        requestAnimationFrame(() => {
+          nameInputRef.current?.focus();
+        });
+      } else {
+        onOpenChange(false);
+      }
     }
   };
 
@@ -306,15 +395,12 @@ export function NewProductModal({
                 <label className="grid gap-1 text-xs font-semibold">
                   <span>Nombre del producto / artículo *</span>
                   <Input
+                    ref={nameInputRef}
                     name="name"
                     required
-                    placeholder={
-                      productType === "calzado"
-                        ? "Ej. Zapatilla Urban Pro, Bota Siena..."
-                        : productType === "indumentaria"
-                        ? "Ej. Remera Oversize, Buzo Hoodie..."
-                        : "Ej. Termo Acero 1L, Auriculares Pro, Mochila..."
-                    }
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Ej. Termo Acero 1L, Set Tazas Cerámica, Plato Playo..."
                     className="h-10 rounded-xl"
                   />
                 </label>
@@ -325,7 +411,9 @@ export function NewProductModal({
                   <span>Marca / Fabricante</span>
                   <Input
                     name="brand"
-                    placeholder="Ej. Stanley, Nike, Genérico..."
+                    value={brand}
+                    onChange={(e) => setBrand(e.target.value)}
+                    placeholder="Ej. Stanley, Tramontina, Genérico..."
                     className="h-10 rounded-xl"
                   />
                 </label>
@@ -418,8 +506,23 @@ export function NewProductModal({
                   <span>Color / Presentación (Opcional)</span>
                   <Input
                     name="color"
-                    placeholder="Ej. Negro, Acero, Rojo, Estampado..."
+                    value={color}
+                    onChange={(e) => setColor(e.target.value)}
+                    placeholder="Ej. Negro, Acero, Rojo, Pastel..."
                     className="h-10 rounded-xl"
+                  />
+                </label>
+              </div>
+
+              <div>
+                <label className="grid gap-1 text-xs font-semibold">
+                  <span>Ubicación / Estante (Opcional)</span>
+                  <Input
+                    name="location"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="Ej. Pasillo 2, Estante B, Vidriera..."
+                    className="h-10 rounded-xl text-xs"
                   />
                 </label>
               </div>
@@ -429,14 +532,15 @@ export function NewProductModal({
                   <span>Público / Género</span>
                   <select
                     name="gender"
-                    defaultValue="No aplica"
+                    value={gender}
+                    onChange={(e) => setGender(e.target.value)}
                     className="h-10 w-full rounded-xl border bg-background px-3 text-sm"
                   >
                     <option value="No aplica">No aplica / General</option>
                     <option value="Unisex">Unisex</option>
                     <option value="Hombre">Hombre</option>
                     <option value="Mujer">Mujer</option>
-                    <option value="Niños">Niños</option>
+                    <option value="Niños">Niños / Infantil</option>
                   </select>
                 </label>
               </div>
@@ -450,6 +554,8 @@ export function NewProductModal({
                   </span>
                   <Input
                     name="sku"
+                    value={sku}
+                    onChange={(e) => setSku(e.target.value)}
                     placeholder="Auto: MOD-XXXX"
                     className="h-10 rounded-xl font-mono text-xs"
                   />
@@ -522,15 +628,20 @@ export function NewProductModal({
             </div>
           </div>
 
-          {/* SECCIÓN 2: PRECIOS Y COSTOS */}
+          {/* SECCIÓN 2: PRECIOS Y COSTOS CON CALCULADORA DE MARGEN */}
           <div>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
-              2. Precios comerciales y costo
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3 flex items-center justify-between">
+              <span>2. Precios comerciales y costo</span>
+              {cost > 0 && (
+                <span className="text-[11px] font-medium text-primary">
+                  Calculadora de margen activa sobre costo de {formatMoney(cost, currency)}
+                </span>
+              )}
             </h3>
-            <div className="grid gap-3.5 sm:grid-cols-4">
+            <div className="grid gap-3.5 sm:grid-cols-5">
               <div>
                 <label className="grid gap-1 text-xs font-semibold">
-                  <span>Costo de compra (R$ BRL) *</span>
+                  <span>Costo compra ({currLabel}) *</span>
                   <Input
                     name="cost"
                     type="number"
@@ -542,13 +653,14 @@ export function NewProductModal({
                     placeholder="0.00"
                     className="h-10 rounded-xl"
                   />
+                  <span className="text-[10px] text-muted-foreground">Costo reposición</span>
                 </label>
               </div>
 
               <div>
                 <label className="grid gap-1 text-xs font-semibold">
                   <span className="flex items-center justify-between text-orange-600 dark:text-orange-400">
-                    <span>Precio Mayorista (R$ BRL) *</span>
+                    <span>Precio Mayorista ({currLabel})*</span>
                     <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-orange-400 text-orange-600">
                       Venta
                     </Badge>
@@ -565,12 +677,33 @@ export function NewProductModal({
                     className="h-10 rounded-xl font-bold border-orange-400/60 text-orange-600 dark:text-orange-400"
                   />
                 </label>
+                {cost > 0 && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                    <span className="text-[10px] text-muted-foreground mr-0.5">Margen:</span>
+                    {[25, 35, 50, 70].map((pct) => (
+                      <button
+                        key={pct}
+                        type="button"
+                        onClick={() => applyWholesaleMargin(pct)}
+                        className="text-[10px] px-1.5 py-0.5 rounded border border-orange-400/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-700 dark:text-orange-300 font-bold transition-colors cursor-pointer"
+                        title={`Calcular precio con +${pct}% de ganancia sobre costo`}
+                      >
+                        +{pct}%
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {wholesaleMargin && (
+                  <p className="text-[10px] font-bold text-orange-600 dark:text-orange-400 mt-1">
+                    +{wholesaleMargin.pct}% ganancia (+{formatMoney(wholesaleMargin.diff, currency)})
+                  </p>
+                )}
               </div>
 
               <div>
                 <label className="grid gap-1 text-xs font-semibold">
                   <span className="flex items-center justify-between">
-                    <span>PVP Sugerido (R$ BRL)</span>
+                    <span>PVP Sugerido ({currLabel})</span>
                     <span className="text-[10px] font-normal text-muted-foreground">Minorista</span>
                   </span>
                   <Input
@@ -584,6 +717,96 @@ export function NewProductModal({
                     className="h-10 rounded-xl"
                   />
                 </label>
+                {cost > 0 && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                    <span className="text-[10px] text-muted-foreground mr-0.5">Margen:</span>
+                    {[50, 75, 100, 150].map((pct) => (
+                      <button
+                        key={pct}
+                        type="button"
+                        onClick={() => applyRetailMargin(pct)}
+                        className="text-[10px] px-1.5 py-0.5 rounded border border-border bg-muted/60 hover:bg-muted text-foreground font-bold transition-colors cursor-pointer"
+                        title={`Calcular precio con +${pct}% de ganancia sobre costo`}
+                      >
+                        +{pct}%
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {retailMargin && (
+                  <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1">
+                    +{retailMargin.pct}% ganancia (+{formatMoney(retailMargin.diff, currency)})
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="grid gap-1 text-xs font-semibold">
+                  <span className="flex items-center justify-between text-blue-600 dark:text-blue-400">
+                    <span>Alícuota IVA</span>
+                    <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-blue-400 text-blue-600">
+                      AFIP
+                    </Badge>
+                  </span>
+                  {isCustomVat ? (
+                    <div className="flex gap-1 items-center">
+                      <div className="relative flex-1">
+                        <Input
+                          name="vatRate"
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="any"
+                          value={vatRate}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            setVatRate(isNaN(val) ? 0 : val);
+                          }}
+                          placeholder="0"
+                          className="h-10 rounded-xl pr-6 font-bold text-xs"
+                          autoFocus
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">%</span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        onClick={() => {
+                          setIsCustomVat(false);
+                          setVatRate(0);
+                        }}
+                        className="h-10 px-2 text-[10px]"
+                        title="Volver a lista de alícuotas"
+                      >
+                        Lista
+                      </Button>
+                    </div>
+                  ) : (
+                    <select
+                      name="vatRate"
+                      value={[0, 10.5, 21, 27].includes(vatRate) ? vatRate : "custom"}
+                      onChange={(e) => {
+                        if (e.target.value === "custom") {
+                          setIsCustomVat(true);
+                        } else {
+                          const val = parseFloat(e.target.value);
+                          setVatRate(isNaN(val) ? 0 : val);
+                        }
+                      }}
+                      className="h-10 w-full rounded-xl border bg-background px-2.5 text-xs font-bold text-foreground focus:ring-2 focus:ring-primary/20"
+                    >
+                      <option value={0}>0% (Sin IVA / Exento)</option>
+                      <option value={21}>21% (Estándar AFIP)</option>
+                      <option value={10.5}>10.5% (Reducido AFIP)</option>
+                      <option value={27}>27% (Especial AFIP)</option>
+                      <option value="custom">✏️ Personalizado (%)</option>
+                    </select>
+                  )}
+                  <span className="text-[10px] text-muted-foreground">
+                    {isCustomVat ? "Alícuota personalizada" : vatRate === 0 ? "Sin IVA (Exento)" : `IVA ${vatRate}%`}
+                  </span>
+                </label>
               </div>
 
               <div>
@@ -593,21 +816,26 @@ export function NewProductModal({
                     name="minStock"
                     type="number"
                     min={0}
-                    defaultValue={3}
+                    value={minStock}
+                    onChange={(e) => setMinStock(Number(e.target.value) || 0)}
                     className="h-10 rounded-xl"
                   />
+                  <span className="text-[10px] text-muted-foreground">Aviso pocas unidades</span>
                 </label>
               </div>
             </div>
 
             {wholesalePrice > 0 && (
               <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-muted/40 border border-border/60 px-3 py-2 text-xs text-muted-foreground">
-                <span className="font-semibold text-foreground">Equivalencia mayorista estimada:</span>
-                <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30 font-bold">
-                  🇦🇷 $ {Math.round(wholesalePrice * (Number(settings?.exchange_rate_ars || settings?.exchange_rate_brl) || 250)).toLocaleString("es-AR")} ARS
+                <span className="font-semibold text-foreground">Desglose fiscal (IVA {vatRate}% incluido):</span>
+                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 font-mono font-bold">
+                  Neto: {isArs ? `$ ${Math.round(wholesalePrice / (1 + vatRate / 100)).toLocaleString("es-AR")}` : `R$ ${(wholesalePrice / (1 + vatRate / 100)).toFixed(2)}`}
                 </Badge>
-                <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold">
-                  🇺🇸 US$ {(wholesalePrice / (Number(settings?.exchange_rate_usd) || 5.70)).toFixed(2)} USD
+                <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30 font-mono font-bold">
+                  IVA ({vatRate}%): {isArs ? `$ ${Math.round(wholesalePrice - (wholesalePrice / (1 + vatRate / 100))).toLocaleString("es-AR")}` : `R$ ${(wholesalePrice - (wholesalePrice / (1 + vatRate / 100))).toFixed(2)}`}
+                </Badge>
+                <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30 font-bold ml-auto">
+                  {isArs ? `🇧🇷 R$ ${(wholesalePrice / rateArs).toFixed(2)} BRL` : `🇦🇷 $ ${Math.round(wholesalePrice * rateArs).toLocaleString("es-AR")} ARS`}
                 </Badge>
               </div>
             )}
@@ -692,7 +920,7 @@ export function NewProductModal({
                 <div className="flex items-center justify-between text-xs pt-2 text-muted-foreground">
                   <span>Valor en costo de este inventario:</span>
                   <strong className="font-bold text-foreground text-sm">
-                    {formatMoney(totalCost, "BRL")}
+                    {formatMoney(totalCost, currency)}
                   </strong>
                 </div>
               )}
@@ -945,7 +1173,7 @@ export function NewProductModal({
                       Inversión en stock:
                     </span>
                     <strong className="text-sm font-black text-emerald-800 dark:text-emerald-300">
-                      {formatMoney(totalCost, "BRL")}
+                      {formatMoney(totalCost, currency)}
                     </strong>
                   </div>
                 )}
@@ -954,23 +1182,40 @@ export function NewProductModal({
           )}
 
           {/* BOTONES DE ACCIÓN */}
-          <div className="flex justify-end gap-2 pt-3 border-t">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={busy}
-              className="rounded-xl"
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="submit"
-              disabled={busy || (hasVariants && variants.length === 0)}
-              className="rounded-xl px-6 bg-orange-600 hover:bg-orange-700 text-white font-bold"
-            >
-              {busy ? "Guardando producto…" : "Crear producto y guardar stock"}
-            </Button>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t">
+            <span className="text-xs text-muted-foreground hidden sm:inline-block">
+              Consejo: usá <strong>Guardar y crear otro</strong> para reponer stock masivo rápido.
+            </span>
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={busy}
+                className="rounded-xl"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                variant="secondary"
+                disabled={busy || (hasVariants && variants.length === 0)}
+                onClick={() => setSubmitMode("continue")}
+                className="rounded-xl px-4 font-bold border border-border/80 shadow-2xs hover:bg-muted cursor-pointer"
+                title="Guarda este producto y mantiene el formulario listo para el siguiente manteniendo la categoría"
+              >
+                <Plus className="size-4 mr-1 text-primary" />
+                Guardar y crear otro
+              </Button>
+              <Button
+                type="submit"
+                disabled={busy || (hasVariants && variants.length === 0)}
+                onClick={() => setSubmitMode("close")}
+                className="rounded-xl px-6 bg-orange-600 hover:bg-orange-700 text-white font-bold shadow-sm cursor-pointer"
+              >
+                {busy && submitMode === "close" ? "Guardando…" : "Crear producto"}
+              </Button>
+            </div>
           </div>
         </form>
       </DialogContent>

@@ -209,24 +209,24 @@ export default function FirebaseShell() {
     );
   if (!user)
     return (
-      <div className="grid min-h-screen place-items-center bg-background p-5">
-        <Card className="w-full max-w-md border-0 shadow-2xl">
+      <div className="auth-page grid min-h-screen place-items-center bg-background p-5">
+        <Card className="auth-card">
           <CardHeader className="text-center">
             <span className="brand-orb mx-auto grid size-16 place-items-center rounded-3xl text-white">
               {mode === "forgot" ? <KeyRound className="size-8" /> : <ShoppingBag className="size-8" />}
             </span>
             <CardTitle className="mt-3 text-2xl font-black tracking-tight">
               {mode === "login"
-                ? "CR MAYORISTA"
+                ? "CR BAZAR"
                 : mode === "register"
-                ? "CR MAYORISTA · Registro"
+                ? "CR BAZAR · Registro"
                 : "Recuperar Contraseña"}
             </CardTitle>
             <p className="text-sm text-muted-foreground">
               {mode === "login"
                 ? "Sistema de Gestión y Control Mayorista"
                 : mode === "register"
-                ? "Creá tu cuenta de acceso a CR MAYORISTA"
+                ? "Creá tu cuenta de acceso a CR BAZAR"
                 : "Ingresá tu correo para recibir un enlace seguro de restablecimiento"}
             </p>
           </CardHeader>
@@ -397,7 +397,7 @@ export default function FirebaseShell() {
                   {error && <p className="rounded-xl bg-red-50 dark:bg-red-950/40 p-3 text-sm text-red-700 dark:text-red-400 border border-red-200 dark:border-red-900/50 leading-relaxed">{error}</p>}
                   <Button className="h-11 w-full rounded-xl" disabled={busy}>
                     {mode === "login" ? <LogIn /> : <UserPlus />}
-                    {busy ? "Procesando…" : mode === "login" ? "Ingresar a CR MAYORISTA" : "Crear mi cuenta en CR MAYORISTA"}
+                    {busy ? "Procesando…" : mode === "login" ? "Ingresar a CR BAZAR" : "Crear mi cuenta en CR BAZAR"}
                   </Button>
                 </form>
                 {allowSignup && (
@@ -427,7 +427,7 @@ export default function FirebaseShell() {
       />
       <Button
         variant="outline"
-        className="no-print fixed bottom-4 right-4 z-[90] rounded-full shadow-xl"
+        className="session-signout no-print fixed bottom-4 right-4 z-50"
         onClick={() => auth && signOut(auth)}
       >
         <LockKeyhole />

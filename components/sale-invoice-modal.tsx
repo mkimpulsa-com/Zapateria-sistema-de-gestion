@@ -100,7 +100,7 @@ export function SaleInvoiceModal({
 
   if (!sale) return null;
 
-  const businessName = settings.business_name || "CR MAYORISTA";
+  const businessName = settings.business_name || "CR BAZAR";
   const branchName = settings.branch_name || "Casa Central";
   const logoUrl = settings.logo_url || "";
   const phone = settings.phone || settings.whatsapp || "";
@@ -108,7 +108,25 @@ export function SaleInvoiceModal({
   const taxId = settings.tax_id || "";
   const email = settings.email || "";
 
-  const receiptNo = sale.receipt_no || "X-00000000";
+  const receiptNo = sale.receipt_no || "X-0001-00000000";
+  const invoiceLetter = (sale.invoice_letter || sale.invoice_type || (receiptNo.includes("-") ? receiptNo.split("-")[0] : "X")).toUpperCase();
+  const isInvoiceA = invoiceLetter === "A";
+  const isInvoiceB = invoiceLetter === "B";
+  const isInvoiceC = invoiceLetter === "C";
+  const isInvoiceX = invoiceLetter === "X";
+
+  const afipCode = isInvoiceA ? "COD. 001" : isInvoiceB ? "COD. 006" : isInvoiceC ? "COD. 011" : "COD. 090";
+  const invoiceTitle = isInvoiceX ? 'FACTURA "X"' : `FACTURA "${invoiceLetter}"`;
+  const invoiceSubtitle = isInvoiceX ? "DOCUMENTO NO VÁLIDO COMO FACTURA · REMITO" : "COMPROBANTE FISCAL OFICIAL";
+
+  const sellerVat = sale.seller_vat_condition || settings.vat_condition || (isInvoiceC ? "Monotributo" : "Responsable Inscripto");
+  const sellerTaxId = sale.seller_tax_id || taxId;
+  const sellerIibb = sale.seller_iibb || settings.iibb_number || "";
+  const activityStartDate = settings.activity_start_date || "";
+
+  const customerVat = sale.customer_vat_condition || (sale.customer_type === "mayorista" ? "Responsable Inscripto" : "Consumidor Final");
+  const customerDoc = sale.customer_document ? `${sale.customer_document_type || (sale.customer_document.replace(/[^0-9]/g, "").length === 11 ? "CUIT" : "DNI")}: ${sale.customer_document}` : "—";
+
   const items: any[] = Array.isArray(sale.items) ? sale.items : [];
   const totalPairs = items.reduce((sum, it) => sum + Number(it.quantity || 1), 0);
   const subtotal = Number(sale.subtotal || sale.total || 0);
@@ -117,7 +135,7 @@ export function SaleInvoiceModal({
   const paymentMethod = sale.payment_method || "Efectivo";
   const channel = (sale.channel || "mayorista").toUpperCase();
 
-  const curr = (sale.currency || (sale.total_brl !== undefined ? "BRL" : "ARS")) as "BRL" | "ARS" | "USD";
+  const curr = (sale.currency || settings?.currency || "ARS") as "BRL" | "ARS" | "USD";
   const isBrl = curr === "BRL";
   const isUsd = curr === "USD";
   const isArs = curr === "ARS";
@@ -158,6 +176,20 @@ export function SaleInvoiceModal({
   const debtArs = Math.max(0, Math.round(totalArs - paidArs));
   const debtUsd = Math.max(0, Math.round((totalUsd - paidUsd) * 100) / 100);
   const debtCur = isBrl ? debtBrl : isUsd ? debtUsd : debtArs;
+
+  // Fiscal & IVA amounts (discriminación fiscal)
+  const netAmount = Number(sale.net_amount !== undefined ? sale.net_amount : (
+    items.reduce((sum, it) => {
+      const rate = Number(it.vat_rate !== undefined ? it.vat_rate : (it.vatRate !== undefined ? it.vatRate : 21));
+      const gross = Number(it.total || (Number(it.quantity || 1) * Number(it.unit_price || 0)));
+      return sum + (gross / (1 + rate / 100));
+    }, 0)
+  ));
+  const vatAmount = Number(sale.vat_amount !== undefined ? sale.vat_amount : Math.max(0, subtotal - netAmount));
+  const vatAmount21 = Number(sale.vat_amount_21 !== undefined ? sale.vat_amount_21 : 0);
+  const vatAmount105 = Number(sale.vat_amount_105 !== undefined ? sale.vat_amount_105 : 0);
+  const vatAmount27 = Number(sale.vat_amount_27 !== undefined ? sale.vat_amount_27 : 0);
+  const exemptAmount = Number(sale.exempt_amount !== undefined ? sale.exempt_amount : 0);
 
   // Dedicated Print function
   const handlePrint = () => {
@@ -421,7 +453,7 @@ export function SaleInvoiceModal({
             </span>
             <div>
               <DialogTitle className="text-sm font-bold text-white flex items-center gap-2">
-                Factura "X" · Remito Comercial
+                {invoiceTitle} · {isInvoiceX ? "Remito Comercial" : "Comprobante Fiscal"}
                 <span className="rounded bg-primary/20 text-primary text-[11px] px-1.5 py-0.2 font-mono">
                   {receiptNo}
                 </span>
@@ -551,30 +583,32 @@ export function SaleInvoiceModal({
                     {address && <p><strong className="text-slate-800">Dirección:</strong> {address}</p>}
                     {phone && <p><strong className="text-slate-800">Tel:</strong> {phone}</p>}
                     {email && <p><strong className="text-slate-800">Email:</strong> {email}</p>}
-                    {taxId && <p><strong className="text-slate-800">CUIT:</strong> {taxId}</p>}
-                    <p><strong className="text-slate-800">IVA:</strong> Sujeto Exento / Monotributo</p>
+                    {sellerTaxId && <p><strong className="text-slate-800">CUIT:</strong> {sellerTaxId}</p>}
+                    <p><strong className="text-slate-800">IVA:</strong> {sellerVat}</p>
+                    {sellerIibb && <p><strong className="text-slate-800">Ing. Brutos:</strong> {sellerIibb}</p>}
+                    {activityStartDate && <p><strong className="text-slate-800">Inicio Act.:</strong> {activityStartDate}</p>}
                   </div>
                 </div>
 
-                {/* Center Badge: The Classic Argentine "X" Box */}
+                {/* Center Badge: The Classic Argentine Fiscal Letter Box */}
                 <div className="col-span-2 flex flex-col items-center justify-center p-2 bg-slate-50 relative">
                   <div className="size-14 border-2 border-slate-900 rounded-lg flex flex-col items-center justify-center bg-white shadow-xs">
                     <span className="text-3xl font-black font-serif leading-none text-slate-900">
-                      X
+                      {invoiceLetter}
                     </span>
                     <span className="text-[8px] font-black tracking-tighter text-slate-700 leading-none mt-0.5">
-                      COD. 006
+                      {afipCode}
                     </span>
                   </div>
                   <div className="mt-1 text-center">
                     <span className="block text-[7.5px] font-black uppercase tracking-tighter text-slate-700 leading-tight">
-                      DOCUMENTO
+                      {isInvoiceX ? "DOCUMENTO" : "COMPROBANTE"}
                     </span>
                     <span className="block text-[7.5px] font-bold uppercase tracking-tighter text-slate-600 leading-tight">
-                      NO VÁLIDO
+                      {isInvoiceX ? "NO VÁLIDO" : "FISCAL"}
                     </span>
                     <span className="block text-[7px] font-semibold uppercase tracking-tighter text-slate-500 leading-tight">
-                      COMO FACTURA
+                      {isInvoiceX ? "COMO FACTURA" : "HOMOLOGADO"}
                     </span>
                   </div>
                 </div>
@@ -583,10 +617,10 @@ export function SaleInvoiceModal({
                 <div className="col-span-5 p-4 flex flex-col justify-between border-l border-slate-900 bg-white">
                   <div>
                     <h3 className="text-base font-black tracking-tight text-slate-900 uppercase">
-                      FACTURA "X"
+                      {invoiceTitle}
                     </h3>
                     <p className="text-[10px] font-bold tracking-wider text-slate-500 uppercase">
-                      REMITO DE ENTREGA
+                      {invoiceSubtitle}
                     </p>
 
                     <div className="mt-2.5">
@@ -636,10 +670,10 @@ export function SaleInvoiceModal({
 
                   <div>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-                      DNI / CUIT:
+                      Documento:
                     </span>
-                    <span className="font-mono text-slate-800">
-                      {sale.customer_document || "—"}
+                    <span className="font-mono text-slate-800 font-semibold">
+                      {customerDoc}
                     </span>
                   </div>
 
@@ -648,7 +682,7 @@ export function SaleInvoiceModal({
                       Condición IVA:
                     </span>
                     <span className="font-semibold text-slate-800">
-                      {sale.customer_type === "mayorista" ? "Cliente Mayorista" : "Consumidor Final"}
+                      {customerVat}
                     </span>
                   </div>
 
@@ -682,9 +716,15 @@ export function SaleInvoiceModal({
                   <tr className="bg-slate-900 text-white font-bold text-[10px] uppercase tracking-wider">
                     <th className="py-2 px-3 text-center w-12 border-r border-slate-700">Cant.</th>
                     <th className="py-2 px-3 border-r border-slate-700">Descripción / Artículo</th>
-                    <th className="py-2 px-3 text-center w-20 border-r border-slate-700">Variante</th>
-                    <th className="py-2 px-3 text-right w-24 border-r border-slate-700">P. Unitario</th>
-                    <th className="py-2 px-3 text-right w-28">Subtotal</th>
+                    <th className="py-2 px-3 text-center w-20 border-r border-slate-700">
+                      {isInvoiceA ? "Alíc. IVA" : "Variante"}
+                    </th>
+                    <th className="py-2 px-3 text-right w-24 border-r border-slate-700">
+                      {isInvoiceA ? "Neto Unit." : "P. Unitario"}
+                    </th>
+                    <th className="py-2 px-3 text-right w-28">
+                      {isInvoiceA ? "Subtotal Neto" : "Subtotal"}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -695,30 +735,46 @@ export function SaleInvoiceModal({
                       </td>
                     </tr>
                   ) : (
-                    items.map((item, idx) => (
-                      <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
-                        <td className="py-2 px-3 text-center font-bold text-slate-900 border-r border-slate-200">
-                          {item.quantity}
-                        </td>
-                        <td className="py-2 px-3 border-r border-slate-200">
-                          <span className="font-bold text-slate-900 block">{item.name}</span>
-                          {(item.brand || item.sku) && (
+                    items.map((item, idx) => {
+                      const rate = Number(item.vat_rate !== undefined ? item.vat_rate : (item.vatRate !== undefined ? item.vatRate : 21));
+                      const grossTotal = Number(item.total || (Number(item.quantity || 1) * Number(item.unit_price || 0)));
+                      const unitGross = Number(item.unit_price || 0);
+                      const unitNet = unitGross / (1 + rate / 100);
+                      const itemNetTotal = grossTotal / (1 + rate / 100);
+
+                      return (
+                        <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
+                          <td className="py-2 px-3 text-center font-bold text-slate-900 border-r border-slate-200">
+                            {item.quantity}
+                          </td>
+                          <td className="py-2 px-3 border-r border-slate-200">
+                            <span className="font-bold text-slate-900 block">{item.name}</span>
                             <span className="text-[10px] text-slate-500 font-mono">
-                              {[item.brand, item.sku].filter(Boolean).join(" · ")}
+                              {[
+                                item.brand,
+                                item.sku,
+                                !["Único", "Unico", "General", "Estándar"].includes(item.size) ? `Talle/Var: ${item.size}` : null
+                              ].filter(Boolean).join(" · ")}
                             </span>
-                          )}
-                        </td>
-                        <td className="py-2 px-3 text-center font-mono font-bold text-slate-800 border-r border-slate-200">
-                          {["Único", "Unico", "General", "Estándar"].includes(item.size) ? "—" : item.size}
-                        </td>
-                        <td className="py-2 px-3 text-right font-mono text-slate-700 border-r border-slate-200">
-                          {money(item.unit_price)}
-                        </td>
-                        <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
-                          {money(item.total || item.quantity * item.unit_price)}
-                        </td>
-                      </tr>
-                    ))
+                          </td>
+                          <td className="py-2 px-3 text-center font-mono font-bold text-slate-800 border-r border-slate-200">
+                            {isInvoiceA ? (
+                              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px]">
+                                {rate}%
+                              </span>
+                            ) : (
+                              ["Único", "Unico", "General", "Estándar"].includes(item.size) ? "—" : item.size
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono text-slate-700 border-r border-slate-200">
+                            {money(isInvoiceA ? unitNet : unitGross)}
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
+                            {money(isInvoiceA ? itemNetTotal : grossTotal)}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -738,6 +794,12 @@ export function SaleInvoiceModal({
                   <span className="font-bold text-slate-800">Forma de pago registrada:</span>
                   <span className="font-semibold text-slate-900">{paymentMethod}</span>
                 </div>
+                {isInvoiceA && (
+                  <div className="rounded bg-blue-50/70 border border-blue-200/60 p-2 text-[10px] text-blue-800">
+                    <p className="font-bold">Factura discriminada para cómputo de Crédito Fiscal (IVA).</p>
+                    <p className="opacity-80">R.G. AFIP 1415 / Ley 23.349 de Impuesto al Valor Agregado.</p>
+                  </div>
+                )}
                 <p className="text-[10px] text-slate-500 pt-1 border-t border-slate-200 leading-tight">
                   La entrega de la mercadería se realiza en perfecto estado de conservación y embalaje.
                   Garantía de cambio válida por 30 días corridos presentando este comprobante.
@@ -747,16 +809,53 @@ export function SaleInvoiceModal({
               {/* Right Totals Box */}
               <div className="sm:col-span-5 rounded-xl border-2 border-slate-900 overflow-hidden bg-white">
                 <div className="p-2.5 space-y-1 text-xs">
-                  <div className="flex justify-between text-slate-600">
-                    <span>Subtotal mercadería</span>
-                    <span className="font-mono font-semibold">{money(subtotal)}</span>
-                  </div>
+                  {isInvoiceA ? (
+                    <>
+                      <div className="flex justify-between text-slate-700">
+                        <span className="font-semibold">Subtotal Neto Gravado</span>
+                        <span className="font-mono font-bold">{formatMoney(netAmount, curr)}</span>
+                      </div>
+                      <div className="flex justify-between text-blue-700 font-semibold">
+                        <span>IVA Débito Fiscal 21%</span>
+                        <span className="font-mono">{formatMoney(vatAmount21 > 0 ? vatAmount21 : vatAmount, curr)}</span>
+                      </div>
+                      {vatAmount105 > 0 && (
+                        <div className="flex justify-between text-blue-700 font-semibold">
+                          <span>IVA Débito Fiscal 10.5%</span>
+                          <span className="font-mono">{formatMoney(vatAmount105, curr)}</span>
+                        </div>
+                      )}
+                      {vatAmount27 > 0 && (
+                        <div className="flex justify-between text-blue-700 font-semibold">
+                          <span>IVA Débito Fiscal 27%</span>
+                          <span className="font-mono">{formatMoney(vatAmount27, curr)}</span>
+                        </div>
+                      )}
+                      {exemptAmount > 0 && (
+                        <div className="flex justify-between text-slate-600 font-semibold">
+                          <span>Operaciones Exentas</span>
+                          <span className="font-mono">{formatMoney(exemptAmount, curr)}</span>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex justify-between text-slate-600">
+                      <span>Subtotal mercadería</span>
+                      <span className="font-mono font-semibold">{money(subtotal)}</span>
+                    </div>
+                  )}
                   {discount > 0 && (
                     <div className="flex justify-between text-emerald-700 font-semibold">
                       <span>
                         Descuento {sale.discount_percent ? `(${sale.discount_percent}%)` : ""}
                       </span>
                       <span className="font-mono">- {money(discount)}</span>
+                    </div>
+                  )}
+                  {Number(sale.vat_amount || sale.vat_charge || 0) > 0 && (
+                    <div className="flex justify-between text-blue-700 font-semibold">
+                      <span>Cargo IVA (+{sale.vat_rate || 21}%)</span>
+                      <span className="font-mono shrink-0">+ {formatMoney(Number(sale.vat_amount || sale.vat_charge), curr)}</span>
                     </div>
                   )}
                   {Number(sale.additional_charge || 0) > 0 && (
@@ -768,9 +867,25 @@ export function SaleInvoiceModal({
                     </div>
                   )}
                   <div className="flex justify-between font-bold border-t border-slate-200 pt-1 text-slate-900">
-                    <span>Total Venta ({curr === "BRL" ? "R$ BRL" : curr === "USD" ? "US$ USD" : "$ ARS"})</span>
-                    <span className="font-mono">{formatMoney(total, curr)}</span>
+                    <span>Total Facturado ({curr === "BRL" ? "R$ BRL" : curr === "USD" ? "US$ USD" : "$ ARS"})</span>
+                    <span className="font-mono text-sm">{formatMoney(total, curr)}</span>
                   </div>
+
+                  {isInvoiceB && (
+                    <p className="text-[9px] text-slate-500 italic text-right leading-tight">
+                      El importe total incluye IVA s/ Ley 23.349.
+                    </p>
+                  )}
+                  {isInvoiceC && (
+                    <p className="text-[9px] text-slate-500 italic text-right leading-tight">
+                      Régimen Simplificado (Monotributo).
+                    </p>
+                  )}
+                  {isInvoiceX && (
+                    <p className="text-[9px] text-slate-500 italic text-right leading-tight">
+                      Documento no válido como factura.
+                    </p>
+                  )}
 
                   <div className="rounded-lg bg-slate-50 border border-slate-200 p-2 my-1 space-y-1 text-slate-800">
                     <div className="flex justify-between font-bold text-xs">
@@ -873,9 +988,13 @@ export function SaleInvoiceModal({
             <div className="mt-6 pt-3 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="text-[9px] text-slate-500 text-center sm:text-left">
                 <p className="font-semibold text-slate-700">
-                  {businessName} · Sistema de Gestión Mayorista
+                  {businessName} · Sistema de Gestión Comercial & Facturación
                 </p>
-                <p>Comprobante de uso interno y control de mercadería entregada.</p>
+                <p>
+                  {isInvoiceX
+                    ? "Comprobante de uso interno y control de mercadería entregada."
+                    : `Comprobante Fiscal Homologado · ${afipCode} · Impuesto al Valor Agregado (AFIP)`}
+                </p>
               </div>
 
               <InvoiceBarcode value={receiptNo} />

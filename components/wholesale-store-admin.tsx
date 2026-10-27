@@ -38,7 +38,7 @@ export function WholesaleStoreAdmin({
   }, []);
 
   const storeUid = uid || data?.settings?.uid || "";
-  const businessName = data?.settings?.business_name || "CR CALZADOS";
+  const businessName = data?.settings?.business_name || "CR BAZAR";
   const whatsappNumber = data?.settings?.whatsapp || data?.settings?.phone || "";
   const wholesaleMinQty = data?.settings?.wholesale_min_qty && Number(data.settings.wholesale_min_qty) !== 6 ? Number(data.settings.wholesale_min_qty) : 0;
   const wholesaleTerms = data?.settings?.wholesale_terms || "Precios mayoristas directos sin mínimo de compra.";

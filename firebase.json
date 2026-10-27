@@ -7,7 +7,7 @@
     "rules": "storage.rules"
   },
   "hosting": {
-    "site": "sistema-de-gestion-mayorista",
+    "site": "cr-bazar",
     "public": "out",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "cleanUrls": true,

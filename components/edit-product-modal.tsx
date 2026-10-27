@@ -73,6 +73,14 @@ export function EditProductModal({
   const [cost, setCost] = useState<number>(0);
   const [wholesalePrice, setWholesalePrice] = useState<number>(0);
   const [retailPrice, setRetailPrice] = useState<number>(0);
+  const [vatRate, setVatRate] = useState<number>(0);
+  const [isCustomVat, setIsCustomVat] = useState<boolean>(false);
+
+  const currency = (settings?.currency === "BRL" ? "BRL" : "ARS");
+  const isArs = currency === "ARS";
+  const currLabel = isArs ? "$ AR" : "R$ BRL";
+  const rateArs = Number(settings?.exchange_rate_ars || settings?.exchange_rate_brl) || 250;
+  const rateUsd = Number(settings?.exchange_rate_usd) || 5.70;
 
   const categoryNames = useMemo(() => {
     const list: string[] = [];
@@ -110,8 +118,11 @@ export function EditProductModal({
       setCost(Number(product.cost) || 0);
       setWholesalePrice(Number(product.wholesale_price) || 0);
       setRetailPrice(Number(product.retail_price) || 0);
+      const initialVat = Number(product.vat_rate !== undefined ? product.vat_rate : (settings?.default_vat_rate !== undefined ? settings.default_vat_rate : 0));
+      setVatRate(initialVat);
+      setIsCustomVat(![0, 10.5, 21, 27].includes(initialVat));
     }
-  }, [product]);
+  }, [product, settings?.default_vat_rate]);
 
   if (!product) return null;
 
@@ -202,6 +213,7 @@ export function EditProductModal({
       action: "edit_product",
       productId: product.id,
       ...data,
+      vatRate: isNaN(Number(vatRate)) ? 0 : Number(vatRate),
       images: imagesList,
       imagesJson: JSON.stringify(imagesList),
       imageUrl: imagesList[0] || "",
@@ -372,16 +384,16 @@ export function EditProductModal({
                         : "bg-red-500/10 text-red-600"
                     }`}
                   >
-                    {marginAmount >= 0 ? `+${formatMoney(marginAmount, "BRL")}` : formatMoney(marginAmount, "BRL")} ({marginPercent}%)
+                    {marginAmount >= 0 ? `+${formatMoney(marginAmount, currency)}` : formatMoney(marginAmount, currency)} ({marginPercent}%)
                   </span>
                 </div>
               )}
             </div>
 
-            <div className="grid gap-3.5 sm:grid-cols-4">
+            <div className="grid gap-3.5 sm:grid-cols-5">
               <div>
                 <label className="grid gap-1.5 text-xs font-semibold text-foreground/90">
-                  <span>Costo de compra (R$ BRL) *</span>
+                  <span>Costo de compra ({currLabel}) *</span>
                   <Input
                     name="cost"
                     type="number"
@@ -399,7 +411,7 @@ export function EditProductModal({
               <div>
                 <label className="grid gap-1.5 text-xs font-semibold text-foreground/90">
                   <span className="flex items-center justify-between text-orange-600 dark:text-orange-400">
-                    <span>Precio Mayorista (R$ BRL) *</span>
+                    <span>Precio Mayorista ({currLabel})*</span>
                     <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-orange-400 text-orange-600">
                       Venta
                     </Badge>
@@ -420,7 +432,7 @@ export function EditProductModal({
 
               <div>
                 <label className="grid gap-1.5 text-xs font-semibold text-foreground/90">
-                  <span>PVP Sugerido (R$ BRL)</span>
+                  <span>PVP Sugerido ({currLabel})</span>
                   <Input
                     name="retailPrice"
                     type="number"
@@ -431,6 +443,75 @@ export function EditProductModal({
                     placeholder="0.00"
                     className="h-10 rounded-xl bg-card border-border/70 focus-visible:ring-primary/20"
                   />
+                </label>
+              </div>
+
+              <div>
+                <label className="grid gap-1.5 text-xs font-semibold text-foreground/90">
+                  <span className="flex items-center justify-between text-blue-600 dark:text-blue-400">
+                    <span>Alícuota IVA</span>
+                    <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-blue-400 text-blue-600">
+                      AFIP
+                    </Badge>
+                  </span>
+                  {isCustomVat ? (
+                    <div className="flex gap-1 items-center">
+                      <div className="relative flex-1">
+                        <Input
+                          name="vatRate"
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="any"
+                          value={vatRate}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            setVatRate(isNaN(val) ? 0 : val);
+                          }}
+                          placeholder="0"
+                          className="h-10 rounded-xl pr-6 font-bold text-xs bg-card"
+                          autoFocus
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">%</span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        onClick={() => {
+                          setIsCustomVat(false);
+                          setVatRate(0);
+                        }}
+                        className="h-10 px-2 text-[10px]"
+                        title="Volver a lista de alícuotas"
+                      >
+                        Lista
+                      </Button>
+                    </div>
+                  ) : (
+                    <select
+                      name="vatRate"
+                      value={[0, 10.5, 21, 27].includes(vatRate) ? vatRate : "custom"}
+                      onChange={(e) => {
+                        if (e.target.value === "custom") {
+                          setIsCustomVat(true);
+                        } else {
+                          const val = parseFloat(e.target.value);
+                          setVatRate(isNaN(val) ? 0 : val);
+                        }
+                      }}
+                      className="h-10 w-full rounded-xl border border-border/70 bg-card px-2.5 text-xs font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    >
+                      <option value={0}>0% (Sin IVA / Exento)</option>
+                      <option value={21}>21% (Estándar AFIP)</option>
+                      <option value={10.5}>10.5% (Reducido AFIP)</option>
+                      <option value={27}>27% (Especial AFIP)</option>
+                      <option value="custom">✏️ Personalizado (%)</option>
+                    </select>
+                  )}
+                  <span className="text-[10px] text-muted-foreground">
+                    {isCustomVat ? "Alícuota personalizada" : vatRate === 0 ? "Sin IVA (Exento)" : `IVA ${vatRate}%`}
+                  </span>
                 </label>
               </div>
 
@@ -450,12 +531,27 @@ export function EditProductModal({
 
             {wholesalePrice > 0 && (
               <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-muted/40 border border-border/60 px-3 py-2 text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">Desglose fiscal (IVA {vatRate}% incluido):</span>
+                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 font-mono font-bold">
+                  Neto: {isArs ? `$ ${Math.round(wholesalePrice / (1 + vatRate / 100)).toLocaleString("es-AR")}` : `R$ ${(wholesalePrice / (1 + vatRate / 100)).toFixed(2)}`}
+                </Badge>
+                <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30 font-mono font-bold">
+                  IVA ({vatRate}%): {isArs ? `$ ${Math.round(wholesalePrice - (wholesalePrice / (1 + vatRate / 100))).toLocaleString("es-AR")}` : `R$ ${(wholesalePrice - (wholesalePrice / (1 + vatRate / 100))).toFixed(2)}`}
+                </Badge>
+                <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30 font-bold ml-auto">
+                  {isArs ? `🇧🇷 R$ ${(wholesalePrice / rateArs).toFixed(2)} BRL` : `🇦🇷 $ ${Math.round(wholesalePrice * rateArs).toLocaleString("es-AR")} ARS`}
+                </Badge>
+              </div>
+            )}
+
+            {wholesalePrice > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-muted/40 border border-border/60 px-3 py-2 text-xs text-muted-foreground">
                 <span className="font-semibold text-foreground">Equivalencia mayorista estimada:</span>
                 <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30 font-bold">
-                  🇦🇷 $ {Math.round(wholesalePrice * (Number(settings?.exchange_rate_ars || settings?.exchange_rate_brl) || 250)).toLocaleString("es-AR")} ARS
+                  {isArs ? `🇧🇷 R$ ${(wholesalePrice / rateArs).toFixed(2)} BRL` : `🇦🇷 $ ${Math.round(wholesalePrice * rateArs).toLocaleString("es-AR")} ARS`}
                 </Badge>
                 <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold">
-                  🇺🇸 US$ {(wholesalePrice / (Number(settings?.exchange_rate_usd) || 5.70)).toFixed(2)} USD
+                  🇺🇸 US$ {(wholesalePrice / (isArs ? (rateArs * rateUsd) : rateUsd)).toFixed(2)} USD
                 </Badge>
               </div>
             )}

@@ -36,6 +36,19 @@ export function NewCustomerModal({
   onSubmit,
 }: NewCustomerModalProps) {
   const [type, setType] = useState<"minorista" | "mayorista">("minorista");
+  const [documentType, setDocumentType] = useState<string>("DNI");
+  const [vatCondition, setVatCondition] = useState<string>("Consumidor Final");
+
+  const handleTypeSelect = (selectedType: "minorista" | "mayorista") => {
+    setType(selectedType);
+    if (selectedType === "mayorista") {
+      setVatCondition("Responsable Inscripto");
+      setDocumentType("CUIT");
+    } else {
+      setVatCondition("Consumidor Final");
+      setDocumentType("DNI");
+    }
+  };
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -44,7 +57,9 @@ export function NewCustomerModal({
       action: "create_customer",
       name: String(form.get("name") || "").trim(),
       type,
+      documentType,
       document: String(form.get("document") || "").trim(),
+      vatCondition,
       phone: String(form.get("phone") || "").trim(),
       email: String(form.get("email") || "").trim(),
       address: String(form.get("address") || "").trim(),
@@ -83,7 +98,7 @@ export function NewCustomerModal({
             <div className="flex rounded-lg bg-muted p-1">
               <button
                 type="button"
-                onClick={() => setType("minorista")}
+                onClick={() => handleTypeSelect("minorista")}
                 className={`rounded-md px-3 py-1.5 text-xs font-bold transition-all ${
                   type === "minorista"
                     ? "bg-card shadow-xs text-foreground"
@@ -94,7 +109,7 @@ export function NewCustomerModal({
               </button>
               <button
                 type="button"
-                onClick={() => setType("mayorista")}
+                onClick={() => handleTypeSelect("mayorista")}
                 className={`rounded-md px-3 py-1.5 text-xs font-bold transition-all ${
                   type === "mayorista"
                     ? "bg-orange-600 text-white shadow-xs"
@@ -113,24 +128,59 @@ export function NewCustomerModal({
                 <Input
                   name="name"
                   required
-                  placeholder="Ej. Juan Pérez / Calzados del Valle"
+                  placeholder="Ej. Juan Pérez / Bazar Central SRL"
                   className="rounded-xl"
                   autoFocus
                 />
               </label>
             </div>
 
-            <label className="grid gap-1.5 text-sm font-semibold">
-              <span className="flex items-center gap-1.5">
-                <FileText className="size-3.5 text-muted-foreground" />
-                DNI / CUIT
-              </span>
-              <Input
-                name="document"
-                placeholder="Ej. 35.123.456 o 20-35123456-9"
-                className="rounded-xl"
-              />
-            </label>
+            <div>
+              <label className="grid gap-1.5 text-sm font-semibold">
+                <span className="flex items-center gap-1.5">
+                  <FileText className="size-3.5 text-muted-foreground" />
+                  Identificación Fiscal
+                </span>
+                <div className="flex gap-2">
+                  <select
+                    value={documentType}
+                    onChange={(e) => setDocumentType(e.target.value)}
+                    className="h-10 w-28 rounded-xl border bg-background px-2 text-xs font-bold text-foreground"
+                  >
+                    <option value="DNI">DNI</option>
+                    <option value="CUIT">CUIT</option>
+                    <option value="CUIL">CUIL</option>
+                    <option value="Extranjero">Extranjero</option>
+                  </select>
+                  <Input
+                    name="document"
+                    placeholder={documentType === "CUIT" ? "20-12345678-9" : "Número de documento"}
+                    className="rounded-xl flex-1"
+                  />
+                </div>
+              </label>
+            </div>
+
+            <div>
+              <label className="grid gap-1.5 text-sm font-semibold">
+                <span className="flex items-center justify-between">
+                  <span>Condición frente al IVA</span>
+                  <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-primary/40 text-primary">
+                    AFIP
+                  </Badge>
+                </span>
+                <select
+                  value={vatCondition}
+                  onChange={(e) => setVatCondition(e.target.value)}
+                  className="h-10 w-full rounded-xl border bg-background px-3 text-xs font-bold text-foreground"
+                >
+                  <option value="Consumidor Final">Consumidor Final (Factura B / X)</option>
+                  <option value="Responsable Inscripto">Responsable Inscripto (Factura A)</option>
+                  <option value="Monotributo">Monotributo (Factura B / X)</option>
+                  <option value="Exento">Exento (Factura B / X)</option>
+                </select>
+              </label>
+            </div>
 
             <label className="grid gap-1.5 text-sm font-semibold">
               <span className="flex items-center gap-1.5">

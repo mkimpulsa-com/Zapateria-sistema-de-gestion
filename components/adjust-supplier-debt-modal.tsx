@@ -50,14 +50,32 @@ export function AdjustSupplierDebtModal({
   const [registerCash, setRegisterCash] = useState(true);
   const [note, setNote] = useState("");
 
+  // Campos fiscales para factura de compra
+  const [invoiceType, setInvoiceType] = useState<"A" | "B" | "C" | "X">("A");
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [vatRate, setVatRate] = useState<number>(21);
+  const [isPaidDirectly, setIsPaidDirectly] = useState(false);
+  const [perceptions, setPerceptions] = useState("");
+
   const currentBalance = Number(supplier?.balance || 0);
   const numericAmount = Math.abs(Number(amount) || 0);
+  const percNum = Math.max(0, Number(perceptions) || 0);
+
+  // Cálculos fiscales automáticos para Factura de Proveedor
+  const taxableBase = Math.max(0, numericAmount - percNum);
+  const netCalculated = invoiceType === "A"
+    ? Math.round((taxableBase / (1 + vatRate / 100)) * 100) / 100
+    : taxableBase;
+  const vatCalculated = invoiceType === "A"
+    ? Math.round((taxableBase - netCalculated) * 100) / 100
+    : 0;
 
   let resultingBalance = currentBalance;
   if (type === "pago") {
     resultingBalance = currentBalance - numericAmount;
   } else if (type === "cargo") {
-    resultingBalance = currentBalance + numericAmount;
+    resultingBalance = isPaidDirectly ? currentBalance : currentBalance + numericAmount;
   } else if (type === "ajuste_manual") {
     resultingBalance = Number(amount) || 0;
   }
@@ -69,6 +87,12 @@ export function AdjustSupplierDebtModal({
       setNote("");
       setRegisterCash(true);
       setPaymentMethod("Transferencia");
+      setInvoiceNumber("");
+      setInvoiceDate(new Date().toISOString().slice(0, 10));
+      setVatRate(21);
+      setIsPaidDirectly(false);
+      setPerceptions("");
+      setInvoiceType(supplier.vat_condition === "Monotributo" ? "C" : "A");
     }
   }, [open, supplier, currentBalance]);
 
@@ -85,8 +109,20 @@ export function AdjustSupplierDebtModal({
       amount: numericAmount,
       newBalance: type === "ajuste_manual" ? Number(amount) || 0 : undefined,
       paymentMethod,
-      registerCashMovement: type === "pago" ? registerCash : false,
-      note: note.trim() || (type === "pago" ? "Pago a cuenta de saldo" : type === "cargo" ? "Compra o factura en cuenta corriente" : "Ajuste manual de saldo"),
+      registerCashMovement: type === "pago" ? registerCash : (type === "cargo" && isPaidDirectly ? registerCash : false),
+      note: note.trim() || (type === "pago" ? "Pago a cuenta de saldo" : type === "cargo" ? `Compra Factura ${invoiceType}${invoiceNumber ? ` N° ${invoiceNumber}` : ""}` : "Ajuste manual de saldo"),
+      invoiceType: type === "cargo" ? invoiceType : undefined,
+      invoiceNumber: type === "cargo" ? invoiceNumber.trim() : undefined,
+      invoiceDate: type === "cargo" ? invoiceDate : undefined,
+      vatRate: type === "cargo" ? vatRate : undefined,
+      netAmount: type === "cargo" ? netCalculated : undefined,
+      vatAmount: type === "cargo" ? vatCalculated : undefined,
+      vat21: type === "cargo" && vatRate === 21 ? vatCalculated : 0,
+      vat105: type === "cargo" && vatRate === 10.5 ? vatCalculated : 0,
+      vat27: type === "cargo" && vatRate === 27 ? vatCalculated : 0,
+      exemptAmount: type === "cargo" && vatRate === 0 ? netCalculated : 0,
+      perceptions: type === "cargo" ? percNum : 0,
+      isPaidDirectly: type === "cargo" ? isPaidDirectly : false,
     };
 
     const ok = await onSubmit(payload);
@@ -254,6 +290,159 @@ export function AdjustSupplierDebtModal({
                   checked={registerCash}
                   onCheckedChange={setRegisterCash}
                 />
+              </div>
+            </div>
+          )}
+
+          {/* Opciones y Datos Fiscales para Factura de Compra / Proveedor */}
+          {type === "cargo" && (
+            <div className="space-y-3 rounded-2xl border bg-muted/20 p-3.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                  <Receipt className="size-4 text-primary" />
+                  Datos Fiscales de la Factura de Compra
+                </span>
+                <span className="text-[10px] text-muted-foreground font-mono">
+                  {supplier.vat_condition || "Responsable Inscripto"}
+                </span>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                  Tipo de Comprobante recibido
+                </label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { id: "A", label: "Factura A", desc: "Crédito Fiscal" },
+                    { id: "B", label: "Factura B", desc: "IVA incluido" },
+                    { id: "C", label: "Factura C", desc: "Monotributo" },
+                    { id: "X", label: "Remito X", desc: "Uso interno" },
+                  ].map((inv) => (
+                    <button
+                      key={inv.id}
+                      type="button"
+                      onClick={() => setInvoiceType(inv.id as any)}
+                      className={`rounded-xl border p-2 text-center transition-all ${
+                        invoiceType === inv.id
+                          ? "border-primary bg-primary text-primary-foreground font-bold shadow-xs"
+                          : "border-border bg-card text-muted-foreground hover:bg-muted/40 font-medium"
+                      }`}
+                    >
+                      <span className="block text-xs leading-none">{inv.label}</span>
+                      <span className={`block text-[9px] mt-0.5 truncate leading-tight ${invoiceType === inv.id ? "text-primary-foreground/80" : "text-muted-foreground/70"}`}>
+                        {inv.desc}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <label className="grid gap-1 text-[11px] font-semibold text-muted-foreground">
+                  <span>N° de Comprobante Proveedor</span>
+                  <Input
+                    value={invoiceNumber}
+                    onChange={(e) => setInvoiceNumber(e.target.value)}
+                    placeholder="Ej. 0001-00045231"
+                    className="h-9 rounded-xl text-xs font-mono"
+                  />
+                </label>
+
+                <label className="grid gap-1 text-[11px] font-semibold text-muted-foreground">
+                  <span>Fecha de Emisión</span>
+                  <Input
+                    type="date"
+                    value={invoiceDate}
+                    onChange={(e) => setInvoiceDate(e.target.value)}
+                    className="h-9 rounded-xl text-xs"
+                  />
+                </label>
+              </div>
+
+              {invoiceType === "A" && (
+                <div className="rounded-xl border bg-card p-3 space-y-2">
+                  <div className="grid grid-cols-2 gap-2 items-center">
+                    <label className="grid gap-1 text-[11px] font-semibold text-muted-foreground">
+                      <span>Alícuota IVA Principal</span>
+                      <select
+                        value={vatRate}
+                        onChange={(e) => setVatRate(Number(e.target.value))}
+                        className="h-9 rounded-xl border bg-background px-2.5 text-xs font-semibold"
+                      >
+                        <option value={21}>21% (Estándar)</option>
+                        <option value={10.5}>10.5% (Reducida)</option>
+                        <option value={27}>27% (Especial)</option>
+                        <option value={0}>0% (Exento)</option>
+                      </select>
+                    </label>
+
+                    <label className="grid gap-1 text-[11px] font-semibold text-muted-foreground">
+                      <span>Percepciones IIBB / IVA ($)</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={perceptions}
+                        onChange={(e) => setPerceptions(e.target.value)}
+                        placeholder="0"
+                        className="h-9 rounded-xl text-xs font-mono"
+                      />
+                    </label>
+                  </div>
+
+                  {numericAmount > 0 && (
+                    <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-2 text-xs flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] font-bold text-emerald-800 dark:text-emerald-300 uppercase block">
+                          Crédito Fiscal IVA a favor:
+                        </span>
+                        <span className="text-base font-black font-mono text-emerald-700 dark:text-emerald-400">
+                          {money(vatCalculated)}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-muted-foreground block">Neto Gravado:</span>
+                        <span className="text-xs font-bold font-mono text-foreground">
+                          {money(netCalculated)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="rounded-xl border bg-card p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-bold">
+                      {isPaidDirectly ? "Factura Pagada al Contado" : "Cargar a Cuenta Corriente (Deuda)"}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {isPaidDirectly
+                        ? "No genera deuda pendiente con el proveedor."
+                        : "Suma este importe al saldo que se le debe al proveedor."}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={isPaidDirectly}
+                    onCheckedChange={setIsPaidDirectly}
+                  />
+                </div>
+
+                {isPaidDirectly && (
+                  <div className="pt-2 border-t flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold flex items-center gap-1.5">
+                        <WalletCards className="size-3 text-primary" />
+                        Registrar egreso en Caja diaria
+                      </p>
+                    </div>
+                    <Switch
+                      checked={registerCash}
+                      onCheckedChange={setRegisterCash}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           )}
