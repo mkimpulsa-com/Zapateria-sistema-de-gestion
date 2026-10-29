@@ -311,7 +311,10 @@ export default function StoreApp({
         return;
       }
 
-      // Detección automática de lector de código de barras USB
+      // Detección automática de lector de código de barras USB (ignorar si está creando o editando producto)
+      if (modal === "product" || Boolean(editingProduct)) {
+        return;
+      }
       const now = Date.now();
       const isInput = ["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName || "");
       const isScannerInput = (e.target as HTMLElement)?.id === "pos-scan-input";
@@ -341,7 +344,7 @@ export default function StoreApp({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [section, cart.length, busy, modal, scan]);
+  }, [section, cart.length, busy, modal, scan, editingProduct]);
 
   const action=async(body:any,success:string)=>{
     setBusy(true);

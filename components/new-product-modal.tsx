@@ -25,6 +25,7 @@ import {
   Barcode,
 } from "lucide-react";
 import { cleanBarcodeScan, isValidEan13, generateValidEan13 } from "@/lib/barcode";
+import { BarcodeInputScanner } from "@/components/barcode-input-scanner";
 import { ProductImageUpload } from "@/components/product-image-upload";
 import { formatMoney } from "@/lib/currency";
 
@@ -564,66 +565,12 @@ export function NewProductModal({
 
               {/* CÓDIGO DE BARRAS - NO OBLIGATORIO */}
               <div className="sm:col-span-2">
-                <label className="grid gap-1.5 text-xs font-semibold">
-                  <span className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <Barcode className="size-3.5 text-primary" />
-                      Código de barras (EAN-13 o propio)
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setBarcode(generateValidEan13())}
-                      className="text-[11px] font-bold text-primary hover:underline inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      <Sparkles className="size-3" />
-                      Generar EAN-13 oficial GS1
-                    </button>
-                  </span>
-                  <div className="flex gap-2">
-                    <Input
-                      name="barcode"
-                      value={barcode}
-                      onChange={(e) => setBarcode(cleanBarcodeScan(e.target.value))}
-                      placeholder="EAN-13 (ej: 779...) o escaneá con pistola lectora"
-                      className="h-10 rounded-xl font-mono text-xs flex-1"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setBarcode(generateValidEan13())}
-                      className="h-10 px-3 text-xs shrink-0 font-semibold"
-                      title="Generar nuevo código EAN-13 oficial con dígito verificador GS1"
-                    >
-                      Nuevo EAN
-                    </Button>
-                  </div>
-                  {barcode ? (
-                    <div className="text-[11px] font-medium">
-                      {isValidEan13(barcode) ? (
-                        <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                          <Check className="size-3" /> EAN-13 oficial GS1 válido (100% compatible con pistolas e impresoras térmicas)
-                        </span>
-                      ) : barcode.replace(/\D/g, "").length === 12 ? (
-                        <span className="text-blue-600 dark:text-blue-400">
-                          ℹ 12 dígitos detectados: se añadirá automáticamente el 13° verificador GS1 al guardar.
-                        </span>
-                      ) : barcode.replace(/\D/g, "").length === 13 ? (
-                        <span className="text-amber-600 dark:text-amber-400">
-                          ⚠ 13 dígitos: el dígito verificador se normalizará automáticamente a norma GS1 al guardar.
-                        </span>
-                      ) : (
-                        <span className="text-sky-600 dark:text-sky-400">
-                          ℹ Código alfanumérico: se procesará en estándar industrial Code 128 universal.
-                        </span>
-                      )}
-                    </div>
-                  ) : (
-                    <span className="text-[10px] text-muted-foreground">
-                      Dejá vacío para autogenerar un EAN-13 oficial GS1, o dispará con tu pistola lectora.
-                    </span>
-                  )}
-                </label>
+                <BarcodeInputScanner
+                  value={barcode}
+                  onChange={setBarcode}
+                  modalOpen={open}
+                  inputName="barcode"
+                />
               </div>
             </div>
           </div>

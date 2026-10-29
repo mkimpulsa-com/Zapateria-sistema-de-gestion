@@ -25,6 +25,7 @@ import {
   PackageCheck,
 } from "lucide-react";
 import { ProductImageUpload } from "@/components/product-image-upload";
+import { BarcodeInputScanner } from "@/components/barcode-input-scanner";
 import { formatMoney } from "@/lib/currency";
 
 interface VariantItem {
@@ -75,6 +76,7 @@ export function EditProductModal({
   const [retailPrice, setRetailPrice] = useState<number>(0);
   const [vatRate, setVatRate] = useState<number>(0);
   const [isCustomVat, setIsCustomVat] = useState<boolean>(false);
+  const [barcode, setBarcode] = useState<string>("");
 
   const currency = (settings?.currency === "BRL" ? "BRL" : "ARS");
   const isArs = currency === "ARS";
@@ -118,6 +120,7 @@ export function EditProductModal({
       setCost(Number(product.cost) || 0);
       setWholesalePrice(Number(product.wholesale_price) || 0);
       setRetailPrice(Number(product.retail_price) || 0);
+      setBarcode(String(product.barcode || ""));
       const initialVat = Number(product.vat_rate !== undefined ? product.vat_rate : (settings?.default_vat_rate !== undefined ? settings.default_vat_rate : 0));
       setVatRate(initialVat);
       setIsCustomVat(![0, 10.5, 21, 27].includes(initialVat));
@@ -213,6 +216,7 @@ export function EditProductModal({
       action: "edit_product",
       productId: product.id,
       ...data,
+      barcode: barcode.trim(),
       vatRate: isNaN(Number(vatRate)) ? 0 : Number(vatRate),
       images: imagesList,
       imagesJson: JSON.stringify(imagesList),
@@ -351,14 +355,12 @@ export function EditProductModal({
               </div>
 
               <div className="sm:col-span-2">
-                <label className="grid gap-1.5 text-xs font-semibold text-foreground/90">
-                  <span>Código de barras</span>
-                  <Input
-                    name="barcode"
-                    defaultValue={product.barcode || ""}
-                    className="h-10 rounded-xl font-mono text-xs bg-card border-border/70 focus-visible:ring-primary/20"
-                  />
-                </label>
+                <BarcodeInputScanner
+                  value={barcode}
+                  onChange={setBarcode}
+                  modalOpen={open}
+                  inputName="barcode"
+                />
               </div>
             </div>
           </div>
