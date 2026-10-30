@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import {
   Archive, ArrowDownLeft, ArrowRight, ArrowRightLeft, ArrowUpRight, BarChart3, Barcode, Bell, BellRing, Boxes, Building2,
   Camera, Check, CircleDollarSign, ClipboardList, Database, Download,
-  FileText, FolderTree, Landmark, LayoutDashboard, Moon, PackagePlus, Pencil, Percent, Plus, Printer, Receipt, ScanLine,
+  FileText, FolderTree, Landmark, LayoutDashboard, LayoutGrid, List, Moon, PackagePlus, Pencil, Percent, Plus, Printer, Receipt, ScanLine,
   Search, Settings, ShieldAlert, ShoppingBag, ShoppingCart, SlidersHorizontal, Store, Sun, Tags, Trash2, TrendingUp, Truck,
   Upload, UserPlus, UserRound, Users, Wallet, WalletCards, Monitor, Palette, Save, Volume2, X,
 } from "lucide-react";
@@ -48,6 +48,8 @@ import { CategoriesSettingsView } from "@/components/categories-settings-view";
 import { ProductBarcodeModal } from "@/components/product-barcode-modal";
 import { BarcodeView } from "@/components/barcode-view";
 import { StaffSettingsView } from "@/components/staff-settings-view";
+import { ProductsCsvModal, exportProductsToCsv } from "@/components/products-csv-modal";
+import { ProductDetailModal } from "@/components/product-detail-modal";
 import { cleanBarcodeScan, isBarcodeMatch } from "@/lib/barcode";
 import { downloadOrderControlPdf } from "@/lib/order-pdf";
 import { formatMoney, formatNumber, convertAmount, getCurrencyEquivalents, CURRENCIES, setSystemCurrency, getSystemCurrency } from "@/lib/currency";
@@ -157,6 +159,7 @@ export default function StoreApp({
   const [adjustingCustomer,setAdjustingCustomer]=useState<any|null>(null);
   const [viewingCustomer,setViewingCustomer]=useState<any|null>(null);
   const [deletingCustomer,setDeletingCustomer]=useState<any|null>(null);
+  const [viewingProduct,setViewingProduct]=useState<Product|null>(null);
   const [editingSupplier,setEditingSupplier]=useState<any|null>(null);
   const [adjustingSupplier,setAdjustingSupplier]=useState<any|null>(null);
   const [viewingSupplier,setViewingSupplier]=useState<any|null>(null);
@@ -743,8 +746,8 @@ export default function StoreApp({
         {!isCashier && section==="resumen"&&<DashboardView data={data!} setSection={setSection} addVariant={addVariant} setModal={setModal}/>} 
         {section==="ventas"&&<SalesPOSConfigured data={data!} filtered={filtered} channel={channel} setChannel={handleChannelChange} cart={cart} setCart={setCart} addVariant={addVariant} scan={scan} setScan={setScan} scanProduct={scanProduct} setModal={setModal} discount={discount} setDiscount={setDiscount} discountPercent={discountPercent} setDiscountPercent={setDiscountPercent} additionalCharge={additionalCharge} setAdditionalCharge={setAdditionalCharge} additionalChargeDescription={additionalChargeDescription} setAdditionalChargeDescription={setAdditionalChargeDescription} payment={payment} setPayment={setPayment} customerId={customerId} setCustomerId={setCustomerId} bankAccountId={bankAccountId} setBankAccountId={setBankAccountId} cartTotal={cartTotal} closeSale={closeSale} busy={busy}/>}
         {section==="pedidos"&&<OrdersView orders={orders} storeUid={uid} currency={data?.settings?.currency || "BRL"} products={data?.products || []} businessSettings={data?.settings || {}} onSelectOrderForSale={handleOrderToSale} setToast={setToast}/>}
-        {!isCashier && section==="productos"&&<Products data={data!} filtered={filtered} setModal={setModal} onEdit={(p:Product)=>setEditingProduct(p)} onAdjust={(p:Product)=>setAdjustingProduct(p)} onDelete={(p:Product)=>setDeletingProduct(p)}/>} 
-        {section==="inventario"&&<Inventory data={data!} filtered={filtered} isCashier={isCashier} onAddToCart={(p:Product,v:Variant)=>{addVariant(p,v);setSection("ventas");setToast(`${p.name} (Talle ${v.size}) agregado a la venta`);}} adjust={(v:Variant,p:Product)=>{setAdjustTarget({v,p});setModal("stock");}}/>}
+        {!isCashier && section==="productos"&&<Products data={data!} filtered={filtered} setModal={setModal} onView={(p:Product)=>setViewingProduct(p)} onEdit={(p:Product)=>setEditingProduct(p)} onAdjust={(p:Product)=>setAdjustingProduct(p)} onDelete={(p:Product)=>setDeletingProduct(p)}/>} 
+        {section==="inventario"&&<Inventory data={data!} filtered={filtered} isCashier={isCashier} onView={(p:Product)=>setViewingProduct(p)} onAddToCart={(p:Product,v:Variant)=>{addVariant(p,v);setSection("ventas");setToast(`${p.name} (Talle ${v.size}) agregado a la venta`);}} adjust={(v:Variant,p:Product)=>{setAdjustTarget({v,p});setModal("stock");}}/>}
         {section==="clientes"&&<CustomersView customers={data!.customers} sales={data!.sales} customerMoves={data!.customerMoves||[]} isCashier={isCashier} onNewCustomer={()=>setModal("customer")} onEditCustomer={(c:any)=>setEditingCustomer(c)} onAdjustDebt={(c:any)=>setAdjustingCustomer(c)} onViewDetail={(c:any)=>setViewingCustomer(c)} onDeleteCustomer={(c:any)=>setDeletingCustomer(c)}/>} 
         {!isCashier && section==="proveedores"&&<SuppliersView suppliers={data!.suppliers} supplierMoves={data!.supplierMoves||[]} onNewSupplier={()=>setModal("supplier")} onEditSupplier={(s:any)=>setEditingSupplier(s)} onAdjustDebt={(s:any)=>setAdjustingSupplier(s)} onViewDetail={(s:any)=>setViewingSupplier(s)} onDeleteSupplier={(s:any)=>setDeletingSupplier(s)}/>} 
         {section==="caja"&&<Cash data={data!} isCashier={isCashier} setModal={setModal} onEdit={(m:any)=>setEditingCashMovement(m)} onDelete={(m:any)=>setDeletingCashMovement(m)} onViewReceipt={(m:any)=>setViewingCashMovement(m)} />} 
@@ -767,6 +770,30 @@ export default function StoreApp({
       onSubmit={async (payload, keepOpen)=>{
         return await action({ action: "create_product", ...payload, keepModalOpen: keepOpen }, "Producto y stock guardados exitosamente");
       }}
+    />
+    <ProductsCsvModal
+      open={modal==="products_csv"}
+      onOpenChange={v=>!v&&setModal("")}
+      existingProducts={data?.products || []}
+      currency={data?.settings?.currency || "ARS"}
+      busy={busy}
+      onImport={async (items, updateExisting) => {
+        const ok = await action(
+          { action: "bulk_import_products", items, updateExisting },
+          `${items.length} productos procesados desde el archivo CSV`
+        );
+        return Boolean(ok);
+      }}
+    />
+    <ProductDetailModal
+      open={Boolean(viewingProduct)}
+      onOpenChange={v=>!v&&setViewingProduct(null)}
+      product={viewingProduct}
+      currency={data?.settings?.currency || "ARS"}
+      isCashier={isCashier}
+      onEdit={(p:Product)=>setEditingProduct(p)}
+      onAdjustStock={(p:Product)=>setAdjustingProduct(p)}
+      onDelete={(p:Product)=>setDeletingProduct(p)}
     />
     <EditProductModal
       open={Boolean(editingProduct)}
@@ -1285,14 +1312,126 @@ function CustomerSelectField({
 
 function SalesPOS({data,filtered,channel,setChannel,cart,setCart,addVariant,scan,setScan,scanProduct,setModal,discount,setDiscount,payment,setPayment,customerId,setCustomerId,cartTotal,closeSale,busy}:any){return <><SectionTitle eyebrow="Venta rápida" title="Punto de venta" text="Escaneá, elegí la variante y cobrá sin salir de la pantalla."/><div className="mb-5 grid gap-3 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-[1fr_auto_auto]"><div className="relative"><Barcode className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-primary"/><Input autoFocus className="h-12 pl-10" placeholder="Escaneá con lector USB/Bluetooth o escribí el código" value={scan} onChange={e=>{const val=e.target.value;if(val.includes("\n")||val.includes("\r")){scanProduct(val);}else{setScan(val);}}} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();scanProduct(scan);}}}/></div><Button variant="outline" className="h-12" onClick={()=>setModal("scanner")}><Camera/>Usar cámara</Button><div className="flex rounded-xl bg-muted p-1"><button onClick={()=>setChannel("minorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel==="minorista"?"bg-card shadow":"text-muted-foreground"}`}>Minorista</button><button onClick={()=>setChannel("mayorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel==="mayorista"?"bg-card shadow":"text-muted-foreground"}`}>Mayorista</button></div></div><div className="grid gap-6 xl:grid-cols-[1fr_390px]"><div className="grid content-start gap-4 sm:grid-cols-2 2xl:grid-cols-3">{filtered.map((p:Product)=><Card key={p.id} className="gap-3 border-0 py-0 shadow-sm overflow-hidden flex flex-col">{p.image_url?<div className="h-36 w-full overflow-hidden bg-muted/20"><img src={p.image_url} alt={p.name} className="h-full w-full object-cover hover:scale-105 transition-transform duration-300"/></div>:<div className="h-20 w-full bg-gradient-to-r from-primary/5 via-muted/30 to-primary/5 flex items-center justify-center text-muted-foreground/40"><ShoppingBag className="size-7 opacity-50"/></div>}<CardContent className="px-4 pb-4 pt-2 flex-1 flex flex-col justify-between"><div><div className="mb-2 flex items-start justify-between gap-2"><div><p className="font-bold">{p.name}</p><p className="text-xs text-muted-foreground">{p.brand} · {p.sku}</p></div><Badge variant="outline">{p.total_stock} u.</Badge></div><p className="mb-3 text-xl font-extrabold text-primary">{money(channel==="mayorista"?p.wholesale_price:p.retail_price)}</p></div><div><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Elegir variante</p><div className="flex flex-wrap gap-1.5">{p.variants.map(v=><Button key={v.id} variant="outline" size="xs" disabled={!v.stock} onClick={()=>addVariant(p,v)}>{v.size}<span className="text-[10px] text-muted-foreground">{v.stock}</span></Button>)}</div></div></CardContent></Card>)}</div><Card className="sticky top-24 h-fit gap-4 border-0 py-5 shadow-[0_14px_40px_rgb(15_33_55/12%)]"><CardHeader className="flex-row items-center justify-between px-5"><CardTitle className="flex items-center gap-2"><ShoppingCart className="size-5 text-primary"/>Venta actual</CardTitle><Badge>{cart.reduce((s:number,i:CartItem)=>s+i.quantity,0)} unidades</Badge></CardHeader><CardContent className="space-y-4 px-5"><div className="max-h-64 space-y-2 overflow-y-auto pr-1">{cart.length===0?<div className="rounded-2xl border border-dashed p-7 text-center text-sm text-muted-foreground">Escaneá un producto o elegí una variante para comenzar.</div>:cart.map((i:CartItem)=><div key={i.variantId} className="flex items-center gap-3 rounded-xl bg-muted/55 p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{i.name}</p><p className="text-xs text-muted-foreground">Variante {i.size} · {money(i.unitPrice)}</p></div><div className="flex items-center gap-1"><button className="size-7 rounded-lg border" onClick={()=>setCart((c:CartItem[])=>c.map(x=>x.variantId===i.variantId?{...x,quantity:Math.max(0,x.quantity-1)}:x).filter(x=>x.quantity>0))}>−</button><span className="w-6 text-center text-sm font-bold">{i.quantity}</span><button className="size-7 rounded-lg border" onClick={()=>setCart((c:CartItem[])=>c.map(x=>x.variantId===i.variantId?{...x,quantity:Math.min(x.max,x.quantity+1)}:x))}>+</button></div></div>)}</div><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold">Descuento<Input type="number" value={discount} onChange={e=>setDiscount(Number(e.target.value)||0)} className="mt-1"/></label><label className="text-xs font-semibold">Medio de pago<select value={payment} onChange={e=>setPayment(e.target.value)} className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Cuenta corriente</option></select></label></div><CustomerSelectField customers={data.customers} customerId={customerId} setCustomerId={setCustomerId} onNewCustomer={()=>setModal("customer")}/><div className="border-t pt-4"><div className="flex justify-between text-sm text-muted-foreground"><span>Subtotal</span><span>{money(cartTotal+discount)}</span></div><div className="mt-2 flex items-end justify-between"><span className="font-semibold">Total</span><span className="text-3xl font-black tracking-tight">{money(cartTotal)}</span></div></div><Button className="h-12 w-full rounded-xl text-base" disabled={!cart.length||busy} onClick={closeSale}>{busy?"Procesando…":`Cobrar ${money(cartTotal)}`}</Button><p className="text-center text-xs text-muted-foreground">Genera comprobante X y descuenta el stock automáticamente.</p></CardContent></Card></div></>}
 
-function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
+function Products({data,filtered,setModal,onView,onEdit,onAdjust,onDelete}:any){
   const [pageSize, setPageSize] = useState(25);
   const [currentPage, setCurrentPage] = useState(1);
-  const productsList = filtered || [];
+  const [localSearch, setLocalSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("todas");
+  const [brandFilter, setBrandFilter] = useState("todas");
+  const [stockFilter, setStockFilter] = useState<"todos" | "disponible" | "bajo" | "agotado">("todos");
+  const [sortBy, setSortBy] = useState<"recientes" | "nombre" | "precio_asc" | "precio_desc" | "stock_desc" | "stock_asc">("recientes");
+
+  const baseProducts: Product[] = filtered || [];
+
+  // Categorías y marcas únicas disponibles
+  const availableCategories = useMemo(() => {
+    const set = new Set<string>();
+    (data?.categories || []).forEach((c: any) => {
+      const name = typeof c === "string" ? c : c?.name;
+      if (name) set.add(String(name).trim());
+    });
+    baseProducts.forEach((p: Product) => {
+      if (p.category) set.add(String(p.category).trim());
+    });
+    return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b));
+  }, [data?.categories, baseProducts]);
+
+  const availableBrands = useMemo(() => {
+    const set = new Set<string>();
+    baseProducts.forEach((p: Product) => {
+      if (p.brand && String(p.brand).trim()) set.add(String(p.brand).trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [baseProducts]);
+
+  // Contadores por estado de stock
+  const stockCounts = useMemo(() => {
+    let disponible = 0;
+    let bajo = 0;
+    let agotado = 0;
+    baseProducts.forEach((p: Product) => {
+      const st = Number(p.total_stock) || 0;
+      const minSt = Number(p.min_stock) || 3;
+      if (st <= 0) agotado++;
+      else {
+        disponible++;
+        if (st <= minSt) bajo++;
+      }
+    });
+    return { todos: baseProducts.length, disponible, bajo, agotado };
+  }, [baseProducts]);
+
+  // Aplicar búsqueda local, filtros y ordenamiento
+  const productsList = useMemo(() => {
+    const q = localSearch.trim().toLowerCase();
+    const list = baseProducts.filter((p: Product) => {
+      if (categoryFilter !== "todas" && String(p.category || "").toLowerCase() !== categoryFilter.toLowerCase()) {
+        return false;
+      }
+      if (brandFilter !== "todas" && String(p.brand || "").toLowerCase() !== brandFilter.toLowerCase()) {
+        return false;
+      }
+      const st = Number(p.total_stock) || 0;
+      const minSt = Number(p.min_stock) || 3;
+      if (stockFilter === "disponible" && st <= 0) return false;
+      if (stockFilter === "bajo" && (st <= 0 || st > minSt)) return false;
+      if (stockFilter === "agotado" && st > 0) return false;
+
+      if (q) {
+        const hay = [
+          p.name,
+          p.sku,
+          p.barcode,
+          p.brand,
+          p.category,
+          p.color,
+          (p as any).location,
+          ...(p.variants || []).map((v) => v.size),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q) && !isBarcodeMatch(p.barcode, q)) return false;
+      }
+      return true;
+    });
+
+    return [...list].sort((a, b) => {
+      if (sortBy === "nombre") return String(a.name || "").localeCompare(String(b.name || ""));
+      if (sortBy === "precio_asc") {
+        const pa = Number(a.retail_price) || Number(a.wholesale_price) || 0;
+        const pb = Number(b.retail_price) || Number(b.wholesale_price) || 0;
+        return pa - pb;
+      }
+      if (sortBy === "precio_desc") {
+        const pa = Number(a.retail_price) || Number(a.wholesale_price) || 0;
+        const pb = Number(b.retail_price) || Number(b.wholesale_price) || 0;
+        return pb - pa;
+      }
+      if (sortBy === "stock_desc") return (Number(b.total_stock) || 0) - (Number(a.total_stock) || 0);
+      if (sortBy === "stock_asc") return (Number(a.total_stock) || 0) - (Number(b.total_stock) || 0);
+      return 0;
+    });
+  }, [baseProducts, localSearch, categoryFilter, brandFilter, stockFilter, sortBy]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filtered, pageSize]);
+  }, [filtered, pageSize, localSearch, categoryFilter, brandFilter, stockFilter, sortBy]);
+
+  const hasActiveFilters =
+    Boolean(localSearch.trim()) ||
+    categoryFilter !== "todas" ||
+    brandFilter !== "todas" ||
+    stockFilter !== "todos" ||
+    sortBy !== "recientes";
+
+  const clearAllFilters = () => {
+    setLocalSearch("");
+    setCategoryFilter("todas");
+    setBrandFilter("todas");
+    setStockFilter("todos");
+    setSortBy("recientes");
+  };
 
   const totalPairs = productsList.reduce((sum: number, p: Product) => sum + (Number(p.total_stock) || 0), 0);
   const costStock = productsList.reduce((sum: number, p: Product) => sum + ((Number(p.cost) || 0) * (Number(p.total_stock) || 0)), 0);
@@ -1316,13 +1455,35 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
         title="Productos" 
         text="Modelos, precios, códigos y curvas de talles." 
         action={
-          <Button
-            onClick={()=>setModal("product")}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-full px-4"
-          >
-            <PackagePlus/>
-            Nuevo producto
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => exportProductsToCsv(productsList, data?.settings?.business_name || "CR_Bazar")}
+              className="rounded-full px-3.5 font-semibold gap-1.5"
+              title="Exportar lista de productos a archivo .CSV (Excel)"
+            >
+              <Download className="size-4 text-primary" />
+              Exportar CSV
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setModal("products_csv")}
+              className="rounded-full px-3.5 font-semibold gap-1.5"
+              title="Cargar o actualizar productos desde un archivo .CSV"
+            >
+              <Upload className="size-4 text-emerald-500" />
+              Cargar CSV
+            </Button>
+            <Button
+              onClick={()=>setModal("product")}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-full px-4"
+            >
+              <PackagePlus/>
+              Nuevo producto
+            </Button>
+          </div>
         }
       />
 
@@ -1350,6 +1511,126 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
         />
       </div>
 
+      {/* Buscador y Filtros de Productos */}
+      <Card className="mb-5 border shadow-xs rounded-2xl p-4 space-y-3.5">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto_auto]">
+          {/* Buscador por texto o código */}
+          <div className="relative">
+            <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={localSearch}
+              onChange={(e) => setLocalSearch(e.target.value)}
+              placeholder="Buscar por nombre, SKU, código EAN-13, marca, color o talle..."
+              className="h-10 pl-9 pr-8 rounded-xl"
+            />
+            {localSearch && (
+              <button
+                type="button"
+                onClick={() => setLocalSearch("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
+                title="Limpiar búsqueda"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Filtro por Categoría */}
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="h-10 rounded-xl border border-border bg-background px-3 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="todas">Todas las categorías</option>
+            {availableCategories.map((cat) => (
+              <option key={cat} value={cat}>
+                Categoría: {cat}
+              </option>
+            ))}
+          </select>
+
+          {/* Filtro por Marca */}
+          <select
+            value={brandFilter}
+            onChange={(e) => setBrandFilter(e.target.value)}
+            className="h-10 rounded-xl border border-border bg-background px-3 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="todas">Todas las marcas</option>
+            {availableBrands.map((br) => (
+              <option key={br} value={br}>
+                Marca: {br}
+              </option>
+            ))}
+          </select>
+
+          {/* Ordenar por */}
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
+            className="h-10 rounded-xl border border-border bg-background px-3 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="recientes">Orden: Más recientes</option>
+            <option value="nombre">Orden: Nombre (A - Z)</option>
+            <option value="stock_desc">Orden: Mayor stock</option>
+            <option value="stock_asc">Orden: Menor stock</option>
+            <option value="precio_desc">Orden: Mayor precio</option>
+            <option value="precio_asc">Orden: Menor precio</option>
+          </select>
+        </div>
+
+        {/* Píldoras rápidas de Estado de Stock */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/40">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-semibold text-muted-foreground mr-1 flex items-center gap-1">
+              <SlidersHorizontal className="size-3.5" />
+              Estado de stock:
+            </span>
+            {([
+              { id: "todos", label: "Todos", count: stockCounts.todos },
+              { id: "disponible", label: "Con stock", count: stockCounts.disponible },
+              { id: "bajo", label: "Stock bajo", count: stockCounts.bajo },
+              { id: "agotado", label: "Sin stock", count: stockCounts.agotado },
+            ] as const).map((tab) => {
+              const active = stockFilter === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setStockFilter(tab.id)}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition-all cursor-pointer ${
+                    active
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted"
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  <span
+                    className={`rounded-full px-1.5 py-0.2 text-[10px] ${
+                      active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-background text-foreground"
+                    }`}
+                  >
+                    {tab.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {hasActiveFilters && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              onClick={clearAllFilters}
+              className="h-7 text-xs font-bold text-rose-500 hover:text-rose-600 gap-1"
+            >
+              <X className="size-3.5" />
+              Limpiar filtros
+            </Button>
+          )}
+        </div>
+      </Card>
+
       <Card className="border shadow-sm rounded-2xl overflow-hidden">
         <CardContent className="px-2 sm:px-5 py-2">
           <Table>
@@ -1365,7 +1646,22 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
               </TableRow>
             </TableHeader>
             <TableBody>
-              {visibleProducts.map((p:Product)=>{
+              {visibleProducts.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <Search className="size-6 opacity-40" />
+                      <p className="font-semibold text-sm text-foreground">No se encontraron productos</p>
+                      <p className="text-xs">Probá cambiando los filtros o el término de búsqueda.</p>
+                      {hasActiveFilters && (
+                        <Button type="button" variant="outline" size="xs" onClick={clearAllFilters} className="mt-1">
+                          Limpiar todos los filtros
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : visibleProducts.map((p:Product)=>{
                 const effectiveRetail = Number(p.retail_price) || Number(p.wholesale_price) || 0;
                 const effectiveWholesale = Number(p.wholesale_price) || Number(p.retail_price) || 0;
                 const unitCost = Number(p.cost) || 0;
@@ -1375,12 +1671,17 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
                 const subtitleParts = [p.brand, p.color, p.category].filter(Boolean);
 
                 return (
-                  <TableRow key={p.id} className="hover:bg-muted/25 border-b border-border/40">
+                  <TableRow
+                    key={p.id}
+                    onClick={() => onView && onView(p)}
+                    className="hover:bg-muted/25 border-b border-border/40 cursor-pointer transition-colors"
+                    title="Hacé clic para ver la ficha completa del producto"
+                  >
                     <TableCell className="py-3">
                       <div className="flex items-center gap-3">
                         <ProductImage src={p.image_url} alt={p.name} className="size-10 rounded-full object-cover border shrink-0" />
                         <div>
-                          <p className="font-bold text-sm text-foreground">{p.name}</p>
+                          <p className="font-bold text-sm text-foreground hover:text-primary transition-colors">{p.name}</p>
                           <p className="text-xs text-muted-foreground">
                             {subtitleParts.length > 0 ? subtitleParts.join(" · ") : "Catálogo general"}
                           </p>
@@ -1430,13 +1731,13 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
                         {margin}%
                       </span>
                     </TableCell>
-                    <TableCell className="py-3 text-right">
+                    <TableCell className="py-3 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1.5">
                         <Button
                           variant="outline"
                           size="xs"
                           className="h-8 gap-1.5 rounded-full px-3 text-xs font-semibold border-border/80 bg-card/60 hover:bg-muted"
-                          onClick={()=>onAdjust(p)}
+                          onClick={(e)=>{e.stopPropagation();onAdjust(p);}}
                           title="Ajustar stock"
                         >
                           <Boxes className="size-3.5 text-amber-500"/>
@@ -1446,7 +1747,7 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
                           variant="outline"
                           size="xs"
                           className="h-8 gap-1.5 rounded-full px-3 text-xs font-semibold border-border/80 bg-card/60 hover:bg-muted"
-                          onClick={()=>onEdit(p)}
+                          onClick={(e)=>{e.stopPropagation();onEdit(p);}}
                           title="Editar producto"
                         >
                           <Pencil className="size-3.5 text-sky-500"/>
@@ -1456,7 +1757,7 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
                           variant="outline"
                           size="xs"
                           className="size-8 p-0 rounded-full border-rose-500/30 bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 hover:text-rose-400"
-                          onClick={()=>onDelete(p)}
+                          onClick={(e)=>{e.stopPropagation();onDelete(p);}}
                           title="Eliminar producto"
                         >
                           <Trash2 className="size-3.5"/>
@@ -1529,13 +1830,126 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
   );
 }
 
-function Inventory({data,filtered,adjust,isCashier,onAddToCart}:any){
+function Inventory({data,filtered,adjust,isCashier,onView,onAddToCart}:any){
   const [displayLimit, setDisplayLimit] = useState(36);
-  const productsList = filtered || [];
+  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
+    if (typeof window !== "undefined") {
+      const saved = window.localStorage.getItem("cr_bazar_inventory_view");
+      if (saved === "list" || saved === "grid") return saved;
+    }
+    return "grid";
+  });
+  const [localSearch, setLocalSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("todas");
+  const [brandFilter, setBrandFilter] = useState("todas");
+  const [stockFilter, setStockFilter] = useState<"todos" | "disponible" | "bajo" | "agotado">("todos");
+  const [sortBy, setSortBy] = useState<"recientes" | "nombre" | "stock_desc" | "stock_asc">("recientes");
+
+  const handleChangeViewMode = (mode: "grid" | "list") => {
+    setViewMode(mode);
+    try {
+      window.localStorage.setItem("cr_bazar_inventory_view", mode);
+    } catch {}
+  };
+
+  const baseProducts: Product[] = filtered || [];
+
+  const availableCategories = useMemo(() => {
+    const set = new Set<string>();
+    (data?.categories || []).forEach((c: any) => {
+      const name = typeof c === "string" ? c : c?.name;
+      if (name) set.add(String(name).trim());
+    });
+    baseProducts.forEach((p: Product) => {
+      if (p.category) set.add(String(p.category).trim());
+    });
+    return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b));
+  }, [data?.categories, baseProducts]);
+
+  const availableBrands = useMemo(() => {
+    const set = new Set<string>();
+    baseProducts.forEach((p: Product) => {
+      if (p.brand && String(p.brand).trim()) set.add(String(p.brand).trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [baseProducts]);
+
+  const stockCounts = useMemo(() => {
+    let disponible = 0;
+    let bajo = 0;
+    let agotado = 0;
+    baseProducts.forEach((p: Product) => {
+      const st = Number(p.total_stock) || 0;
+      const minSt = Number(p.min_stock) || 3;
+      if (st <= 0) agotado++;
+      else {
+        disponible++;
+        if (st <= minSt) bajo++;
+      }
+    });
+    return { todos: baseProducts.length, disponible, bajo, agotado };
+  }, [baseProducts]);
+
+  const productsList = useMemo(() => {
+    const q = localSearch.trim().toLowerCase();
+    const list = baseProducts.filter((p: Product) => {
+      if (categoryFilter !== "todas" && String(p.category || "").toLowerCase() !== categoryFilter.toLowerCase()) {
+        return false;
+      }
+      if (brandFilter !== "todas" && String(p.brand || "").toLowerCase() !== brandFilter.toLowerCase()) {
+        return false;
+      }
+      const st = Number(p.total_stock) || 0;
+      const minSt = Number(p.min_stock) || 3;
+      if (stockFilter === "disponible" && st <= 0) return false;
+      if (stockFilter === "bajo" && (st <= 0 || st > minSt)) return false;
+      if (stockFilter === "agotado" && st > 0) return false;
+
+      if (q) {
+        const hay = [
+          p.name,
+          p.sku,
+          p.barcode,
+          p.brand,
+          p.category,
+          p.color,
+          (p as any).location,
+          ...(p.variants || []).map((v) => v.size),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q) && !isBarcodeMatch(p.barcode, q)) return false;
+      }
+      return true;
+    });
+
+    return [...list].sort((a, b) => {
+      if (sortBy === "nombre") return String(a.name || "").localeCompare(String(b.name || ""));
+      if (sortBy === "stock_desc") return (Number(b.total_stock) || 0) - (Number(a.total_stock) || 0);
+      if (sortBy === "stock_asc") return (Number(a.total_stock) || 0) - (Number(b.total_stock) || 0);
+      return 0;
+    });
+  }, [baseProducts, localSearch, categoryFilter, brandFilter, stockFilter, sortBy]);
 
   useEffect(() => {
     setDisplayLimit(36);
-  }, [filtered]);
+  }, [filtered, localSearch, categoryFilter, brandFilter, stockFilter, sortBy]);
+
+  const hasActiveFilters =
+    Boolean(localSearch.trim()) ||
+    categoryFilter !== "todas" ||
+    brandFilter !== "todas" ||
+    stockFilter !== "todos" ||
+    sortBy !== "recientes";
+
+  const clearAllFilters = () => {
+    setLocalSearch("");
+    setCategoryFilter("todas");
+    setBrandFilter("todas");
+    setStockFilter("todos");
+    setSortBy("recientes");
+  };
 
   return (
     <>
@@ -1543,80 +1957,370 @@ function Inventory({data,filtered,adjust,isCashier,onAddToCart}:any){
         eyebrow={isCashier ? "Consulta de stock" : "Control de existencias"}
         title="Inventario y Existencias"
         text={isCashier ? "Consultá la disponibilidad por artículo o variante y precios de venta." : "Control de existencias por artículo y variante."}
+        action={
+          <div className="inline-flex items-center rounded-xl border border-border bg-card p-1 shadow-2xs">
+            <button
+              type="button"
+              onClick={() => handleChangeViewMode("grid")}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all cursor-pointer ${
+                viewMode === "grid"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              title="Vista en cuadrícula de tarjetas"
+            >
+              <LayoutGrid className="size-3.5" />
+              <span>Cuadrícula</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleChangeViewMode("list")}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all cursor-pointer ${
+                viewMode === "list"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              title="Vista en lista compacta"
+            >
+              <List className="size-3.5" />
+              <span>Lista</span>
+            </button>
+          </div>
+        }
       />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {productsList.slice(0, displayLimit).map((p:Product)=>(
-          <Card key={p.id} className="gap-4 border-0 py-5 shadow-sm">
-            <CardHeader className="px-5">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2.5">
-                  <ProductImage src={p.image_url} alt={p.name} className="size-10 rounded-xl object-cover border shrink-0" />
-                  <div>
-                    <CardTitle>{p.name}</CardTitle>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{p.sku} · {p.color}</p>
-                    <p className="mt-1 text-sm font-black text-primary">{money(p.retail_price)}</p>
-                  </div>
-                </div>
-                <Badge variant={p.total_stock<=p.min_stock?"destructive":"secondary"}>
-                  {p.total_stock} u.
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="grid grid-cols-3 gap-2 px-5">
-              {p.variants.map((v:Variant)=>{
-                const canSell = isCashier && v.stock > 0;
-                return (
-                  <button
-                    key={v.id}
-                    onClick={()=>{
-                      if (isCashier) {
-                        if (canSell && onAddToCart) onAddToCart(p, v);
-                      } else {
-                        adjust(v, p);
-                      }
-                    }}
-                    disabled={isCashier && v.stock <= 0}
-                    className={`rounded-xl border p-3 text-center transition ${
-                      isCashier
-                        ? canSell
-                          ? "hover:-translate-y-0.5 hover:shadow hover:border-primary/50 cursor-pointer"
-                          : "cursor-not-allowed opacity-50"
-                        : "hover:-translate-y-0.5 hover:shadow cursor-pointer"
-                    } ${
-                      v.stock===0
-                        ? "border-red-200 bg-red-50 dark:bg-red-950/20"
-                        : v.stock<=2
-                        ? "border-amber-200 bg-amber-50 dark:bg-amber-950/20"
-                        : "bg-card"
+
+      {/* Buscador y Filtros de Inventario */}
+      <Card className="mb-5 border shadow-xs rounded-2xl p-4 space-y-3.5">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto_auto]">
+          <div className="relative">
+            <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={localSearch}
+              onChange={(e) => setLocalSearch(e.target.value)}
+              placeholder="Buscar en inventario por nombre, SKU, código EAN-13, marca o talle..."
+              className="h-10 pl-9 pr-8 rounded-xl"
+            />
+            {localSearch && (
+              <button
+                type="button"
+                onClick={() => setLocalSearch("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
+                title="Limpiar búsqueda"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="h-10 rounded-xl border border-border bg-background px-3 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="todas">Todas las categorías</option>
+            {availableCategories.map((cat) => (
+              <option key={cat} value={cat}>
+                Categoría: {cat}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={brandFilter}
+            onChange={(e) => setBrandFilter(e.target.value)}
+            className="h-10 rounded-xl border border-border bg-background px-3 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="todas">Todas las marcas</option>
+            {availableBrands.map((br) => (
+              <option key={br} value={br}>
+                Marca: {br}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
+            className="h-10 rounded-xl border border-border bg-background px-3 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="recientes">Orden: Más recientes</option>
+            <option value="nombre">Orden: Nombre (A - Z)</option>
+            <option value="stock_desc">Orden: Mayor stock</option>
+            <option value="stock_asc">Orden: Menor stock</option>
+          </select>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/40">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-semibold text-muted-foreground mr-1 flex items-center gap-1">
+              <SlidersHorizontal className="size-3.5" />
+              Filtrar por stock:
+            </span>
+            {([
+              { id: "todos", label: "Todos", count: stockCounts.todos },
+              { id: "disponible", label: "Con stock", count: stockCounts.disponible },
+              { id: "bajo", label: "Stock bajo", count: stockCounts.bajo },
+              { id: "agotado", label: "Sin stock", count: stockCounts.agotado },
+            ] as const).map((tab) => {
+              const active = stockFilter === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setStockFilter(tab.id)}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition-all cursor-pointer ${
+                    active
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted"
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  <span
+                    className={`rounded-full px-1.5 py-0.2 text-[10px] ${
+                      active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-background text-foreground"
                     }`}
-                    title={isCashier ? (canSell ? "Agregar al carrito de venta" : "Sin existencias") : "Ajustar stock"}
                   >
-                    <p className="text-xs text-muted-foreground">{["Único", "Unico", "General"].includes(v.size) ? "Stock General" : "Variante"}</p>
-                    <p className="text-lg font-bold">{["Único", "Unico", "General"].includes(v.size) ? "Total" : v.size}</p>
-                    <p className="text-xs font-semibold">{v.stock} u.</p>
-                    {isCashier && canSell && (
-                      <span className="mt-1 block text-[10px] font-bold text-primary">+ Vender</span>
-                    )}
-                  </button>
-                );
-              })}
-            </CardContent>
-          </Card>
-        ))}
-        {productsList.length > displayLimit && (
-          <div className="col-span-full flex justify-center py-4">
+                    {tab.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {hasActiveFilters && (
             <Button
               type="button"
-              variant="outline"
-              onClick={() => setDisplayLimit(prev => prev + 36)}
-              className="gap-2 font-semibold rounded-xl"
+              variant="ghost"
+              size="xs"
+              onClick={clearAllFilters}
+              className="h-7 text-xs font-bold text-rose-500 hover:text-rose-600 gap-1"
             >
-              <Plus className="size-4 text-primary" />
-              Cargar más existencias ({Math.min(displayLimit, productsList.length)} de {productsList.length})
+              <X className="size-3.5" />
+              Limpiar filtros
             </Button>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </Card>
+
+      {productsList.length === 0 ? (
+        <Card className="py-12 text-center border-dashed">
+          <CardContent className="flex flex-col items-center justify-center gap-2">
+            <Search className="size-7 text-muted-foreground opacity-40" />
+            <p className="font-bold text-sm text-foreground">No se encontraron artículos en el inventario</p>
+            <p className="text-xs text-muted-foreground">Probá cambiando los filtros o el término de búsqueda.</p>
+            {hasActiveFilters && (
+              <Button type="button" variant="outline" size="xs" onClick={clearAllFilters} className="mt-1">
+                Limpiar todos los filtros
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      ) : viewMode === "grid" ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {productsList.slice(0, displayLimit).map((p:Product)=>(
+            <Card
+              key={p.id}
+              onClick={() => onView && onView(p)}
+              className="gap-4 border-0 py-5 shadow-sm cursor-pointer transition-all hover:shadow-md hover:ring-1 hover:ring-primary/30"
+              title="Hacé clic para ver la ficha completa del producto"
+            >
+              <CardHeader className="px-5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <ProductImage src={p.image_url} alt={p.name} className="size-10 rounded-xl object-cover border shrink-0" />
+                    <div>
+                      <CardTitle className="hover:text-primary transition-colors">{p.name}</CardTitle>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{p.sku} · {p.color}</p>
+                      <p className="mt-1 text-sm font-black text-primary">{money(p.retail_price || p.wholesale_price)}</p>
+                    </div>
+                  </div>
+                  <Badge variant={p.total_stock<=p.min_stock?"destructive":"secondary"}>
+                    {p.total_stock} u.
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="grid grid-cols-3 gap-2 px-5" onClick={(e) => e.stopPropagation()}>
+                {p.variants.map((v:Variant)=>{
+                  const canSell = isCashier && v.stock > 0;
+                  return (
+                    <button
+                      key={v.id}
+                      onClick={(e)=>{
+                        e.stopPropagation();
+                        if (isCashier) {
+                          if (canSell && onAddToCart) onAddToCart(p, v);
+                        } else {
+                          adjust(v, p);
+                        }
+                      }}
+                      disabled={isCashier && v.stock <= 0}
+                      className={`rounded-xl border p-3 text-center transition ${
+                        isCashier
+                          ? canSell
+                            ? "hover:-translate-y-0.5 hover:shadow hover:border-primary/50 cursor-pointer"
+                            : "cursor-not-allowed opacity-50"
+                          : "hover:-translate-y-0.5 hover:shadow cursor-pointer"
+                      } ${
+                        v.stock===0
+                          ? "border-red-200 bg-red-50 dark:bg-red-950/20"
+                          : v.stock<=2
+                          ? "border-amber-200 bg-amber-50 dark:bg-amber-950/20"
+                          : "bg-card"
+                      }`}
+                      title={isCashier ? (canSell ? "Agregar al carrito de venta" : "Sin existencias") : "Ajustar stock"}
+                    >
+                      <p className="text-xs text-muted-foreground">{["Único", "Unico", "General"].includes(v.size) ? "Stock General" : "Variante"}</p>
+                      <p className="text-lg font-bold">{["Único", "Unico", "General"].includes(v.size) ? "Total" : v.size}</p>
+                      <p className="text-xs font-semibold">{v.stock} u.</p>
+                      {isCashier && canSell && (
+                        <span className="mt-1 block text-[10px] font-bold text-primary">+ Vender</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          ))}
+          {productsList.length > displayLimit && (
+            <div className="col-span-full flex justify-center py-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDisplayLimit(prev => prev + 36)}
+                className="gap-2 font-semibold rounded-xl"
+              >
+                <Plus className="size-4 text-primary" />
+                Cargar más existencias ({Math.min(displayLimit, productsList.length)} de {productsList.length})
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <Card className="border shadow-sm rounded-2xl overflow-hidden">
+          <CardContent className="px-2 sm:px-5 py-2">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-b border-border/60">
+                  <TableHead className="font-bold text-xs">Producto / Artículo</TableHead>
+                  <TableHead className="font-bold text-xs">Código / Ubicación</TableHead>
+                  <TableHead className="font-bold text-xs">Minorista / Mayorista</TableHead>
+                  <TableHead className="font-bold text-xs">
+                    {isCashier ? "Variantes (Clic para vender)" : "Existencias por Variante / Talle (Clic para ajustar)"}
+                  </TableHead>
+                  <TableHead className="text-right font-bold text-xs">Stock Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {productsList.slice(0, displayLimit).map((p: Product) => {
+                  const effectiveRetail = Number(p.retail_price) || Number(p.wholesale_price) || 0;
+                  const effectiveWholesale = Number(p.wholesale_price) || Number(p.retail_price) || 0;
+                  const subtitleParts = [p.brand, p.color, p.category].filter(Boolean);
+                  const totalSt = Number(p.total_stock) || 0;
+                  const minSt = Number(p.min_stock) || 3;
+
+                  return (
+                    <TableRow
+                      key={p.id}
+                      onClick={() => onView && onView(p)}
+                      className="hover:bg-muted/25 border-b border-border/40 cursor-pointer transition-colors"
+                      title="Hacé clic para ver la ficha completa del producto"
+                    >
+                      <TableCell className="py-3">
+                        <div className="flex items-center gap-3">
+                          <ProductImage src={p.image_url} alt={p.name} className="size-10 rounded-xl object-cover border shrink-0" />
+                          <div>
+                            <p className="font-bold text-sm text-foreground hover:text-primary transition-colors">{p.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {subtitleParts.length > 0 ? subtitleParts.join(" · ") : "Catálogo general"}
+                            </p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-3">
+                        <p className="font-mono text-xs font-bold text-foreground">{p.sku}</p>
+                        <p className="font-mono text-[11px] text-muted-foreground">{p.barcode}</p>
+                        {(p as any).location && (
+                          <span className="mt-0.5 inline-block rounded bg-primary/10 px-1.5 py-0.2 text-[10px] font-semibold text-primary">
+                            Ubic.: {(p as any).location}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="py-3 whitespace-nowrap">
+                        <p className="font-extrabold text-sm text-foreground">{money(effectiveRetail)}</p>
+                        <p className="text-[11px] text-muted-foreground">May.: {money(effectiveWholesale)}</p>
+                      </TableCell>
+                      <TableCell className="py-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-wrap gap-1.5">
+                          {p.variants.map((v: Variant) => {
+                            const canSell = isCashier && v.stock > 0;
+                            const label = ["Único", "Unico", "General"].includes(v.size)
+                              ? `Total: ${v.stock} u.`
+                              : `${v.size}: ${v.stock} u.`;
+                            return (
+                              <button
+                                key={v.id}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (isCashier) {
+                                    if (canSell && onAddToCart) onAddToCart(p, v);
+                                  } else {
+                                    adjust(v, p);
+                                  }
+                                }}
+                                disabled={isCashier && v.stock <= 0}
+                                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-bold transition ${
+                                  isCashier
+                                    ? canSell
+                                      ? "hover:border-primary cursor-pointer"
+                                      : "cursor-not-allowed opacity-50"
+                                    : "hover:border-primary cursor-pointer"
+                                } ${
+                                  v.stock === 0
+                                    ? "border-rose-500/30 bg-rose-500/15 text-rose-600 dark:text-rose-300"
+                                    : v.stock <= 2
+                                    ? "border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                                    : "border-sky-500/30 bg-sky-500/15 text-sky-700 dark:text-sky-200"
+                                }`}
+                                title={isCashier ? (canSell ? "Agregar al carrito de venta" : "Sin existencias") : "Clic para ajustar stock de esta variante"}
+                              >
+                                <span>{label}</span>
+                                {!isCashier && <Pencil className="size-2.5 opacity-60" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-3 text-right whitespace-nowrap">
+                        <Badge
+                          variant={totalSt <= 0 ? "destructive" : totalSt <= minSt ? "destructive" : "secondary"}
+                          className="font-bold text-xs"
+                        >
+                          {totalSt} u.
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+
+            {productsList.length > displayLimit && (
+              <div className="flex justify-center p-4 border-t border-border/40">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setDisplayLimit((prev) => prev + 36)}
+                  className="gap-2 font-semibold rounded-xl"
+                >
+                  <Plus className="size-4 text-primary" />
+                  Cargar más existencias ({Math.min(displayLimit, productsList.length)} de {productsList.length})
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </>
   );
 }

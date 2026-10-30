@@ -599,6 +599,158 @@ export async function runStoreAction(body: any, uid?: string) {
     if (!productId) throw new Error("ID de producto no especificado.");
     const productRef = userDoc("products", productId, userId);
     await deleteDoc(productRef);
+  } else if (action === "bulk_import_products") {
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (items.length === 0) throw new Error("No se encontraron productos válidos en el archivo CSV.");
+    const updateExisting = body.updateExisting !== false;
+
+    const [existingProductsSnap, settingsSnap, categoriesSnap] = await Promise.all([
+      getDocs(userCol("products", userId)),
+      getDoc(userDoc("settings", "main", userId)),
+      getDocs(userCol("categories", userId)),
+    ]);
+    const existingProducts = withId(existingProductsSnap);
+    const settingsData = settingsSnap.exists() ? (settingsSnap.data() as any) : {};
+    const prefix = settingsData.barcode_prefix || "779";
+    const existingCategories = new Set(
+      withId(categoriesSnap).map((c: any) => String(c.name || "").trim().toLowerCase())
+    );
+    const newCategoriesToCreate = new Set<string>();
+
+    const usedSkus = new Set(existingProducts.map((p: any) => String(p.sku || "").toLowerCase()));
+    const usedBarcodes = new Set(existingProducts.map((p: any) => String(p.barcode || "")));
+
+    type Operation = { ref: any; data: any; merge: boolean };
+    const ops: Operation[] = [];
+
+    for (const raw of items) {
+      const name = text(raw.name);
+      if (!name) continue;
+
+      const rawSku = text(raw.sku);
+      const rawBarcode = cleanBarcodeScan(raw.barcode);
+
+      // Buscar coincidencia existente por SKU o código de barras
+      const matched = updateExisting
+        ? existingProducts.find(
+            (p: any) =>
+              (rawSku && String(p.sku || "").toLowerCase() === rawSku.toLowerCase()) ||
+              (rawBarcode && isBarcodeMatch(p.barcode, rawBarcode))
+          )
+        : null;
+
+      const targetRef = matched
+        ? userDoc("products", String(matched.id), userId)
+        : doc(userCol("products", userId));
+      const targetId = matched ? String(matched.id) : targetRef.id;
+
+      // Resolver SKU único
+      let sku = rawSku || matched?.sku || "";
+      if (!sku) {
+        do {
+          sku = `MOD-${Math.floor(1000 + Math.random() * 9000)}`;
+        } while (usedSkus.has(sku.toLowerCase()));
+      }
+      usedSkus.add(sku.toLowerCase());
+
+      // Resolver EAN-13 único
+      let barcode = rawBarcode
+        ? normalizeToValidEan13(rawBarcode)
+        : matched?.barcode || "";
+      if (!barcode) {
+        do {
+          barcode = generateValidEan13(prefix);
+        } while (usedBarcodes.has(barcode));
+      }
+      usedBarcodes.add(barcode);
+
+      // Resolver variantes
+      let variantsList: Array<{ id: string; size: string; stock: number }> = [];
+      if (Array.isArray(raw.variants) && raw.variants.length > 0) {
+        variantsList = raw.variants.map((v: any) => ({
+          id: `${targetId}-${String(v.size || "Único").trim()}`,
+          size: String(v.size || "Único").trim(),
+          stock: Math.max(0, Number(v.stock) || 0),
+        }));
+      } else {
+        const stockNum = Math.max(0, Number(raw.stock) || 0);
+        variantsList = [
+          {
+            id: `${targetId}-Único`,
+            size: "Único",
+            stock: stockNum,
+          },
+        ];
+      }
+
+      const categoryName = text(raw.category, matched?.category || "General");
+      if (categoryName && !existingCategories.has(categoryName.toLowerCase())) {
+        existingCategories.add(categoryName.toLowerCase());
+        newCategoriesToCreate.add(categoryName);
+      }
+
+      const parsedCost = raw.cost !== undefined && raw.cost !== "" ? number(raw.cost) : number(matched?.cost, 0);
+      const parsedRetail = raw.retailPrice !== undefined && raw.retailPrice !== "" ? number(raw.retailPrice) : number(matched?.retail_price, 0);
+      const parsedWholesale = raw.wholesalePrice !== undefined && raw.wholesalePrice !== "" ? number(raw.wholesalePrice) : number(matched?.wholesale_price, 0);
+
+      const finalRetail = parsedRetail > 0 ? parsedRetail : parsedWholesale;
+      const finalWholesale = parsedWholesale > 0 ? parsedWholesale : parsedRetail;
+
+      const imgUrl = text(raw.imageUrl, matched?.image_url || "");
+      const imagesList = imgUrl
+        ? [imgUrl]
+        : Array.isArray(matched?.images)
+        ? matched.images
+        : [];
+
+      const productData: any = {
+        sku,
+        barcode,
+        name,
+        brand: text(raw.brand, matched?.brand || ""),
+        category: categoryName,
+        color: text(raw.color, matched?.color || ""),
+        location: text(raw.location, matched?.location || ""),
+        gender: text(raw.gender, matched?.gender || "No aplica"),
+        cost: parsedCost,
+        retail_price: finalRetail,
+        wholesale_price: finalWholesale,
+        vat_rate: raw.vatRate !== undefined && raw.vatRate !== "" ? Number(raw.vatRate) : Number(matched?.vat_rate || 0),
+        min_stock: raw.minStock !== undefined && raw.minStock !== "" ? Math.max(0, number(raw.minStock, 3)) : Math.max(0, number(matched?.min_stock, 3)),
+        image_url: imgUrl,
+        images: imagesList,
+        active: true,
+        variants: variantsList,
+        updated_at: now(),
+      };
+
+      if (!matched) {
+        productData.created_at = now();
+      }
+
+      ops.push({ ref: targetRef, data: productData, merge: Boolean(matched) });
+    }
+
+    for (const catName of newCategoriesToCreate) {
+      const catRef = doc(userCol("categories", userId));
+      ops.push({
+        ref: catRef,
+        data: { name: catName, description: "", created_at: now() },
+        merge: false,
+      });
+    }
+
+    for (let i = 0; i < ops.length; i += 400) {
+      const batch = writeBatch(database);
+      for (const op of ops.slice(i, i + 400)) {
+        if (op.merge) {
+          batch.set(op.ref, op.data, { merge: true });
+        } else {
+          batch.set(op.ref, op.data);
+        }
+      }
+      await batch.commit();
+    }
   } else if (action === "adjust_stock") {
     const products = withId(await getDocs(userCol("products", userId)));
     const product = products.find((item: any) => (item.variants || []).some((variant: any) => String(variant.id) === String(body.variantId)));
