@@ -4,10 +4,10 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Archive, ArrowDownLeft, ArrowRight, ArrowRightLeft, ArrowUpRight, BarChart3, Barcode, Bell, BellRing, Boxes, Building2,
-  Camera, Check, CircleDollarSign, ClipboardList, Database, Download,
-  FileText, FolderTree, Landmark, LayoutDashboard, LayoutGrid, List, Moon, PackagePlus, Pencil, Percent, Plus, Printer, Receipt, ScanLine,
+  Camera, Check, CircleDollarSign, ClipboardList, Coins, Database, Download,
+  FileText, FolderTree, Landmark, LayoutDashboard, LayoutGrid, List, Lock, LockOpen, Moon, PackagePlus, Pencil, Percent, Plus, Printer, Receipt, ScanLine,
   Search, Settings, ShieldAlert, ShoppingBag, ShoppingCart, SlidersHorizontal, Store, Sun, Tags, Trash2, TrendingUp, Truck,
-  Upload, UserPlus, UserRound, Users, Wallet, WalletCards, Monitor, Palette, Save, Volume2, X,
+  Upload, UserPlus, UserRound, Users, Wallet, WalletCards, Monitor, Palette, Save, Volume2, X, AlertTriangle, History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,6 +50,8 @@ import { BarcodeView } from "@/components/barcode-view";
 import { StaffSettingsView } from "@/components/staff-settings-view";
 import { ProductsCsvModal, exportProductsToCsv } from "@/components/products-csv-modal";
 import { ProductDetailModal } from "@/components/product-detail-modal";
+import { OpenCashShiftModal, CloseCashShiftModal, CashShiftDetailModal } from "@/components/cash-shift-modals";
+import { printShiftCloseThermalTicket } from "@/lib/thermal-printer";
 import { cleanBarcodeScan, isBarcodeMatch } from "@/lib/barcode";
 import { downloadOrderControlPdf } from "@/lib/order-pdf";
 import { formatMoney, formatNumber, convertAmount, getCurrencyEquivalents, CURRENCIES, setSystemCurrency, getSystemCurrency } from "@/lib/currency";
@@ -59,7 +61,7 @@ type Product = { id:number; sku:string; barcode:string; name:string; brand:strin
 type Party = { id:number; name:string; type?:string; phone:string; email?:string; balance:number; credit_limit?:number; contact?:string; document?:string; city?:string; address?:string; notes?:string; created_at?:string; bank_info?:string; category?:string };
 type Sale = { id:number; receipt_no:string; customer_id?:string; customer_name?:string; channel:string; total:number; paid_amount?:number; debt_amount?:number; pending_amount?:number; payment_method:string; status:string; created_at:string; bank_account_id?:string; bank_account_name?:string; subtotal?:number; discount?:number; discount_percent?:number; additional_charge?:number; additional_charge_description?:string; cashier_id?:string; cashier_name?:string; currency?:string };
 type Movement = { id:number|string; type:"ingreso"|"egreso"; category:string; amount:number; description:string; reference:string; created_at:string };
-type StoreData = { settings:any; products:Product[]; customers:Party[]; suppliers:Party[]; sales:Sale[]; movements:Movement[]; stockMoves:any[]; customerMoves:any[]; supplierMoves:any[]; bankAccounts:any[]; bankMoves:any[]; categories:any[]; staff?:any[]; stats:{revenueToday:number;salesToday:number;stockValue:number;cashBalance:number;bankBalance:number;bankBalanceArs?:number;bankBalanceBrl?:number;bankBalanceUsd?:number;lowStock:number;productCount:number} };
+type StoreData = { settings:any; products:Product[]; customers:Party[]; suppliers:Party[]; sales:Sale[]; movements:Movement[]; stockMoves:any[]; customerMoves:any[]; supplierMoves:any[]; bankAccounts:any[]; bankMoves:any[]; categories:any[]; staff?:any[]; cashShifts?:any[]; activeShift?:any; stats:{revenueToday:number;salesToday:number;stockValue:number;cashBalance:number;bankBalance:number;bankBalanceArs?:number;bankBalanceBrl?:number;bankBalanceUsd?:number;lowStock:number;productCount:number} };
 type CartItem = { productId:number; variantId:number; name:string; size:string; quantity:number; unitPrice:number; max:number };
 
 const nav = [
@@ -167,6 +169,9 @@ export default function StoreApp({
   const [editingCashMovement,setEditingCashMovement]=useState<any|null>(null);
   const [viewingCashMovement,setViewingCashMovement]=useState<any|null>(null);
   const [deletingCashMovement,setDeletingCashMovement]=useState<any|null>(null);
+  const [openShiftModal, setOpenShiftModal] = useState(false);
+  const [closeShiftModal, setCloseShiftModal] = useState(false);
+  const [viewingShift, setViewingShift] = useState<any | null>(null);
   const [editingBankAccount,setEditingBankAccount]=useState<any|null>(null);
   const [transferModalOpen,setTransferModalOpen]=useState(false);
   const [bankAccountId,setBankAccountId]=useState("");
@@ -744,13 +749,13 @@ export default function StoreApp({
 
       <main className="app-main glass-grid min-h-[calc(100vh-176px)] p-4 sm:p-7 lg:p-9">
         {!isCashier && section==="resumen"&&<DashboardView data={data!} setSection={setSection} addVariant={addVariant} setModal={setModal}/>} 
-        {section==="ventas"&&<SalesPOSConfigured data={data!} filtered={filtered} channel={channel} setChannel={handleChannelChange} cart={cart} setCart={setCart} addVariant={addVariant} scan={scan} setScan={setScan} scanProduct={scanProduct} setModal={setModal} discount={discount} setDiscount={setDiscount} discountPercent={discountPercent} setDiscountPercent={setDiscountPercent} additionalCharge={additionalCharge} setAdditionalCharge={setAdditionalCharge} additionalChargeDescription={additionalChargeDescription} setAdditionalChargeDescription={setAdditionalChargeDescription} payment={payment} setPayment={setPayment} customerId={customerId} setCustomerId={setCustomerId} bankAccountId={bankAccountId} setBankAccountId={setBankAccountId} cartTotal={cartTotal} closeSale={closeSale} busy={busy}/>}
+        {section==="ventas"&&<SalesPOSConfigured data={data!} filtered={filtered} channel={channel} setChannel={handleChannelChange} cart={cart} setCart={setCart} addVariant={addVariant} scan={scan} setScan={setScan} scanProduct={scanProduct} setModal={setModal} discount={discount} setDiscount={setDiscount} discountPercent={discountPercent} setDiscountPercent={setDiscountPercent} additionalCharge={additionalCharge} setAdditionalCharge={setAdditionalCharge} additionalChargeDescription={additionalChargeDescription} setAdditionalChargeDescription={setAdditionalChargeDescription} payment={payment} setPayment={setPayment} customerId={customerId} setCustomerId={setCustomerId} bankAccountId={bankAccountId} setBankAccountId={setBankAccountId} cartTotal={cartTotal} closeSale={closeSale} busy={busy} onOpenShift={()=>setOpenShiftModal(true)} onCloseShift={()=>setCloseShiftModal(true)}/>}
         {section==="pedidos"&&<OrdersView orders={orders} storeUid={uid} currency={data?.settings?.currency || "BRL"} products={data?.products || []} businessSettings={data?.settings || {}} onSelectOrderForSale={handleOrderToSale} setToast={setToast}/>}
         {!isCashier && section==="productos"&&<Products data={data!} filtered={filtered} setModal={setModal} onView={(p:Product)=>setViewingProduct(p)} onEdit={(p:Product)=>setEditingProduct(p)} onAdjust={(p:Product)=>setAdjustingProduct(p)} onDelete={(p:Product)=>setDeletingProduct(p)}/>} 
         {section==="inventario"&&<Inventory data={data!} filtered={filtered} isCashier={isCashier} onView={(p:Product)=>setViewingProduct(p)} onAddToCart={(p:Product,v:Variant)=>{addVariant(p,v);setSection("ventas");setToast(`${p.name} (Talle ${v.size}) agregado a la venta`);}} adjust={(v:Variant,p:Product)=>{setAdjustTarget({v,p});setModal("stock");}}/>}
         {section==="clientes"&&<CustomersView customers={data!.customers} sales={data!.sales} customerMoves={data!.customerMoves||[]} isCashier={isCashier} onNewCustomer={()=>setModal("customer")} onEditCustomer={(c:any)=>setEditingCustomer(c)} onAdjustDebt={(c:any)=>setAdjustingCustomer(c)} onViewDetail={(c:any)=>setViewingCustomer(c)} onDeleteCustomer={(c:any)=>setDeletingCustomer(c)}/>} 
         {!isCashier && section==="proveedores"&&<SuppliersView suppliers={data!.suppliers} supplierMoves={data!.supplierMoves||[]} onNewSupplier={()=>setModal("supplier")} onEditSupplier={(s:any)=>setEditingSupplier(s)} onAdjustDebt={(s:any)=>setAdjustingSupplier(s)} onViewDetail={(s:any)=>setViewingSupplier(s)} onDeleteSupplier={(s:any)=>setDeletingSupplier(s)}/>} 
-        {section==="caja"&&<Cash data={data!} isCashier={isCashier} setModal={setModal} onEdit={(m:any)=>setEditingCashMovement(m)} onDelete={(m:any)=>setDeletingCashMovement(m)} onViewReceipt={(m:any)=>setViewingCashMovement(m)} />} 
+        {section==="caja"&&<Cash data={data!} isCashier={isCashier} setModal={setModal} onEdit={(m:any)=>setEditingCashMovement(m)} onDelete={(m:any)=>setDeletingCashMovement(m)} onViewReceipt={(m:any)=>setViewingCashMovement(m)} onOpenShift={()=>setOpenShiftModal(true)} onCloseShift={()=>setCloseShiftModal(true)} onViewShift={(s:any)=>setViewingShift(s)} />} 
         {!isCashier && section==="tienda"&&<WholesaleStoreAdmin data={data!} uid={uid} setSection={setSection} setToast={setToast}/>}
         {section==="catalogos"&&<CatalogConfigured data={data!} products={filtered}/>}
         {!isCashier && section==="reportes"&&<Reports data={data!} onSelectSale={(s:any)=>setInvoiceSale(s)}/>} 
@@ -995,6 +1000,31 @@ export default function StoreApp({
       movement={viewingCashMovement}
       settings={data?.settings}
     />
+    <OpenCashShiftModal
+      open={openShiftModal}
+      onOpenChange={setOpenShiftModal}
+      onSubmit={async (formData) => {
+        await action({ action: "open_cash_shift", ...formData }, "Turno de caja abierto correctamente");
+      }}
+      lastClosedShift={(data?.cashShifts || []).find((s: any) => s.status === "closed")}
+      defaultCashierName={data?.staff?.find((s: any) => s.uid === uid)?.name || "Administrador"}
+    />
+    <CloseCashShiftModal
+      open={closeShiftModal}
+      onOpenChange={setCloseShiftModal}
+      activeShift={data?.activeShift}
+      settings={data?.settings}
+      defaultCashierName={data?.staff?.find((s: any) => s.uid === uid)?.name || "Administrador"}
+      onSubmit={async (formData) => {
+        return await action({ action: "close_cash_shift", ...formData }, "Turno de caja cerrado con éxito");
+      }}
+    />
+    <CashShiftDetailModal
+      open={Boolean(viewingShift)}
+      onOpenChange={(v) => !v && setViewingShift(null)}
+      shift={viewingShift}
+      settings={data?.settings}
+    />
     <EditCashMovementModal
       open={Boolean(editingCashMovement)}
       onOpenChange={v => !v && setEditingCashMovement(null)}
@@ -1201,17 +1231,18 @@ export default function StoreApp({
 }
 
 function CustomerSelectField({
-  customers,
+  customers = [],
   customerId,
   setCustomerId,
   onNewCustomer,
 }: {
-  customers: Party[];
+  customers?: Party[];
   customerId: string;
   setCustomerId: (id: string) => void;
   onNewCustomer: () => void;
 }) {
-  const selected = customers.find((c: Party) => String(c.id) === String(customerId));
+  const safeCustomers = Array.isArray(customers) ? customers : [];
+  const selected = safeCustomers.find((c: Party) => String(c.id) === String(customerId));
   const bal = Number(selected?.balance || 0);
 
   return (
@@ -1310,7 +1341,7 @@ function CustomerSelectField({
   );
 }
 
-function SalesPOS({data,filtered,channel,setChannel,cart,setCart,addVariant,scan,setScan,scanProduct,setModal,discount,setDiscount,payment,setPayment,customerId,setCustomerId,cartTotal,closeSale,busy}:any){return <><SectionTitle eyebrow="Venta rápida" title="Punto de venta" text="Escaneá, elegí la variante y cobrá sin salir de la pantalla."/><div className="mb-5 grid gap-3 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-[1fr_auto_auto]"><div className="relative"><Barcode className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-primary"/><Input autoFocus className="h-12 pl-10" placeholder="Escaneá con lector USB/Bluetooth o escribí el código" value={scan} onChange={e=>{const val=e.target.value;if(val.includes("\n")||val.includes("\r")){scanProduct(val);}else{setScan(val);}}} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();scanProduct(scan);}}}/></div><Button variant="outline" className="h-12" onClick={()=>setModal("scanner")}><Camera/>Usar cámara</Button><div className="flex rounded-xl bg-muted p-1"><button onClick={()=>setChannel("minorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel==="minorista"?"bg-card shadow":"text-muted-foreground"}`}>Minorista</button><button onClick={()=>setChannel("mayorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel==="mayorista"?"bg-card shadow":"text-muted-foreground"}`}>Mayorista</button></div></div><div className="grid gap-6 xl:grid-cols-[1fr_390px]"><div className="grid content-start gap-4 sm:grid-cols-2 2xl:grid-cols-3">{filtered.map((p:Product)=><Card key={p.id} className="gap-3 border-0 py-0 shadow-sm overflow-hidden flex flex-col">{p.image_url?<div className="h-36 w-full overflow-hidden bg-muted/20"><img src={p.image_url} alt={p.name} className="h-full w-full object-cover hover:scale-105 transition-transform duration-300"/></div>:<div className="h-20 w-full bg-gradient-to-r from-primary/5 via-muted/30 to-primary/5 flex items-center justify-center text-muted-foreground/40"><ShoppingBag className="size-7 opacity-50"/></div>}<CardContent className="px-4 pb-4 pt-2 flex-1 flex flex-col justify-between"><div><div className="mb-2 flex items-start justify-between gap-2"><div><p className="font-bold">{p.name}</p><p className="text-xs text-muted-foreground">{p.brand} · {p.sku}</p></div><Badge variant="outline">{p.total_stock} u.</Badge></div><p className="mb-3 text-xl font-extrabold text-primary">{money(channel==="mayorista"?p.wholesale_price:p.retail_price)}</p></div><div><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Elegir variante</p><div className="flex flex-wrap gap-1.5">{p.variants.map(v=><Button key={v.id} variant="outline" size="xs" disabled={!v.stock} onClick={()=>addVariant(p,v)}>{v.size}<span className="text-[10px] text-muted-foreground">{v.stock}</span></Button>)}</div></div></CardContent></Card>)}</div><Card className="sticky top-24 h-fit gap-4 border-0 py-5 shadow-[0_14px_40px_rgb(15_33_55/12%)]"><CardHeader className="flex-row items-center justify-between px-5"><CardTitle className="flex items-center gap-2"><ShoppingCart className="size-5 text-primary"/>Venta actual</CardTitle><Badge>{cart.reduce((s:number,i:CartItem)=>s+i.quantity,0)} unidades</Badge></CardHeader><CardContent className="space-y-4 px-5"><div className="max-h-64 space-y-2 overflow-y-auto pr-1">{cart.length===0?<div className="rounded-2xl border border-dashed p-7 text-center text-sm text-muted-foreground">Escaneá un producto o elegí una variante para comenzar.</div>:cart.map((i:CartItem)=><div key={i.variantId} className="flex items-center gap-3 rounded-xl bg-muted/55 p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{i.name}</p><p className="text-xs text-muted-foreground">Variante {i.size} · {money(i.unitPrice)}</p></div><div className="flex items-center gap-1"><button className="size-7 rounded-lg border" onClick={()=>setCart((c:CartItem[])=>c.map(x=>x.variantId===i.variantId?{...x,quantity:Math.max(0,x.quantity-1)}:x).filter(x=>x.quantity>0))}>−</button><span className="w-6 text-center text-sm font-bold">{i.quantity}</span><button className="size-7 rounded-lg border" onClick={()=>setCart((c:CartItem[])=>c.map(x=>x.variantId===i.variantId?{...x,quantity:Math.min(x.max,x.quantity+1)}:x))}>+</button></div></div>)}</div><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold">Descuento<Input type="number" value={discount} onChange={e=>setDiscount(Number(e.target.value)||0)} className="mt-1"/></label><label className="text-xs font-semibold">Medio de pago<select value={payment} onChange={e=>setPayment(e.target.value)} className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Cuenta corriente</option></select></label></div><CustomerSelectField customers={data.customers} customerId={customerId} setCustomerId={setCustomerId} onNewCustomer={()=>setModal("customer")}/><div className="border-t pt-4"><div className="flex justify-between text-sm text-muted-foreground"><span>Subtotal</span><span>{money(cartTotal+discount)}</span></div><div className="mt-2 flex items-end justify-between"><span className="font-semibold">Total</span><span className="text-3xl font-black tracking-tight">{money(cartTotal)}</span></div></div><Button className="h-12 w-full rounded-xl text-base" disabled={!cart.length||busy} onClick={closeSale}>{busy?"Procesando…":`Cobrar ${money(cartTotal)}`}</Button><p className="text-center text-xs text-muted-foreground">Genera comprobante X y descuenta el stock automáticamente.</p></CardContent></Card></div></>}
+function SalesPOS({data,filtered,channel,setChannel,cart,setCart,addVariant,scan,setScan,scanProduct,setModal,discount,setDiscount,payment,setPayment,customerId,setCustomerId,cartTotal,closeSale,busy}:any){return <><SectionTitle eyebrow="Venta rápida" title="Punto de venta" text="Escaneá, elegí la variante y cobrá sin salir de la pantalla."/><div className="mb-5 grid gap-3 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-[1fr_auto_auto]"><div className="relative"><Barcode className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-primary"/><Input autoFocus className="h-12 pl-10" placeholder="Escaneá con lector USB/Bluetooth o escribí el código" value={scan} onChange={e=>{const val=e.target.value;if(val.includes("\n")||val.includes("\r")){scanProduct(val);}else{setScan(val);}}} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();scanProduct(scan);}}}/></div><Button variant="outline" className="h-12" onClick={()=>setModal("scanner")}><Camera/>Usar cámara</Button><div className="flex rounded-xl bg-muted p-1"><button onClick={()=>setChannel("minorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel==="minorista"?"bg-card shadow":"text-muted-foreground"}`}>Minorista</button><button onClick={()=>setChannel("mayorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel==="mayorista"?"bg-card shadow":"text-muted-foreground"}`}>Mayorista</button></div></div><div className="grid gap-6 xl:grid-cols-[1fr_390px]"><div className="grid content-start gap-4 sm:grid-cols-2 2xl:grid-cols-3">{filtered.map((p:Product)=><Card key={p.id} className="gap-3 border-0 py-0 shadow-sm overflow-hidden flex flex-col">{p.image_url?<div className="h-36 w-full overflow-hidden bg-muted/20"><img src={p.image_url} alt={p.name} className="h-full w-full object-cover hover:scale-105 transition-transform duration-300"/></div>:<div className="h-20 w-full bg-gradient-to-r from-primary/5 via-muted/30 to-primary/5 flex items-center justify-center text-muted-foreground/40"><ShoppingBag className="size-7 opacity-50"/></div>}<CardContent className="px-4 pb-4 pt-2 flex-1 flex flex-col justify-between"><div><div className="mb-2 flex items-start justify-between gap-2"><div><p className="font-bold">{p.name}</p><p className="text-xs text-muted-foreground">{p.brand} · {p.sku}</p></div><Badge variant="outline">{p.total_stock} u.</Badge></div><p className="mb-3 text-xl font-extrabold text-primary">{money(channel==="mayorista"?p.wholesale_price:p.retail_price)}</p></div><div><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Elegir variante</p><div className="flex flex-wrap gap-1.5">{p.variants.map(v=><Button key={v.id} variant="outline" size="xs" disabled={!v.stock} onClick={()=>addVariant(p,v)}>{v.size}<span className="text-[10px] text-muted-foreground">{v.stock}</span></Button>)}</div></div></CardContent></Card>)}</div><Card className="sticky top-24 h-fit gap-4 border-0 py-5 shadow-[0_14px_40px_rgb(15_33_55/12%)]"><CardHeader className="flex-row items-center justify-between px-5"><CardTitle className="flex items-center gap-2"><ShoppingCart className="size-5 text-primary"/>Venta actual</CardTitle><Badge>{cart.reduce((s:number,i:CartItem)=>s+i.quantity,0)} unidades</Badge></CardHeader><CardContent className="space-y-4 px-5"><div className="max-h-64 space-y-2 overflow-y-auto pr-1">{cart.length===0?<div className="rounded-2xl border border-dashed p-7 text-center text-sm text-muted-foreground">Escaneá un producto o elegí una variante para comenzar.</div>:cart.map((i:CartItem)=><div key={i.variantId} className="flex items-center gap-3 rounded-xl bg-muted/55 p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{i.name}</p><p className="text-xs text-muted-foreground">Variante {i.size} · {money(i.unitPrice)}</p></div><div className="flex items-center gap-1"><button className="size-7 rounded-lg border" onClick={()=>setCart((c:CartItem[])=>c.map(x=>x.variantId===i.variantId?{...x,quantity:Math.max(0,x.quantity-1)}:x).filter(x=>x.quantity>0))}>−</button><span className="w-6 text-center text-sm font-bold">{i.quantity}</span><button className="size-7 rounded-lg border" onClick={()=>setCart((c:CartItem[])=>c.map(x=>x.variantId===i.variantId?{...x,quantity:Math.min(x.max,x.quantity+1)}:x))}>+</button></div></div>)}</div><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold">Descuento<Input type="number" value={discount} onChange={e=>setDiscount(Number(e.target.value)||0)} className="mt-1"/></label><label className="text-xs font-semibold">Medio de pago<select value={payment} onChange={e=>setPayment(e.target.value)} className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Cuenta corriente</option></select></label></div><CustomerSelectField customers={data?.customers || []} customerId={customerId} setCustomerId={setCustomerId} onNewCustomer={()=>setModal("customer")}/><div className="border-t pt-4"><div className="flex justify-between text-sm text-muted-foreground"><span>Subtotal</span><span>{money(cartTotal+discount)}</span></div><div className="mt-2 flex items-end justify-between"><span className="font-semibold">Total</span><span className="text-3xl font-black tracking-tight">{money(cartTotal)}</span></div></div><Button className="h-12 w-full rounded-xl text-base" disabled={!cart.length||busy} onClick={closeSale}>{busy?"Procesando…":`Cobrar ${money(cartTotal)}`}</Button><p className="text-center text-xs text-muted-foreground">Genera comprobante X y descuenta el stock automáticamente.</p></CardContent></Card></div></>}
 
 function Products({data,filtered,setModal,onView,onEdit,onAdjust,onDelete}:any){
   const [pageSize, setPageSize] = useState(25);
@@ -2327,105 +2358,384 @@ function Inventory({data,filtered,adjust,isCashier,onView,onAddToCart}:any){
 
 function Parties({title,text,parties,kind,setModal}:any){return <><SectionTitle eyebrow="Relaciones comerciales" title={title} text={text} action={<Button onClick={()=>setModal(kind==="clientes"?"customer":"supplier")}><Plus/>Agregar</Button>}/><Card className="border-0 shadow-sm"><CardContent className="px-3 sm:px-5"><Table><TableHeader><TableRow><TableHead>Nombre</TableHead><TableHead>Tipo / contacto</TableHead><TableHead>Teléfono</TableHead><TableHead>Saldo</TableHead><TableHead>Estado</TableHead></TableRow></TableHeader><TableBody>{parties.map((p:Party)=><TableRow key={p.id}><TableCell className="font-semibold">{p.name}</TableCell><TableCell className="capitalize">{p.type||p.contact||"—"}</TableCell><TableCell>{p.phone||"—"}</TableCell><TableCell className={p.balance>0?"font-semibold text-amber-600":"text-muted-foreground"}>{money(p.balance)}</TableCell><TableCell><Badge variant={p.balance>0?"secondary":"outline"}>{p.balance>0?"Pendiente":"Al día"}</Badge></TableCell></TableRow>)}</TableBody></Table></CardContent></Card></>}
 
-function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier}:any){
+function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift,onCloseShift,onViewShift}:any){
+  const [cashTab, setCashTab] = useState<"movimientos" | "turnos">("movimientos");
+  const activeShift = data.activeShift;
+  const cashShifts: any[] = data.cashShifts || [];
+
   const income=data.movements.filter((m:Movement)=>m.type==="ingreso").reduce((s:number,m:Movement)=>s+m.amount,0);
   const expenses=data.movements.filter((m:Movement)=>m.type==="egreso").reduce((s:number,m:Movement)=>s+m.amount,0);
+
   return <>
     <SectionTitle
-      eyebrow={isCashier ? "Mostrador" : "Finanzas diarias"}
-      title={isCashier ? "Caja de Turno" : "Caja, ingresos y egresos"}
-      text={isCashier ? "Control del efectivo en caja y registro de ingresos de cambio o gastos menores de turno." : "Controlá el saldo real y cada movimiento de la sucursal."}
-      action={<Button onClick={()=>setModal("cash")}><Plus/>Nuevo movimiento</Button>}
+      eyebrow={isCashier ? "Mostrador" : "Finanzas de mostrador"}
+      title={isCashier ? "Caja de Turno y Arqueo" : "Caja, Turnos y Arqueo"}
+      text={isCashier ? "Control del efectivo en caja, registro de ingresos/egresos y cierre Z con arqueo físico." : "Gestioná aperturas de caja, flujo de dinero, arqueos de cierre e historial de turnos."}
+      action={
+        <div className="flex items-center gap-2 flex-wrap">
+          {activeShift ? (
+            <Button
+              variant="destructive"
+              onClick={onCloseShift}
+              className="gap-1.5 font-bold shadow-sm"
+            >
+              <Lock className="size-4" />
+              Cerrar Caja / Arqueo
+            </Button>
+          ) : (
+            <Button
+              onClick={onOpenShift}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold gap-1.5 shadow-sm"
+            >
+              <LockOpen className="size-4" />
+              Abrir Turno de Caja
+            </Button>
+          )}
+          <Button variant="outline" onClick={()=>setModal("cash")} className="gap-1.5">
+            <Plus className="size-4" />
+            Nuevo movimiento
+          </Button>
+        </div>
+      }
     />
-    <div className="mb-6 grid gap-4 md:grid-cols-3">
-      <StatCard label="Saldo en caja" value={money(data.stats.cashBalance)} note={isCashier ? "Efectivo disponible en caja" : "Caja consolidada"} icon={WalletCards} tone="blue"/>
-      <StatCard label="Ingresos registrados" value={money(income)} note="Ventas y otros ingresos" icon={ArrowDownLeft} tone="green"/>
-      <StatCard label="Egresos registrados" value={money(expenses)} note="Gastos y retiros" icon={ArrowUpRight} tone="coral"/>
-    </div>
-    <Card className="border-0 shadow-sm">
-      <CardHeader>
-        <CardTitle>{isCashier ? "Movimientos de caja del turno" : "Libro de caja"}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Fecha</TableHead>
-              <TableHead>Concepto</TableHead>
-              <TableHead>Referencia</TableHead>
-              <TableHead>Tipo</TableHead>
-              <TableHead className="text-right">Importe</TableHead>
-              <TableHead className="text-right">Acciones</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.movements.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                  No hay movimientos registrados en caja todavía.
-                </TableCell>
-              </TableRow>
+
+    {/* Hero Card: Estado del Turno de Caja en Vivo */}
+    <Card className={`mb-6 border-2 overflow-hidden shadow-sm transition-all ${
+      activeShift 
+        ? "border-emerald-500/40 bg-gradient-to-br from-emerald-500/5 via-card to-card" 
+        : "border-amber-500/30 bg-gradient-to-br from-amber-500/5 via-card to-card"
+    }`}>
+      <CardContent className="p-4 sm:p-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
+                activeShift
+                  ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
+                  : "bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30"
+              }`}>
+                <span className={`size-2 rounded-full ${activeShift ? "bg-emerald-500 animate-pulse" : "bg-amber-500"}`} />
+                {activeShift ? `Caja Abierta · Turno #${activeShift.shift_number || 1}` : "Caja Cerrada"}
+              </span>
+
+              {activeShift && (
+                <span className="text-xs text-muted-foreground">
+                  Iniciado por <strong className="text-foreground">{activeShift.opened_by_name || "Administrador"}</strong> a las{" "}
+                  {new Date(activeShift.opened_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })} hs ({new Date(activeShift.opened_at).toLocaleDateString("es-AR")})
+                </span>
+              )}
+            </div>
+
+            <p className="text-xs text-muted-foreground pt-0.5">
+              {activeShift 
+                ? "El turno actual está registrando ventas y cobros en tiempo real. Al finalizar la jornada o cambio de cajero, realizá el cierre con arqueo físico."
+                : "No hay un turno de caja abierto en este momento. Abrí la caja con el fondo inicial para registrar ventas y cobrar en mostrador."}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {activeShift ? (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={onCloseShift}
+                className="gap-1.5 font-bold shadow-sm"
+              >
+                <Lock className="size-3.5" />
+                Cerrar Caja / Arqueo
+              </Button>
             ) : (
-              data.movements.map((m:Movement)=>(
-                <TableRow key={m.id} className="hover:bg-muted/30">
-                  <TableCell className="text-xs">{date(m.created_at)}</TableCell>
-                  <TableCell>
-                    <p className="font-semibold text-sm">{m.description||m.category}</p>
-                    <p className="text-xs text-muted-foreground">{m.category}</p>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">{m.reference||"—"}</TableCell>
-                  <TableCell>
-                    <Badge variant={m.type==="ingreso"?"secondary":"destructive"} className="capitalize">
-                      {m.type}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className={`text-right font-bold text-sm ${m.type==="ingreso"?"text-emerald-600 dark:text-emerald-400":"text-red-600 dark:text-red-400"}`}>
-                    {m.type==="ingreso"?"+":"-"}{money(m.amount)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <Button
-                        variant="outline"
-                        size="xs"
-                        className="h-8 gap-1 rounded-lg text-xs"
-                        onClick={()=>onViewReceipt&&onViewReceipt(m)}
-                        title="Ver / Imprimir Comprobante de Caja"
-                      >
-                        <FileText className="size-3.5 text-primary"/>
-                        <span className="hidden md:inline">Recibo</span>
-                      </Button>
-                      {!isCashier && (
-                        <>
+              <Button
+                size="sm"
+                onClick={onOpenShift}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold gap-1.5 shadow-sm"
+              >
+                <LockOpen className="size-3.5" />
+                Abrir Turno de Caja
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {activeShift && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4 pt-4 border-t">
+            <div className="rounded-xl bg-card border p-3">
+              <span className="text-[11px] font-semibold text-muted-foreground block">Fondo Inicial (Cambio)</span>
+              <span className="text-base font-bold font-mono text-foreground mt-0.5 block">
+                {money(activeShift.initial_cash || 0)}
+              </span>
+            </div>
+
+            <div className="rounded-xl bg-card border p-3">
+              <span className="text-[11px] font-semibold text-muted-foreground block">
+                Ventas Efectivo ({activeShift.sales_count || 0})
+              </span>
+              <span className="text-base font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-0.5 block">
+                +{money(activeShift.cash_sales || 0)}
+              </span>
+            </div>
+
+            <div className="rounded-xl bg-card border p-3">
+              <span className="text-[11px] font-semibold text-muted-foreground block">Gastos / Egresos Turno</span>
+              <span className="text-base font-bold font-mono text-red-600 dark:text-red-400 mt-0.5 block">
+                -{money(activeShift.cash_expenses || 0)}
+              </span>
+            </div>
+
+            <div className="rounded-xl bg-primary/10 border border-primary/20 p-3">
+              <span className="text-[11px] font-bold text-primary block">Efectivo Esperado en Cajón</span>
+              <span className="text-lg font-black font-mono text-primary mt-0.5 block">
+                {money(activeShift.expected_cash || 0)}
+              </span>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+
+    {/* Selector de Pestañas: Movimientos vs Historial de Turnos */}
+    <div className="mb-4 flex items-center justify-between gap-3 border-b pb-2">
+      <div className="flex rounded-xl bg-muted p-1">
+        <button
+          type="button"
+          onClick={() => setCashTab("movimientos")}
+          className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all ${
+            cashTab === "movimientos"
+              ? "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Coins className="size-3.5" />
+          Movimientos de Caja
+        </button>
+        <button
+          type="button"
+          onClick={() => setCashTab("turnos")}
+          className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all ${
+            cashTab === "turnos"
+              ? "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <History className="size-3.5" />
+          Historial de Cierres Z ({cashShifts.length})
+        </button>
+      </div>
+
+      <span className="text-xs text-muted-foreground font-mono">
+        Saldo acumulado: <strong>{money(data.stats.cashBalance)}</strong>
+      </span>
+    </div>
+
+    {cashTab === "movimientos" ? (
+      <>
+        <div className="mb-6 grid gap-4 md:grid-cols-3">
+          <StatCard label="Saldo en caja" value={money(data.stats.cashBalance)} note={isCashier ? "Efectivo disponible en caja" : "Caja consolidada"} icon={WalletCards} tone="blue"/>
+          <StatCard label="Ingresos registrados" value={money(income)} note="Ventas y otros ingresos" icon={ArrowDownLeft} tone="green"/>
+          <StatCard label="Egresos registrados" value={money(expenses)} note="Gastos y retiros" icon={ArrowUpRight} tone="coral"/>
+        </div>
+
+        <Card className="border-0 shadow-sm">
+          <CardHeader>
+            <CardTitle>{isCashier ? "Movimientos de caja del turno" : "Libro diario de caja"}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Concepto</TableHead>
+                  <TableHead>Referencia</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead className="text-right">Importe</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.movements.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                      No hay movimientos registrados en caja todavía.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  data.movements.map((m:Movement)=>(
+                    <TableRow key={m.id} className="hover:bg-muted/30">
+                      <TableCell className="text-xs">{date(m.created_at)}</TableCell>
+                      <TableCell>
+                        <p className="font-semibold text-sm">{m.description||m.category}</p>
+                        <p className="text-xs text-muted-foreground">{m.category}</p>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{m.reference||"—"}</TableCell>
+                      <TableCell>
+                        <Badge variant={m.type==="ingreso"?"secondary":"destructive"} className="capitalize">
+                          {m.type}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className={`text-right font-bold text-sm ${m.type==="ingreso"?"text-emerald-600 dark:text-emerald-400":"text-red-600 dark:text-red-400"}`}>
+                        {m.type==="ingreso"?"+":"-"}{money(m.amount)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1.5">
                           <Button
                             variant="outline"
                             size="xs"
                             className="h-8 gap-1 rounded-lg text-xs"
-                            onClick={()=>onEdit&&onEdit(m)}
-                            title="Editar movimiento"
+                            onClick={()=>onViewReceipt&&onViewReceipt(m)}
+                            title="Ver / Imprimir Comprobante de Caja"
                           >
-                            <Pencil className="size-3.5 text-blue-600"/>
-                            <span className="hidden md:inline">Editar</span>
+                            <FileText className="size-3.5 text-primary"/>
+                            <span className="hidden md:inline">Recibo</span>
                           </Button>
+                          {!isCashier && (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                className="h-8 gap-1 rounded-lg text-xs"
+                                onClick={()=>onEdit&&onEdit(m)}
+                                title="Editar movimiento"
+                              >
+                                <Pencil className="size-3.5 text-blue-600"/>
+                                <span className="hidden md:inline">Editar</span>
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                className="h-8 gap-1 rounded-lg text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
+                                onClick={()=>onDelete&&onDelete(m)}
+                                title="Eliminar movimiento"
+                              >
+                                <Trash2 className="size-3.5"/>
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </>
+    ) : (
+      /* Pestaña: Historial de Turnos y Cierres Z */
+      <Card className="border-0 shadow-sm">
+        <CardHeader>
+          <CardTitle>Historial de Turnos y Cierres Z de Caja</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Turno</TableHead>
+                <TableHead>Apertura</TableHead>
+                <TableHead>Cierre</TableHead>
+                <TableHead className="text-right">Ventas Efectivo</TableHead>
+                <TableHead className="text-right">Esperado vs Real</TableHead>
+                <TableHead className="text-center">Diferencia</TableHead>
+                <TableHead className="text-center">Estado</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {cashShifts.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    Aún no se han registrado turnos de caja.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                cashShifts.map((shift: any) => {
+                  const isOpen = shift.status === "open";
+                  const diff = Number(shift.difference || 0);
+
+                  return (
+                    <TableRow key={shift.id} className="hover:bg-muted/30">
+                      <TableCell className="font-bold text-sm font-mono">
+                        #{shift.shift_number || 1}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        <p className="font-semibold">{new Date(shift.opened_at).toLocaleDateString("es-AR")}</p>
+                        <p className="text-muted-foreground">{new Date(shift.opened_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })} hs · {shift.opened_by_name || "Admin"}</p>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {shift.closed_at ? (
+                          <>
+                            <p className="font-semibold">{new Date(shift.closed_at).toLocaleDateString("es-AR")}</p>
+                            <p className="text-muted-foreground">{new Date(shift.closed_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })} hs · {shift.closed_by_name || "Admin"}</p>
+                          </>
+                        ) : (
+                          <span className="italic text-emerald-600 font-semibold">En curso...</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-mono font-bold text-xs">
+                        {money(shift.cash_sales || 0)}
+                        <span className="text-[10px] text-muted-foreground block font-sans">({shift.sales_count || 0} vtas)</span>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs">
+                        {isOpen ? (
+                          <span className="text-muted-foreground">Esperado: {money(shift.expected_cash || 0)}</span>
+                        ) : (
+                          <>
+                            <span className="text-muted-foreground block text-[11px]">Esp: {money(shift.expected_cash || 0)}</span>
+                            <span className="font-bold text-foreground">Real: {money(shift.actual_cash || 0)}</span>
+                          </>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {isOpen ? (
+                          <Badge variant="outline" className="text-[10px]">En curso</Badge>
+                        ) : diff === 0 ? (
+                          <Badge className="bg-emerald-600 text-white text-[10px]">Exacta</Badge>
+                        ) : diff > 0 ? (
+                          <Badge className="bg-blue-600 text-white text-[10px]">+{money(diff)}</Badge>
+                        ) : (
+                          <Badge variant="destructive" className="text-[10px]">-{money(Math.abs(diff))}</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant={isOpen ? "default" : "secondary"} className={isOpen ? "bg-emerald-600 text-[10px]" : "text-[10px]"}>
+                          {isOpen ? "Abierta" : "Cerrada"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1.5">
                           <Button
                             variant="outline"
                             size="xs"
-                            className="h-8 gap-1 rounded-lg text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
-                            onClick={()=>onDelete&&onDelete(m)}
-                            title="Eliminar movimiento"
+                            onClick={() => onViewShift && onViewShift(shift)}
+                            className="h-8 gap-1 rounded-lg text-xs"
+                            title="Ver detalle del turno"
                           >
-                            <Trash2 className="size-3.5"/>
+                            <FileText className="size-3.5 text-primary" />
+                            <span className="hidden md:inline">Detalle</span>
                           </Button>
-                        </>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+                          {!isOpen && (
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              onClick={() => printShiftCloseThermalTicket({ shift, settings: data.settings, paperWidth: "80mm" })}
+                              className="h-8 gap-1 rounded-lg text-xs"
+                              title="Reimprimir ticket térmico Z"
+                            >
+                              <Printer className="size-3.5 text-emerald-600" />
+                              <span className="hidden lg:inline">Ticket Z</span>
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    )}
   </>;
 }
 
@@ -3485,7 +3795,8 @@ function SalesPOSConfigured({
   data,filtered,channel,setChannel,cart,setCart,addVariant,scan,setScan,scanProduct,setModal,
   discount,setDiscount,discountPercent,setDiscountPercent,
   additionalCharge,setAdditionalCharge,additionalChargeDescription,setAdditionalChargeDescription,
-  payment,setPayment,customerId,setCustomerId,bankAccountId,setBankAccountId,closeSale,busy
+  payment,setPayment,customerId,setCustomerId,bankAccountId,setBankAccountId,closeSale,busy,
+  onOpenShift,onCloseShift
 }:any) {
   const allowNegative=Boolean(data.settings?.allow_negative_stock);
   const cameraEnabled=Boolean(data.settings?.camera_enabled);
@@ -3658,6 +3969,28 @@ function SalesPOSConfigured({
     <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <SectionTitle eyebrow="Venta rápida" title="Punto de venta" text="Escaneá, elegí el talle y cobrá sin salir de la pantalla."/>
       <div className="flex items-center gap-1.5 flex-wrap pb-4 sm:pb-0">
+        {data.activeShift ? (
+          <button
+            type="button"
+            onClick={onCloseShift}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 px-2.5 py-1 text-xs font-bold hover:bg-emerald-500/20 transition-colors shadow-xs"
+            title="Caja abierta. Hacé clic para realizar el arqueo y cierre del turno"
+          >
+            <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+            <LockOpen className="size-3.5 text-emerald-600" />
+            <span>Turno #{data.activeShift.shift_number || 1} Abierto</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onOpenShift}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 px-2.5 py-1 text-xs font-bold hover:bg-amber-500/25 transition-colors shadow-xs"
+            title="La caja está cerrada. Hacé clic para registrar el fondo de apertura"
+          >
+            <Lock className="size-3.5 text-amber-600" />
+            <span>Caja Cerrada · Abrir Caja</span>
+          </button>
+        )}
         <kbd className="inline-flex items-center gap-1 rounded-lg bg-muted/80 px-2.5 py-1 font-mono text-[11px] font-semibold text-foreground border border-border/70 shadow-xs">
           <span className="text-primary font-bold">F2</span> Buscar / Escanear
         </kbd>
@@ -4525,7 +4858,7 @@ function SalesPOSConfigured({
           onNewAccount={() => setModal("bank_account")}
           currency={saleCurrency}
         />
-        <CustomerSelectField customers={data.customers} customerId={customerId} setCustomerId={setCustomerId} onNewCustomer={()=>setModal("customer")}/>
+        <CustomerSelectField customers={data?.customers || []} customerId={customerId} setCustomerId={setCustomerId} onNewCustomer={()=>setModal("customer")}/>
 
         <div className="border-t pt-4 space-y-1.5 text-xs sm:text-sm">
           <div className="flex justify-between text-muted-foreground">

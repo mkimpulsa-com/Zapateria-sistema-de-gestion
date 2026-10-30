@@ -13,6 +13,12 @@ export interface ThermalCashPrintData {
   paperWidth?: "80mm" | "58mm";
 }
 
+export interface ThermalShiftPrintData {
+  shift: any;
+  settings?: any;
+  paperWidth?: "80mm" | "58mm";
+}
+
 const dateFmt = (value?: string) => {
   if (!value) return "—";
   try {
@@ -373,6 +379,226 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
 </html>`;
 
   executeThermalPrint(printHtml, receiptNo);
+}
+
+/**
+ * Imprime el ticket térmico de Cierre y Arqueo Z de Caja (Turno)
+ */
+export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth = "80mm" }: ThermalShiftPrintData) {
+  if (typeof window === "undefined" || !shift) return;
+
+  const businessName = settings.business_name || "CR BAZAR";
+  const branchName = settings.branch_name || "Sucursal Principal";
+  const shiftNumber = shift.shift_number || 1;
+  const is58mm = paperWidth === "58mm";
+
+  const initialCash = Number(shift.initial_cash || 0);
+  const cashSales = Number(shift.cash_sales || 0);
+  const otherSales = Number(shift.other_sales || 0);
+  const totalSales = Number(shift.total_sales || (cashSales + otherSales));
+  const salesCount = Number(shift.sales_count || 0);
+  const cashIncomes = Number(shift.cash_incomes || 0);
+  const cashExpenses = Number(shift.cash_expenses || 0);
+  const expectedCash = Number(shift.expected_cash || 0);
+  const actualCash = Number(shift.actual_cash !== undefined ? shift.actual_cash : expectedCash);
+  const difference = Number(shift.difference !== undefined ? shift.difference : (actualCash - expectedCash));
+  const withdrawnCash = Number(shift.withdrawn_cash || 0);
+  const retainedCash = Number(shift.retained_cash !== undefined ? shift.retained_cash : (actualCash - withdrawnCash));
+
+  const diffLabel = difference === 0 
+    ? "EXACTA ($ 0)" 
+    : difference > 0 
+      ? `SOBRANTE (+${formatMoney(difference, "ARS")})` 
+      : `FALTANTE (-${formatMoney(Math.abs(difference), "ARS")})`;
+
+  const printHtml = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Cierre de Caja - Turno #${shiftNumber}</title>
+  <style>
+    @page {
+      size: ${is58mm ? "58mm auto" : "80mm auto"};
+      margin: 0;
+    }
+    *, *::before, *::after {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body {
+      margin: 0;
+      padding: ${is58mm ? "2mm 2mm 8mm 2mm" : "3mm 4mm 10mm 4mm"};
+      width: ${is58mm ? "54mm" : "74mm"};
+      max-width: 100%;
+      background: #ffffff;
+      color: #000000;
+      font-family: 'Courier New', Courier, monospace, 'Segoe UI', Arial, sans-serif;
+      font-size: ${is58mm ? "10.5px" : "11.5px"};
+      line-height: 1.25;
+    }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .font-bold { font-weight: bold; }
+    .divider { border-top: 1px dashed #000000; margin: 4px 0; }
+    .divider-double { border-top: 2px solid #000000; margin: 5px 0; }
+    .row { display: flex; justify-content: space-between; margin: 1.5px 0; }
+    .title {
+      font-size: ${is58mm ? "13px" : "15px"};
+      font-weight: 900;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+    .subtitle {
+      font-size: ${is58mm ? "10.5px" : "12px"};
+      font-weight: bold;
+      margin-top: 2px;
+    }
+    .highlight-box {
+      border: 1px solid #000;
+      padding: 4px;
+      margin: 4px 0;
+    }
+    .grand-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: ${is58mm ? "12px" : "13.5px"};
+      font-weight: 900;
+      border-top: 1px solid #000;
+      border-bottom: 1px solid #000;
+      padding: 2.5px 0;
+      margin: 3px 0;
+    }
+    .cut-feed { height: 14mm; }
+  </style>
+</head>
+<body>
+  <div class="text-center">
+    <div class="title">${businessName}</div>
+    ${branchName ? `<div>${branchName}</div>` : ""}
+    <div class="subtitle">CIERRE Y ARQUEO DE CAJA</div>
+    <div class="font-bold">TURNO N° ${shiftNumber}</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="row">
+    <span>Apertura:</span>
+    <span>${dateFmt(shift.opened_at)} ${timeFmt(shift.opened_at)}</span>
+  </div>
+  <div class="row">
+    <span>Abierto por:</span>
+    <span><strong>${shift.opened_by_name || "Administrador"}</strong></span>
+  </div>
+
+  <div class="row" style="margin-top: 3px;">
+    <span>Cierre:</span>
+    <span>${dateFmt(shift.closed_at)} ${timeFmt(shift.closed_at)}</span>
+  </div>
+  <div class="row">
+    <span>Cerrado por:</span>
+    <span><strong>${shift.closed_by_name || "Administrador"}</strong></span>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- MOVIMIENTOS EN EFECTIVO -->
+  <div class="font-bold text-center" style="margin: 2px 0;">CONTROL DE EFECTIVO (CAJÓN)</div>
+
+  <div class="row">
+    <span>(+) Fondo Inicial de Caja:</span>
+    <span>${formatMoney(initialCash, "ARS")}</span>
+  </div>
+  <div class="row">
+    <span>(+) Ventas en Efectivo (${salesCount}):</span>
+    <span>${formatMoney(cashSales, "ARS")}</span>
+  </div>
+  ${cashIncomes > 0 ? `
+    <div class="row">
+      <span>(+) Ingresos / Aportes Caja:</span>
+      <span>+${formatMoney(cashIncomes, "ARS")}</span>
+    </div>
+  ` : ""}
+  ${cashExpenses > 0 ? `
+    <div class="row">
+      <span>(-) Retiros / Gastos Caja:</span>
+      <span>-${formatMoney(cashExpenses, "ARS")}</span>
+    </div>
+  ` : ""}
+
+  <div class="divider"></div>
+
+  <div class="row font-bold">
+    <span>EFECTIVO ESPERADO:</span>
+    <span>${formatMoney(expectedCash, "ARS")}</span>
+  </div>
+  <div class="row font-bold" style="font-size: ${is58mm ? "11.5px" : "13px"};">
+    <span>EFECTIVO REAL CONTADO:</span>
+    <span>${formatMoney(actualCash, "ARS")}</span>
+  </div>
+
+  <div class="highlight-box">
+    <div class="row font-bold">
+      <span>DIFERENCIA:</span>
+      <span>${diffLabel}</span>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- DESTINO DE FONDOS -->
+  <div class="font-bold text-center" style="margin: 2px 0;">DESTINO DEL EFECTIVO</div>
+  <div class="row">
+    <span>Retiro / Entrega a Tesorería:</span>
+    <span><strong>${formatMoney(withdrawnCash, "ARS")}</strong></span>
+  </div>
+  <div class="row">
+    <span>Queda en Cajón (Sig. Turno):</span>
+    <span><strong>${formatMoney(retainedCash, "ARS")}</strong></span>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- OTROS MEDIOS DE PAGO -->
+  <div class="font-bold text-center" style="margin: 2px 0;">TOTAL FACTURADO DEL TURNO</div>
+  <div class="row">
+    <span>Ventas Efectivo:</span>
+    <span>${formatMoney(cashSales, "ARS")}</span>
+  </div>
+  <div class="row">
+    <span>Transferencia / Tarjeta:</span>
+    <span>${formatMoney(otherSales, "ARS")}</span>
+  </div>
+  <div class="grand-row">
+    <span>TOTAL VENDIDO:</span>
+    <span>${formatMoney(totalSales, "ARS")}</span>
+  </div>
+
+  ${shift.closing_notes ? `
+    <div class="divider"></div>
+    <div style="font-size: 9.5px; margin: 3px 0;">
+      <strong>Observaciones:</strong> ${shift.closing_notes}
+    </div>
+  ` : ""}
+
+  <div class="divider-double"></div>
+
+  <!-- FIRMAS DE CONFORMIDAD -->
+  <div style="margin-top: 18px; text-align: center;">
+    <div style="border-top: 1px dashed #000; width: 75%; margin: 0 auto 2px auto;"></div>
+    <div style="font-size: 9px;">Firma Cajero (${shift.closed_by_name || "Responsable"})</div>
+  </div>
+
+  <div style="margin-top: 18px; text-align: center;">
+    <div style="border-top: 1px dashed #000; width: 75%; margin: 0 auto 2px auto;"></div>
+    <div style="font-size: 9px;">Firma Encargado / Supervisor</div>
+  </div>
+
+  <div class="cut-feed"></div>
+</body>
+</html>`;
+
+  executeThermalPrint(printHtml, `Cierre-Turno-${shiftNumber}`);
 }
 
 /**

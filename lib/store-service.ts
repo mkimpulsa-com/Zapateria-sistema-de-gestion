@@ -36,6 +36,34 @@ const defaultSettings = {
 function requireFirebase(){if(!db)throw new Error("Firebase no está configurado.");return db;}
 const withId=(snapshot:any)=>snapshot.docs.map((item:any)=>({id:item.id,...item.data()}));
 
+export interface CashShift {
+  id: string;
+  shift_number: number;
+  status: "open" | "closed";
+  opened_at: string;
+  opened_by_id?: string;
+  opened_by_name: string;
+  initial_cash: number;
+  opening_notes?: string;
+
+  closed_at?: string;
+  closed_by_id?: string;
+  closed_by_name?: string;
+
+  cash_sales: number;
+  other_sales: number;
+  total_sales: number;
+  sales_count: number;
+  cash_incomes: number;
+  cash_expenses: number;
+  expected_cash: number;
+  actual_cash?: number;
+  difference?: number;
+  withdrawn_cash?: number;
+  retained_cash?: number;
+  closing_notes?: string;
+}
+
 export function getStoreUid(explicitUid?: string): string {
   const uid = explicitUid || auth?.currentUser?.uid;
   if (!uid) throw new Error("Debes iniciar sesión para operar el sistema.");
@@ -199,7 +227,7 @@ export async function deleteCashierAccount({
 export async function loadStore(uid?: string) {
   const userId = getStoreUid(uid);
   await ensureSeed(userId);
-  const [settingsSnap, productsSnap, customersSnap, suppliersSnap, salesSnap, movementsSnap, stockSnap, customerMovesSnap, supplierMovesSnap, bankAccountsSnap, bankMovesSnap, categoriesSnap, staffSnap] = await Promise.all([
+  const [settingsSnap, productsSnap, customersSnap, suppliersSnap, salesSnap, movementsSnap, stockSnap, customerMovesSnap, supplierMovesSnap, bankAccountsSnap, bankMovesSnap, categoriesSnap, staffSnap, cashShiftsSnap] = await Promise.all([
     getDoc(userSettingsDoc(userId)),
     getDocs(userCol("products", userId)),
     getDocs(userCol("customers", userId)),
@@ -213,6 +241,7 @@ export async function loadStore(uid?: string) {
     getDocs(query(userCol("bankMovements", userId), orderBy("created_at", "desc"), limit(100))),
     getDocs(userCol("categories", userId)),
     getDocs(userCol("staff", userId)),
+    getDocs(query(userCol("cashShifts", userId), orderBy("opened_at", "desc"), limit(50))),
   ]);
   const rawSettings = settingsSnap.data() || {};
   const settings = { ...defaultSettings, ...rawSettings };
@@ -246,6 +275,46 @@ export async function loadStore(uid?: string) {
   const bankAccounts = withId(bankAccountsSnap).sort((a:any,b:any)=>String(a.name).localeCompare(String(b.name)));
   const bankMoves = withId(bankMovesSnap).sort((a:any,b:any)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0,100);
   const staff = withId(staffSnap).sort((a:any,b:any)=>String(a.name||"").localeCompare(String(b.name||"")));
+  const cashShifts = withId(cashShiftsSnap).sort((a:any,b:any)=>String(b.opened_at||"").localeCompare(String(a.opened_at||"")));
+
+  // Turno de caja activo (si existe)
+  const activeShift = cashShifts.find((s: any) => s.status === "open") || null;
+  if (activeShift) {
+    const shiftOpenedAt = activeShift.opened_at;
+    const shiftSales = sales.filter((s: any) => String(s.created_at) >= shiftOpenedAt);
+    
+    // Ventas en efectivo vs otros medios (en moneda de la venta o ARS)
+    let cashSales = 0;
+    let otherSales = 0;
+    shiftSales.forEach((s: any) => {
+      const amount = Number(s.paid_amount_ars !== undefined ? s.paid_amount_ars : (s.paid_amount || s.total || 0));
+      const method = String(s.payment_method || "").toLowerCase();
+      if (method.includes("efectivo")) {
+        cashSales += amount;
+      } else {
+        otherSales += amount;
+      }
+    });
+
+    // Movimientos manuales de caja durante el turno (excluyendo el propio aporte de apertura)
+    const shiftCashMoves = movements.filter((m: any) => 
+      String(m.created_at) >= shiftOpenedAt && 
+      m.category !== "Apertura de Caja" && 
+      m.reference !== "APERTURA"
+    );
+    const cashIncomes = shiftCashMoves.filter((m: any) => m.type === "ingreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
+    const cashExpenses = shiftCashMoves.filter((m: any) => m.type === "egreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
+    const initialCash = Number(activeShift.initial_cash || 0);
+    const expectedCash = initialCash + cashSales + cashIncomes - cashExpenses;
+
+    activeShift.cash_sales = cashSales;
+    activeShift.other_sales = otherSales;
+    activeShift.total_sales = cashSales + otherSales;
+    activeShift.sales_count = shiftSales.length;
+    activeShift.cash_incomes = cashIncomes;
+    activeShift.cash_expenses = cashExpenses;
+    activeShift.expected_cash = expectedCash;
+  }
 
   let categories = withId(categoriesSnap);
   if (categories.length === 0) {
@@ -267,7 +336,7 @@ export async function loadStore(uid?: string) {
 
   const today = new Date().toISOString().slice(0,10);
   const todaySales = sales.filter((sale:any)=>String(sale.created_at).slice(0,10)===today);
-  return {settings,products,customers,suppliers,sales,movements,stockMoves,customerMoves,supplierMoves,bankAccounts,bankMoves,categories,staff,stats:{
+  return {settings,products,customers,suppliers,sales,movements,stockMoves,customerMoves,supplierMoves,bankAccounts,bankMoves,categories,staff,cashShifts,activeShift,stats:{
     revenueToday:todaySales.reduce((sum:number,sale:any)=>sum+Number(sale.total !== undefined ? sale.total : (sale.total_ars || sale.total_brl || 0)),0),
     salesToday:todaySales.length,
     stockValue:products.reduce((sum:number,product:any)=>sum+Number(product.cost||0)*Number(product.total_stock||0),0),
@@ -1082,6 +1151,141 @@ export async function runStoreAction(body: any, uid?: string) {
     const movementId = String(body.id || body.movementId || "");
     if (!movementId) throw new Error("Movimiento de caja no encontrado.");
     await deleteDoc(userDoc("cashMovements", movementId, userId));
+  } else if (action === "open_cash_shift") {
+    // Verificar si ya existe un turno abierto
+    const existingOpenSnap = await getDocs(query(userCol("cashShifts", userId), orderBy("opened_at", "desc"), limit(10)));
+    const openShift = withId(existingOpenSnap).find((s: any) => s.status === "open");
+    if (openShift) {
+      throw new Error(`Ya hay un turno abierto (#${openShift.shift_number || 1}) iniciado el ${new Date(openShift.opened_at).toLocaleTimeString("es-AR")}. Debes cerrarlo antes de abrir uno nuevo.`);
+    }
+
+    const allShifts = withId(existingOpenSnap);
+    const lastNumber = allShifts.reduce((max: number, s: any) => Math.max(max, Number(s.shift_number || 0)), 0);
+    const nextNumber = lastNumber + 1;
+
+    const initialCash = Math.max(0, number(body.initialCash !== undefined ? body.initialCash : body.initial_cash, 0));
+    const cashierName = text(body.cashierName || body.cashier_name, "Administrador");
+    const cashierId = body.cashierId ? String(body.cashierId) : null;
+    const openingNotes = text(body.openingNotes || body.opening_notes, "");
+    const time = now();
+
+    const shiftRef = await addDoc(userCol("cashShifts", userId), {
+      shift_number: nextNumber,
+      status: "open",
+      opened_at: time,
+      opened_by_id: cashierId,
+      opened_by_name: cashierName,
+      initial_cash: initialCash,
+      opening_notes: openingNotes,
+      created_at: time,
+      updated_at: time,
+    });
+
+    // Registrar en cashMovements el fondo inicial si es mayor a cero
+    if (initialCash > 0) {
+      await addDoc(userCol("cashMovements", userId), {
+        type: "ingreso",
+        category: "Apertura de Caja",
+        amount: initialCash,
+        description: `Fondo inicial de cambio · Turno #${nextNumber}`,
+        reference: `APERTURA-#${nextNumber}`,
+        created_at: time,
+      });
+    }
+
+    return { success: true, shiftId: shiftRef.id, shiftNumber: nextNumber };
+  } else if (action === "close_cash_shift") {
+    const shiftId = String(body.shiftId || body.shift_id || "");
+    if (!shiftId) throw new Error("ID de turno no provisto para el cierre.");
+
+    const shiftDocRef = userDoc("cashShifts", shiftId, userId);
+    const shiftSnap = await getDoc(shiftDocRef);
+    if (!shiftSnap.exists()) throw new Error("El turno de caja especificado no existe.");
+    const shiftData = shiftSnap.data() as any;
+    if (shiftData.status !== "open") throw new Error("Este turno de caja ya se encuentra cerrado.");
+
+    const shiftOpenedAt = shiftData.opened_at;
+    const time = now();
+
+    // Consultar ventas ocurridas durante el turno
+    const salesSnap = await getDocs(query(userCol("sales", userId), orderBy("created_at", "desc"), limit(200)));
+    const shiftSales = withId(salesSnap).filter((s: any) => String(s.created_at) >= shiftOpenedAt);
+
+    let cashSales = 0;
+    let otherSales = 0;
+    shiftSales.forEach((s: any) => {
+      const amount = Number(s.paid_amount_ars !== undefined ? s.paid_amount_ars : (s.paid_amount || s.total || 0));
+      const method = String(s.payment_method || "").toLowerCase();
+      if (method.includes("efectivo")) {
+        cashSales += amount;
+      } else {
+        otherSales += amount;
+      }
+    });
+
+    // Consultar movimientos de caja durante el turno
+    const movesSnap = await getDocs(query(userCol("cashMovements", userId), orderBy("created_at", "desc"), limit(200)));
+    const shiftMoves = withId(movesSnap).filter((m: any) => 
+      String(m.created_at) >= shiftOpenedAt && 
+      m.category !== "Apertura de Caja" && 
+      m.reference !== `APERTURA-#${shiftData.shift_number}`
+    );
+
+    const cashIncomes = shiftMoves.filter((m: any) => m.type === "ingreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
+    const cashExpenses = shiftMoves.filter((m: any) => m.type === "egreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
+
+    const initialCash = Number(shiftData.initial_cash || 0);
+    const expectedCash = initialCash + cashSales + cashIncomes - cashExpenses;
+
+    const actualCash = number(body.actualCash !== undefined ? body.actualCash : body.actual_cash, expectedCash);
+    const difference = actualCash - expectedCash;
+    const withdrawnCash = Math.max(0, number(body.withdrawnCash !== undefined ? body.withdrawnCash : body.withdrawn_cash, 0));
+    const retainedCash = Math.max(0, number(body.retainedCash !== undefined ? body.retainedCash : body.retained_cash, Math.max(0, actualCash - withdrawnCash)));
+    const closingNotes = text(body.closingNotes || body.closing_notes, "");
+    const cashierName = text(body.cashierName || body.cashier_name, "Administrador");
+
+    const closedData = {
+      status: "closed",
+      closed_at: time,
+      closed_by_name: cashierName,
+      closed_by_id: body.cashierId ? String(body.cashierId) : null,
+      cash_sales: cashSales,
+      other_sales: otherSales,
+      total_sales: cashSales + otherSales,
+      sales_count: shiftSales.length,
+      cash_incomes: cashIncomes,
+      cash_expenses: cashExpenses,
+      expected_cash: expectedCash,
+      actual_cash: actualCash,
+      difference,
+      withdrawn_cash: withdrawnCash,
+      retained_cash: retainedCash,
+      closing_notes: closingNotes,
+      updated_at: time,
+    };
+
+    await updateDoc(shiftDocRef, closedData);
+
+    // Si hubo retiro de dinero del cajón, registrar el egreso
+    if (withdrawnCash > 0) {
+      await addDoc(userCol("cashMovements", userId), {
+        type: "egreso",
+        category: "Retiro de Recaudación",
+        amount: withdrawnCash,
+        description: `Retiro por cierre de turno #${shiftData.shift_number} · Entregado a tesorería`,
+        reference: `CIERRE-#${shiftData.shift_number}`,
+        created_at: time,
+      });
+    }
+
+    return {
+      success: true,
+      closedShift: {
+        id: shiftId,
+        ...shiftData,
+        ...closedData,
+      },
+    };
   } else if (action === "create_bank_account") {
     const name = text(body.name);
     if (!name) throw new Error("Ingresá el nombre o alias de la cuenta bancaria.");
