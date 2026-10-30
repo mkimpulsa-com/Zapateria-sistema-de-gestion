@@ -14,9 +14,11 @@ import {
   Building2,
   Image as ImageIcon,
   Loader2,
+  Receipt,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BarcodeView } from "@/components/barcode-view";
+import { printSaleThermalTicket } from "@/lib/thermal-printer";
 
 interface SaleInvoiceModalProps {
   open: boolean;
@@ -88,6 +90,7 @@ export function SaleInvoiceModal({
 }: SaleInvoiceModalProps) {
   const printRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState<"pdf" | "image" | null>(null);
+  const [viewFormat, setViewFormat] = useState<"thermal" | "a4">("thermal");
 
   // Clean afterprint listener
   useEffect(() => {
@@ -191,8 +194,13 @@ export function SaleInvoiceModal({
   const vatAmount27 = Number(sale.vat_amount_27 !== undefined ? sale.vat_amount_27 : 0);
   const exemptAmount = Number(sale.exempt_amount !== undefined ? sale.exempt_amount : 0);
 
-  // Dedicated Print function
-  const handlePrint = () => {
+  // Dedicated Print function for Thermal Tickets (80mm / 58mm)
+  const handlePrintThermal = (width: "80mm" | "58mm" = "80mm") => {
+    printSaleThermalTicket({ sale, settings, paperWidth: width });
+  };
+
+  // Dedicated Print function for Standard A4 Invoices
+  const handlePrintA4 = () => {
     const printContent = printRef.current;
     if (!printContent) {
       document.body.classList.add("printing-invoice");
@@ -289,6 +297,14 @@ export function SaleInvoiceModal({
     } catch (err) {
       document.body.classList.add("printing-invoice");
       window.print();
+    }
+  };
+
+  const handlePrint = () => {
+    if (viewFormat === "thermal") {
+      handlePrintThermal("80mm");
+    } else {
+      handlePrintA4();
     }
   };
 
@@ -459,12 +475,53 @@ export function SaleInvoiceModal({
                 </span>
               </DialogTitle>
               <DialogDescription className="text-xs text-slate-400">
-                Comprobante emitido con éxito · Listo para descargar y enviar al cliente
+                Comprobante emitido · Formato optimizado para ticketera térmica y PDF
               </DialogDescription>
             </div>
           </div>
 
+          {/* Formato Selector: Ticket Térmico vs Hoja A4 */}
+          <div className="flex items-center rounded-lg bg-white/5 p-0.5 border border-white/10 text-xs">
+            <button
+              type="button"
+              onClick={() => setViewFormat("thermal")}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-semibold transition-all ${
+                viewFormat === "thermal"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-slate-400 hover:text-white"
+              }`}
+              title="Ver formato compacto para impresora térmica de ticket"
+            >
+              <Receipt className="size-3.5" />
+              <span>Ticket Térmico</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewFormat("a4")}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-semibold transition-all ${
+                viewFormat === "a4"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-slate-400 hover:text-white"
+              }`}
+              title="Ver formato oficial en hoja completa A4"
+            >
+              <FileText className="size-3.5" />
+              <span>Factura A4</span>
+            </button>
+          </div>
+
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => handlePrintThermal("80mm")}
+              className="h-8 gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm"
+              title="Imprimir ticket optimizado para impresora térmica de 80mm o 58mm"
+            >
+              <Printer className="size-3.5" />
+              <span>Imprimir Ticket</span>
+            </Button>
+
             <Button
               variant="outline"
               size="sm"
@@ -489,16 +546,15 @@ export function SaleInvoiceModal({
               ) : (
                 <ImageIcon className="size-3.5" />
               )}
-              <span className="hidden sm:inline">Descargar Imagen</span>
-              <span className="sm:hidden">Imagen</span>
+              <span className="hidden sm:inline">Imagen</span>
             </Button>
 
             <Button
-              variant="default"
+              variant="outline"
               size="sm"
               disabled={Boolean(downloading)}
               onClick={handleDownloadPdf}
-              className="h-8 gap-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-bold shadow-sm"
+              className="h-8 gap-1.5 rounded-lg border-white/10 text-slate-200 hover:text-white hover:bg-white/10 text-xs font-medium shadow-sm"
               title="Descargar factura en archivo PDF para enviar al cliente"
             >
               {downloading === "pdf" ? (
@@ -506,18 +562,18 @@ export function SaleInvoiceModal({
               ) : (
                 <Download className="size-3.5" />
               )}
-              <span>Descargar PDF</span>
+              <span className="hidden sm:inline">PDF</span>
             </Button>
 
             <Button
               variant="ghost"
               size="sm"
-              onClick={handlePrint}
+              onClick={handlePrintA4}
               className="h-8 gap-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 text-xs font-medium"
-              title="Imprimir o guardar como PDF desde el navegador (Ctrl+P)"
+              title="Imprimir en hoja A4 / impresora estándar"
             >
               <Printer className="size-3.5" />
-              <span className="hidden md:inline">Imprimir</span>
+              <span className="hidden xl:inline">Imprimir A4</span>
             </Button>
 
             {onNewSale && (
@@ -539,10 +595,171 @@ export function SaleInvoiceModal({
 
         {/* Paper Document Container */}
         <div className="p-4 sm:p-6 lg:p-8 bg-slate-950/40 flex justify-center print:p-0 print:bg-transparent print:block">
+          {/* Vista 1: Ticket Térmico Compacto & Profesional (80mm / 58mm) */}
+          {viewFormat === "thermal" && (
+            <div className="w-full max-w-sm bg-white text-slate-900 rounded-xl shadow-2xl p-6 border border-slate-200 font-mono text-xs flex flex-col items-stretch animate-in fade-in duration-200">
+              {/* Encabezado */}
+              <div className="text-center space-y-0.5">
+                <h2 className="text-base font-black tracking-tight uppercase text-slate-900">
+                  {businessName}
+                </h2>
+                {branchName && (
+                  <p className="text-[11px] text-slate-600 font-sans">{branchName}</p>
+                )}
+                {address && (
+                  <p className="text-[10px] text-slate-500 font-sans">{address}</p>
+                )}
+                {phone && (
+                  <p className="text-[10px] text-slate-500 font-sans">Tel / WhatsApp: {phone}</p>
+                )}
+              </div>
+
+              <div className="border-t border-dashed border-slate-300 my-3" />
+
+              {/* Datos de Ticket */}
+              <div className="space-y-1 text-[11px] text-slate-700">
+                <div className="flex justify-between font-bold text-slate-900">
+                  <span>Ticket: {receiptNo}</span>
+                  <span>{dateFmt(sale.created_at)} {timeFmt(sale.created_at)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Cliente: <strong className="text-slate-800">{sale.customer_name || "Consumidor Final"}</strong></span>
+                  {sale.customer_document && (
+                    <span className="text-[10px] text-slate-500">Doc: {sale.customer_document}</span>
+                  )}
+                </div>
+                {sale.cashier_name && (
+                  <div className="text-[10px] text-slate-500">
+                    Atendido por: {sale.cashier_name}
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-dashed border-slate-300 my-3" />
+
+              {/* Cabecera de Ítems */}
+              <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-slate-500 pb-1 border-b border-slate-200">
+                <span className="w-8">Cant</span>
+                <span className="flex-1 px-1">Descripción</span>
+                <span className="w-16 text-right">Total</span>
+              </div>
+
+              {/* Lista de Ítems */}
+              <div className="divide-y divide-slate-100 py-1">
+                {items.map((item: any, idx: number) => {
+                  const qty = Number(item.quantity || 1);
+                  const unitPrice = Number(item.unit_price || 0);
+                  const itemTotal = Number(item.total || (qty * unitPrice));
+                  const extra = [
+                    item.size && !["Único", "Unico", "General", "Estándar"].includes(item.size) ? `Talle: ${item.size}` : null,
+                    item.sku ? `Cód: ${item.sku}` : null,
+                    qty > 1 ? `(${qty} x ${formatMoney(unitPrice, curr)})` : null,
+                  ].filter(Boolean).join(" · ");
+
+                  return (
+                    <div key={idx} className="py-1.5 space-y-0.5">
+                      <div className="flex justify-between items-start">
+                        <span className="w-8 font-bold text-slate-900">{qty}</span>
+                        <span className="flex-1 px-1 font-semibold text-slate-900">{item.name}</span>
+                        <span className="w-16 text-right font-bold text-slate-900">{formatMoney(itemTotal, curr)}</span>
+                      </div>
+                      {extra && (
+                        <div className="text-[9.5px] text-slate-500 pl-8 font-sans">
+                          {extra}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="border-t border-dashed border-slate-300 my-3" />
+
+              {/* Resumen de Totales */}
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between text-[11px] text-slate-600">
+                  <span>Total unidades:</span>
+                  <span className="font-bold text-slate-800">{totalPairs}</span>
+                </div>
+                {discount > 0 && (
+                  <>
+                    <div className="flex justify-between text-[11px] text-slate-600">
+                      <span>Subtotal:</span>
+                      <span>{formatMoney(subtotal, curr)}</span>
+                    </div>
+                    <div className="flex justify-between text-[11px] text-emerald-700 font-semibold">
+                      <span>Descuento{sale.discount_percent ? ` (${sale.discount_percent}%)` : ""}:</span>
+                      <span>-{formatMoney(discount, curr)}</span>
+                    </div>
+                  </>
+                )}
+                {Number(sale.additional_charge || 0) > 0 && (
+                  <div className="flex justify-between text-[11px] text-blue-700">
+                    <span>Cargo adicional:</span>
+                    <span>+{formatMoney(Number(sale.additional_charge), curr)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-base font-black border-y border-slate-900 py-2 my-2 text-slate-900">
+                  <span>TOTAL A PAGAR:</span>
+                  <span>{formatMoney(total, curr)}</span>
+                </div>
+                <div className="flex justify-between text-[11px] text-slate-700">
+                  <span>Forma de pago:</span>
+                  <span className="font-bold">{paymentMethod}</span>
+                </div>
+                {debtCur > 0 ? (
+                  <div className="space-y-1 pt-1 border-t border-dashed border-red-200">
+                    <div className="flex justify-between text-[11px] text-slate-700">
+                      <span>Monto abonado:</span>
+                      <span>{formatMoney(paidCur, curr)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs font-black text-red-600">
+                      <span>SALDO PENDIENTE:</span>
+                      <span>{formatMoney(debtCur, curr)}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex justify-between text-[11px] text-slate-700">
+                    <span>Estado:</span>
+                    <span className="font-bold text-emerald-700">PAGADO TOTAL</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t-2 border-slate-900 my-4" />
+
+              {/* Despedida y Garantía */}
+              <div className="text-center text-[10px] text-slate-600 space-y-0.5 leading-tight">
+                <p className="font-bold text-slate-900 text-[11px]">¡GRACIAS POR TU COMPRA!</p>
+                <p>Conservá este comprobante para cambios</p>
+                <p>dentro de los 30 días de realizada la compra.</p>
+              </div>
+
+              {/* Código de barra */}
+              <div className="mt-4 pt-2 border-t border-slate-200 flex flex-col items-center">
+                <InvoiceBarcode value={receiptNo} />
+              </div>
+
+              {/* Botón rápido de impresión térmica al pie */}
+              <div className="mt-5 pt-3 border-t border-slate-200 text-center">
+                <Button
+                  onClick={() => handlePrintThermal("80mm")}
+                  className="w-full gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm"
+                >
+                  <Printer className="size-4" />
+                  Imprimir en Impresora Térmica
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Vista 2: Factura A4 Formal (y referencia para exportar PDF/Imagen) */}
           <div
             id="printable-invoice"
             ref={printRef}
-            className="invoice-paper w-full max-w-2xl bg-white text-slate-900 rounded-xl shadow-2xl p-6 sm:p-8 border border-slate-200 font-sans print:border-0 print:shadow-none print:p-0 print:rounded-none print:max-w-none print:w-full print:m-0"
+            className={`invoice-paper w-full max-w-2xl bg-white text-slate-900 rounded-xl shadow-2xl p-6 sm:p-8 border border-slate-200 font-sans print:border-0 print:shadow-none print:p-0 print:rounded-none print:max-w-none print:w-full print:m-0 ${
+              viewFormat === "a4" ? "block" : "hidden"
+            }`}
           >
             {/* INVOICE HEADER */}
             <div className="border border-slate-900 rounded-xl overflow-hidden">

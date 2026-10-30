@@ -4,6 +4,7 @@ import { useRef, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Printer, MessageCircle, X, FileText, ArrowDownLeft, ArrowUpRight, Building2 } from "lucide-react";
+import { printCashThermalTicket } from "@/lib/thermal-printer";
 
 interface CashReceiptModalProps {
   open: boolean;
@@ -76,7 +77,11 @@ export function CashReceiptModal({
   const receiptNo = `MOV-${String(movement.id).slice(-8).toUpperCase()}`;
   const amount = Number(movement.amount || 0);
 
-  // Dedicated Print function
+  const handlePrintThermal = () => {
+    printCashThermalTicket({ movement, settings, paperWidth: "80mm" });
+  };
+
+  // Dedicated Print function for A4 / Full Page
   const handlePrint = () => {
     const printContent = printRef.current;
     if (!printContent) {
@@ -232,6 +237,17 @@ export function CashReceiptModal({
 
           <div className="flex items-center gap-2">
             <Button
+              variant="default"
+              size="sm"
+              onClick={handlePrintThermal}
+              className="h-8 gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm"
+              title="Imprimir ticket térmico en impresora de rollo (80mm / 58mm)"
+            >
+              <Printer className="size-3.5" />
+              <span>Ticket Térmico</span>
+            </Button>
+
+            <Button
               variant="outline"
               size="sm"
               onClick={handleWhatsApp}
@@ -243,14 +259,14 @@ export function CashReceiptModal({
             </Button>
 
             <Button
-              variant="default"
+              variant="outline"
               size="sm"
               onClick={handlePrint}
-              className="h-8 gap-1.5 rounded-lg bg-white text-slate-900 hover:bg-slate-100 text-xs font-bold shadow-sm"
-              title="Imprimir o guardar como PDF (Ctrl+P)"
+              className="h-8 gap-1.5 rounded-lg border-white/10 text-slate-200 hover:text-white hover:bg-white/10 text-xs font-medium shadow-sm"
+              title="Imprimir hoja completa A4 o guardar como PDF"
             >
               <Printer className="size-3.5" />
-              Imprimir / PDF
+              <span className="hidden sm:inline">Imprimir A4</span>
             </Button>
 
             <Button
