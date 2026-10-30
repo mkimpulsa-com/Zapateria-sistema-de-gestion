@@ -649,19 +649,22 @@ export function NewProductModal({
 
               <div>
                 <label className="grid gap-1 text-xs font-semibold">
-                  <span className="flex items-center justify-between">
-                    <span>PVP Sugerido ({currLabel})</span>
-                    <span className="text-[10px] font-normal text-muted-foreground">Minorista</span>
+                  <span className="flex items-center justify-between text-emerald-600 dark:text-emerald-400">
+                    <span>Precio Minorista ({currLabel}) *</span>
+                    <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-emerald-400 text-emerald-600">
+                      Público
+                    </Badge>
                   </span>
                   <Input
                     name="retailPrice"
                     type="number"
                     min={0}
                     step="any"
+                    required
                     value={retailPrice || ""}
                     onChange={(e) => setRetailPrice(Number(e.target.value) || 0)}
                     placeholder="0.00"
-                    className="h-10 rounded-xl"
+                    className="h-10 rounded-xl font-bold border-emerald-500/50 text-emerald-600 dark:text-emerald-400"
                   />
                 </label>
                 {cost > 0 && (

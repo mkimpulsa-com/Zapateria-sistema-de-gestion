@@ -217,7 +217,25 @@ export async function loadStore(uid?: string) {
   const rawSettings = settingsSnap.data() || {};
   const settings = { ...defaultSettings, ...rawSettings };
   settings.wholesale_min_qty = Number(rawSettings.wholesale_min_qty) || 0;
-  const products = withId(productsSnap).filter((item:any)=>item.active!==false).map((item:any)=>({...item,variants:Array.isArray(item.variants)?item.variants:[],total_stock:(item.variants||[]).reduce((sum:number,variant:any)=>sum+Number(variant.stock||0),0)})).sort((a:any,b:any)=>String(b.created_at).localeCompare(String(a.created_at)));
+  const products = withId(productsSnap)
+    .filter((item: any) => item.active !== false)
+    .map((item: any) => {
+      const rawRetail = Number(item.retail_price) || 0;
+      const rawWholesale = Number(item.wholesale_price) || 0;
+      return {
+        ...item,
+        retail_price: rawRetail > 0 ? rawRetail : rawWholesale,
+        wholesale_price: rawWholesale > 0 ? rawWholesale : rawRetail,
+        variants: Array.isArray(item.variants) ? item.variants : [],
+        total_stock: (item.variants || []).reduce(
+          (sum: number, variant: any) => sum + Number(variant.stock || 0),
+          0
+        ),
+      };
+    })
+    .sort((a: any, b: any) =>
+      String(b.created_at).localeCompare(String(a.created_at))
+    );
   const customers = withId(customersSnap).sort((a:any,b:any)=>String(a.name).localeCompare(String(b.name)));
   const suppliers = withId(suppliersSnap).sort((a:any,b:any)=>String(a.name).localeCompare(String(b.name)));
   const sales = withId(salesSnap).sort((a:any,b:any)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0,50);
@@ -468,6 +486,9 @@ export async function runStoreAction(body: any, uid?: string) {
     imagesList = imagesList.slice(0, 10);
     const primaryImageUrl = imagesList[0] || singleImageFallback || "";
 
+    const parsedRetail = number(body.retailPrice);
+    const parsedWholesale = number(body.wholesalePrice);
+
     await setDoc(target, {
       sku,
       barcode,
@@ -478,8 +499,8 @@ export async function runStoreAction(body: any, uid?: string) {
       location: text(body.location),
       gender: text(body.gender, "No aplica"),
       cost: number(body.cost),
-      retail_price: number(body.retailPrice),
-      wholesale_price: number(body.wholesalePrice),
+      retail_price: parsedRetail > 0 ? parsedRetail : parsedWholesale,
+      wholesale_price: parsedWholesale > 0 ? parsedWholesale : parsedRetail,
       vat_rate: Number(body.vatRate !== undefined ? body.vatRate : (body.vat_rate !== undefined ? body.vat_rate : 0)),
       min_stock: Math.max(0, number(body.minStock, 3)),
       image_url: primaryImageUrl,
@@ -1658,11 +1679,17 @@ export async function loadPublicStore(storeUid: string) {
   settings.wholesale_min_qty = Number(rawSettings.wholesale_min_qty) || 0;
   const products = withId(productsSnap)
     .filter((item: any) => item.active !== false)
-    .map((item: any) => ({
-      ...item,
-      variants: Array.isArray(item.variants) ? item.variants : [],
-      total_stock: (item.variants || []).reduce((sum: number, variant: any) => sum + Number(variant.stock || 0), 0),
-    }))
+    .map((item: any) => {
+      const rawRetail = Number(item.retail_price) || 0;
+      const rawWholesale = Number(item.wholesale_price) || 0;
+      return {
+        ...item,
+        retail_price: rawRetail > 0 ? rawRetail : rawWholesale,
+        wholesale_price: rawWholesale > 0 ? rawWholesale : rawRetail,
+        variants: Array.isArray(item.variants) ? item.variants : [],
+        total_stock: (item.variants || []).reduce((sum: number, variant: any) => sum + Number(variant.stock || 0), 0),
+      };
+    })
     .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
 
   return { settings, products, storeUid: cleanUid };

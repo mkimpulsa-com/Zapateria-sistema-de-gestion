@@ -434,16 +434,22 @@ export function EditProductModal({
 
               <div>
                 <label className="grid gap-1.5 text-xs font-semibold text-foreground/90">
-                  <span>PVP Sugerido ({currLabel})</span>
+                  <span className="flex items-center justify-between text-emerald-600 dark:text-emerald-400">
+                    <span>Precio Minorista ({currLabel}) *</span>
+                    <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-emerald-400 text-emerald-600">
+                      Público
+                    </Badge>
+                  </span>
                   <Input
                     name="retailPrice"
                     type="number"
                     min={0}
                     step="any"
+                    required
                     value={retailPrice || ""}
                     onChange={(e) => setRetailPrice(Number(e.target.value) || 0)}
                     placeholder="0.00"
-                    className="h-10 rounded-xl bg-card border-border/70 focus-visible:ring-primary/20"
+                    className="h-10 rounded-xl font-bold bg-card border-emerald-500/50 text-emerald-600 dark:text-emerald-400 focus-visible:ring-emerald-400/20"
                   />
                 </label>
               </div>

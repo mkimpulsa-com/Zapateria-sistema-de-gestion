@@ -1286,104 +1286,179 @@ function CustomerSelectField({
 function SalesPOS({data,filtered,channel,setChannel,cart,setCart,addVariant,scan,setScan,scanProduct,setModal,discount,setDiscount,payment,setPayment,customerId,setCustomerId,cartTotal,closeSale,busy}:any){return <><SectionTitle eyebrow="Venta rápida" title="Punto de venta" text="Escaneá, elegí la variante y cobrá sin salir de la pantalla."/><div className="mb-5 grid gap-3 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-[1fr_auto_auto]"><div className="relative"><Barcode className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-primary"/><Input autoFocus className="h-12 pl-10" placeholder="Escaneá con lector USB/Bluetooth o escribí el código" value={scan} onChange={e=>{const val=e.target.value;if(val.includes("\n")||val.includes("\r")){scanProduct(val);}else{setScan(val);}}} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();scanProduct(scan);}}}/></div><Button variant="outline" className="h-12" onClick={()=>setModal("scanner")}><Camera/>Usar cámara</Button><div className="flex rounded-xl bg-muted p-1"><button onClick={()=>setChannel("minorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel==="minorista"?"bg-card shadow":"text-muted-foreground"}`}>Minorista</button><button onClick={()=>setChannel("mayorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel==="mayorista"?"bg-card shadow":"text-muted-foreground"}`}>Mayorista</button></div></div><div className="grid gap-6 xl:grid-cols-[1fr_390px]"><div className="grid content-start gap-4 sm:grid-cols-2 2xl:grid-cols-3">{filtered.map((p:Product)=><Card key={p.id} className="gap-3 border-0 py-0 shadow-sm overflow-hidden flex flex-col">{p.image_url?<div className="h-36 w-full overflow-hidden bg-muted/20"><img src={p.image_url} alt={p.name} className="h-full w-full object-cover hover:scale-105 transition-transform duration-300"/></div>:<div className="h-20 w-full bg-gradient-to-r from-primary/5 via-muted/30 to-primary/5 flex items-center justify-center text-muted-foreground/40"><ShoppingBag className="size-7 opacity-50"/></div>}<CardContent className="px-4 pb-4 pt-2 flex-1 flex flex-col justify-between"><div><div className="mb-2 flex items-start justify-between gap-2"><div><p className="font-bold">{p.name}</p><p className="text-xs text-muted-foreground">{p.brand} · {p.sku}</p></div><Badge variant="outline">{p.total_stock} u.</Badge></div><p className="mb-3 text-xl font-extrabold text-primary">{money(channel==="mayorista"?p.wholesale_price:p.retail_price)}</p></div><div><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Elegir variante</p><div className="flex flex-wrap gap-1.5">{p.variants.map(v=><Button key={v.id} variant="outline" size="xs" disabled={!v.stock} onClick={()=>addVariant(p,v)}>{v.size}<span className="text-[10px] text-muted-foreground">{v.stock}</span></Button>)}</div></div></CardContent></Card>)}</div><Card className="sticky top-24 h-fit gap-4 border-0 py-5 shadow-[0_14px_40px_rgb(15_33_55/12%)]"><CardHeader className="flex-row items-center justify-between px-5"><CardTitle className="flex items-center gap-2"><ShoppingCart className="size-5 text-primary"/>Venta actual</CardTitle><Badge>{cart.reduce((s:number,i:CartItem)=>s+i.quantity,0)} unidades</Badge></CardHeader><CardContent className="space-y-4 px-5"><div className="max-h-64 space-y-2 overflow-y-auto pr-1">{cart.length===0?<div className="rounded-2xl border border-dashed p-7 text-center text-sm text-muted-foreground">Escaneá un producto o elegí una variante para comenzar.</div>:cart.map((i:CartItem)=><div key={i.variantId} className="flex items-center gap-3 rounded-xl bg-muted/55 p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{i.name}</p><p className="text-xs text-muted-foreground">Variante {i.size} · {money(i.unitPrice)}</p></div><div className="flex items-center gap-1"><button className="size-7 rounded-lg border" onClick={()=>setCart((c:CartItem[])=>c.map(x=>x.variantId===i.variantId?{...x,quantity:Math.max(0,x.quantity-1)}:x).filter(x=>x.quantity>0))}>−</button><span className="w-6 text-center text-sm font-bold">{i.quantity}</span><button className="size-7 rounded-lg border" onClick={()=>setCart((c:CartItem[])=>c.map(x=>x.variantId===i.variantId?{...x,quantity:Math.min(x.max,x.quantity+1)}:x))}>+</button></div></div>)}</div><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold">Descuento<Input type="number" value={discount} onChange={e=>setDiscount(Number(e.target.value)||0)} className="mt-1"/></label><label className="text-xs font-semibold">Medio de pago<select value={payment} onChange={e=>setPayment(e.target.value)} className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Cuenta corriente</option></select></label></div><CustomerSelectField customers={data.customers} customerId={customerId} setCustomerId={setCustomerId} onNewCustomer={()=>setModal("customer")}/><div className="border-t pt-4"><div className="flex justify-between text-sm text-muted-foreground"><span>Subtotal</span><span>{money(cartTotal+discount)}</span></div><div className="mt-2 flex items-end justify-between"><span className="font-semibold">Total</span><span className="text-3xl font-black tracking-tight">{money(cartTotal)}</span></div></div><Button className="h-12 w-full rounded-xl text-base" disabled={!cart.length||busy} onClick={closeSale}>{busy?"Procesando…":`Cobrar ${money(cartTotal)}`}</Button><p className="text-center text-xs text-muted-foreground">Genera comprobante X y descuenta el stock automáticamente.</p></CardContent></Card></div></>}
 
 function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
-  const [displayLimit, setDisplayLimit] = useState(40);
+  const [pageSize, setPageSize] = useState(25);
+  const [currentPage, setCurrentPage] = useState(1);
   const productsList = filtered || [];
 
   useEffect(() => {
-    setDisplayLimit(40);
-  }, [filtered]);
+    setCurrentPage(1);
+  }, [filtered, pageSize]);
 
   const totalPairs = productsList.reduce((sum: number, p: Product) => sum + (Number(p.total_stock) || 0), 0);
   const costStock = productsList.reduce((sum: number, p: Product) => sum + ((Number(p.cost) || 0) * (Number(p.total_stock) || 0)), 0);
-  const wholesaleStock = productsList.reduce((sum: number, p: Product) => sum + ((Number(p.wholesale_price) || 0) * (Number(p.total_stock) || 0)), 0);
-  const marginStock = Math.max(0, wholesaleStock - costStock);
-  const marginPercent = wholesaleStock > 0 ? Math.round((marginStock / wholesaleStock) * 100) : 0;
+  const retailStock = productsList.reduce((sum: number, p: Product) => {
+    const unitRetail = Number(p.retail_price) || Number(p.wholesale_price) || 0;
+    return sum + unitRetail * (Number(p.total_stock) || 0);
+  }, 0);
+  const marginStock = retailStock - costStock;
+  const marginPercent = retailStock > 0 ? Math.round((marginStock / retailStock) * 100) : 0;
   const isFiltered = Boolean(data?.products?.length && data.products.length !== productsList.length);
+
+  const totalPages = Math.max(1, Math.ceil(productsList.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const startIdx = (safePage - 1) * pageSize;
+  const visibleProducts = productsList.slice(startIdx, startIdx + pageSize);
 
   return (
     <>
       <SectionTitle 
         eyebrow="Catálogo maestro" 
-        title="Productos y Artículos Mayoristas" 
-        text="Artículos generales, calzados, indumentaria, precios de venta por mayor y costos." 
-        action={<Button onClick={()=>setModal("product")} className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"><PackagePlus/>Nuevo producto</Button>}
+        title="Productos" 
+        text="Modelos, precios, códigos y curvas de talles." 
+        action={
+          <Button
+            onClick={()=>setModal("product")}
+            className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-full px-4"
+          >
+            <PackagePlus/>
+            Nuevo producto
+          </Button>
+        }
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard 
           label="Stock al costo" 
           value={money(costStock)} 
-          note={isFiltered ? `${totalPairs} unidades (${productsList.length} prod. filtrados)` : `${totalPairs} unidades en inventario`} 
+          note={isFiltered ? `${totalPairs} pares en inventario (${productsList.length} filtrados)` : `${totalPairs} pares en inventario`} 
           icon={Boxes} 
           tone="blue"
         />
         <StatCard 
-          label="Stock valorizado mayorista" 
-          value={money(wholesaleStock)} 
-          note="Valor proyectado en venta mayorista" 
+          label="Stock con ganancias" 
+          value={money(retailStock)} 
+          note="Valor proyectado en venta minorista" 
           icon={TrendingUp} 
           tone="green"
         />
         <StatCard 
-          label="Margen mayorista en stock" 
-          value={money(marginStock)} 
-          note={`${marginPercent}% margen promedio mayorista`} 
+          label="Margen en stock" 
+          value={money(Math.max(0, marginStock))} 
+          note={`${marginPercent}% margen promedio proyectado`} 
           icon={Percent} 
           tone="violet"
         />
       </div>
 
-      <Card className="border-0 shadow-sm">
-        <CardContent className="px-2 sm:px-5">
+      <Card className="border shadow-sm rounded-2xl overflow-hidden">
+        <CardContent className="px-2 sm:px-5 py-2">
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Producto / Artículo</TableHead>
-                <TableHead>Código</TableHead>
-                <TableHead>Stock / Variantes</TableHead>
-                <TableHead className="text-right">Precio Mayorista</TableHead>
-                <TableHead className="text-right">PVP Sugerido</TableHead>
-                <TableHead className="text-right">Margen</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
+              <TableRow className="border-b border-border/60">
+                <TableHead className="font-bold text-xs">Producto</TableHead>
+                <TableHead className="font-bold text-xs">Código</TableHead>
+                <TableHead className="font-bold text-xs">Stock por talle</TableHead>
+                <TableHead className="font-bold text-xs">Minorista</TableHead>
+                <TableHead className="font-bold text-xs">Mayorista</TableHead>
+                <TableHead className="font-bold text-xs">Margen</TableHead>
+                <TableHead className="text-right font-bold text-xs">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {productsList.slice(0, displayLimit).map((p:Product)=>{
-                const margin=p.wholesale_price?Math.round((p.wholesale_price-p.cost)/p.wholesale_price*100):0;
+              {visibleProducts.map((p:Product)=>{
+                const effectiveRetail = Number(p.retail_price) || Number(p.wholesale_price) || 0;
+                const effectiveWholesale = Number(p.wholesale_price) || Number(p.retail_price) || 0;
+                const unitCost = Number(p.cost) || 0;
+                const margin = effectiveRetail > 0
+                  ? Math.round(((effectiveRetail - unitCost) / effectiveRetail) * 100)
+                  : 0;
+                const subtitleParts = [p.brand, p.color, p.category].filter(Boolean);
+
                 return (
-                  <TableRow key={p.id}>
-                    <TableCell>
+                  <TableRow key={p.id} className="hover:bg-muted/25 border-b border-border/40">
+                    <TableCell className="py-3">
                       <div className="flex items-center gap-3">
-                        <ProductImage src={p.image_url} alt={p.name} />
+                        <ProductImage src={p.image_url} alt={p.name} className="size-10 rounded-full object-cover border shrink-0" />
                         <div>
-                          <p className="font-semibold">{p.name}</p>
-                          <p className="text-xs text-muted-foreground">{p.brand} · {p.color} · {p.category}</p>
+                          <p className="font-bold text-sm text-foreground">{p.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {subtitleParts.length > 0 ? subtitleParts.join(" · ") : "Catálogo general"}
+                          </p>
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <p className="font-mono text-xs">{p.sku}</p>
+                    <TableCell className="py-3">
+                      <p className="font-mono text-xs font-bold text-foreground">{p.sku}</p>
                       <p className="font-mono text-[11px] text-muted-foreground">{p.barcode}</p>
                     </TableCell>
-                    <TableCell>
-                      <div className="flex min-w-32 max-w-xs flex-wrap gap-1">
-                        {p.variants.map(v=><Badge key={v.id} variant={v.stock?"secondary":"outline"}>{["Único", "Unico", "General"].includes(v.size) ? `${v.stock} u.` : `${v.size}: ${v.stock}`}</Badge>)}
+                    <TableCell className="py-3">
+                      <div className="flex min-w-36 max-w-md flex-wrap gap-1.5">
+                        {p.variants.map(v => {
+                          const hasStock = Number(v.stock) > 0;
+                          const label = ["Único", "Unico", "General"].includes(v.size)
+                            ? `${v.size}: ${v.stock}`
+                            : `${v.size}: ${v.stock}`;
+                          return (
+                            <span
+                              key={v.id}
+                              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold border ${
+                                hasStock
+                                  ? "bg-sky-500/15 text-sky-700 dark:bg-sky-500/20 dark:text-sky-200 border-sky-500/30"
+                                  : "bg-rose-500/15 text-rose-600 dark:bg-rose-500/20 dark:text-rose-300 border-rose-500/30"
+                              }`}
+                            >
+                              {label}
+                            </span>
+                          );
+                        })}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right font-semibold text-primary">{money(p.wholesale_price)}</TableCell>
-                    <TableCell className="text-right text-xs text-muted-foreground">{p.retail_price ? money(p.retail_price) : "—"}</TableCell>
-                    <TableCell className="text-right"><Badge variant="secondary">{margin}%</Badge></TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="py-3 font-extrabold text-sm text-foreground whitespace-nowrap">
+                      {money(effectiveRetail)}
+                    </TableCell>
+                    <TableCell className="py-3 text-sm font-medium text-muted-foreground dark:text-slate-300 whitespace-nowrap">
+                      {money(effectiveWholesale)}
+                    </TableCell>
+                    <TableCell className="py-3">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-extrabold border ${
+                          margin >= 0
+                            ? "bg-emerald-500/20 text-emerald-700 dark:bg-emerald-400/25 dark:text-emerald-200 border-emerald-500/30"
+                            : "bg-rose-500/20 text-rose-700 dark:bg-rose-400/25 dark:text-rose-200 border-rose-500/30"
+                        }`}
+                      >
+                        {margin}%
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-3 text-right">
                       <div className="flex items-center justify-end gap-1.5">
-                        <Button variant="outline" size="xs" className="h-8 gap-1 rounded-lg" onClick={()=>onAdjust(p)} title="Ajustar stock">
-                          <Boxes className="size-3.5 text-amber-600"/>
-                          <span className="hidden md:inline">Stock</span>
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          className="h-8 gap-1.5 rounded-full px-3 text-xs font-semibold border-border/80 bg-card/60 hover:bg-muted"
+                          onClick={()=>onAdjust(p)}
+                          title="Ajustar stock"
+                        >
+                          <Boxes className="size-3.5 text-amber-500"/>
+                          <span>Stock</span>
                         </Button>
-                        <Button variant="outline" size="xs" className="h-8 gap-1 rounded-lg" onClick={()=>onEdit(p)} title="Editar producto">
-                          <Pencil className="size-3.5 text-blue-600"/>
-                          <span className="hidden md:inline">Editar</span>
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          className="h-8 gap-1.5 rounded-full px-3 text-xs font-semibold border-border/80 bg-card/60 hover:bg-muted"
+                          onClick={()=>onEdit(p)}
+                          title="Editar producto"
+                        >
+                          <Pencil className="size-3.5 text-sky-500"/>
+                          <span>Editar</span>
                         </Button>
-                        <Button variant="outline" size="xs" className="h-8 gap-1 rounded-lg text-red-600 hover:bg-red-50 hover:text-red-700" onClick={()=>onDelete(p)} title="Eliminar producto">
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          className="size-8 p-0 rounded-full border-rose-500/30 bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 hover:text-rose-400"
+                          onClick={()=>onDelete(p)}
+                          title="Eliminar producto"
+                        >
                           <Trash2 className="size-3.5"/>
                         </Button>
                       </div>
@@ -1393,19 +1468,61 @@ function Products({data,filtered,setModal,onEdit,onAdjust,onDelete}:any){
               })}
             </TableBody>
           </Table>
-          {productsList.length > displayLimit && (
-            <div className="flex justify-center p-4 border-t">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setDisplayLimit(prev => prev + 40)}
-                className="gap-2 font-semibold rounded-xl"
-              >
-                <Plus className="size-4 text-primary" />
-                Cargar más productos ({Math.min(displayLimit, productsList.length)} de {productsList.length})
-              </Button>
+
+          {/* Barra inferior de paginación idéntica a la captura */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 pb-2 px-1 border-t border-border/40 text-xs text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-4">
+              <span>
+                Mostrando{" "}
+                <strong className="text-foreground">
+                  {productsList.length === 0 ? 0 : startIdx + 1} - {Math.min(startIdx + pageSize, productsList.length)}
+                </strong>{" "}
+                de <strong className="text-foreground">{productsList.length}</strong> productos
+              </span>
+
+              <div className="flex items-center gap-2">
+                <span>Mostrar:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value) || 25)}
+                  className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value={10}>10 por pág.</option>
+                  <option value={25}>25 por pág.</option>
+                  <option value={50}>50 por pág.</option>
+                  <option value={100}>100 por pág.</option>
+                </select>
+              </div>
             </div>
-          )}
+
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  disabled={safePage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="h-8 rounded-lg px-2.5 text-xs"
+                >
+                  Anterior
+                </Button>
+                <span className="px-2 font-semibold text-foreground">
+                  Pág. {safePage} de {totalPages}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  disabled={safePage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  className="h-8 rounded-lg px-2.5 text-xs"
+                >
+                  Siguiente
+                </Button>
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
     </>
