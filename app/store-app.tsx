@@ -49,6 +49,7 @@ import { ProductBarcodeModal } from "@/components/product-barcode-modal";
 import { BarcodeView } from "@/components/barcode-view";
 import { StaffSettingsView } from "@/components/staff-settings-view";
 import { cleanBarcodeScan, isBarcodeMatch } from "@/lib/barcode";
+import { downloadOrderControlPdf } from "@/lib/order-pdf";
 import { formatMoney, formatNumber, convertAmount, getCurrencyEquivalents, CURRENCIES, setSystemCurrency, getSystemCurrency } from "@/lib/currency";
 
 type Variant = { id:number; product_id:number; size:string; stock:number };
@@ -180,7 +181,29 @@ export default function StoreApp({
   const knownOrderIdsRef = useRef<Set<string>>(new Set());
 
   const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
+  const handleSetDark = (nextDark: boolean) => {
+    setDark(nextDark);
+    try {
+      localStorage.setItem("cr_bazar_theme", nextDark ? "dark" : "light");
+    } catch {}
+  };
+
+  useEffect(() => {
+    setMounted(true);
+    try {
+      const savedTheme = localStorage.getItem("cr_bazar_theme");
+      if (savedTheme === "dark") setDark(true);
+      else if (savedTheme === "light") setDark(false);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.documentElement.classList.toggle("dark", dark);
+      document.body.classList.toggle("dark", dark);
+      document.documentElement.style.colorScheme = dark ? "dark" : "light";
+    }
+  }, [dark]);
 
   const load=async()=>{try{const storeData=await loadStore(uid) as StoreData;setData(storeData);if(!bankAccountId&&storeData?.bankAccounts?.length){setBankAccountId(String(storeData.bankAccounts[0].id));}setError("");}catch(e:any){setError(e.message||"No se pudo cargar");}};
   useEffect(()=>{load();},[uid]);
@@ -243,10 +266,20 @@ export default function StoreApp({
   useEffect(()=>{
     if(!data?.settings)return;
     setSystemCurrency(data.settings.currency || "ARS");
-    const theme=data.settings.theme_default;
-    if(theme==="dark")setDark(true);
-    else if(theme==="light")setDark(false);
-    else setDark(window.matchMedia?.("(prefers-color-scheme: dark)").matches??false);
+    let savedTheme: string | null = null;
+    try {
+      savedTheme = localStorage.getItem("cr_bazar_theme");
+    } catch {}
+    if (savedTheme === "dark") {
+      setDark(true);
+    } else if (savedTheme === "light") {
+      setDark(false);
+    } else {
+      const theme=data.settings.theme_default;
+      if(theme==="dark")setDark(true);
+      else if(theme==="light")setDark(false);
+      else setDark(window.matchMedia?.("(prefers-color-scheme: dark)").matches??false);
+    }
     const defChannel = (data.settings.default_channel as "mayorista" | "minorista") || "minorista";
     setChannel(defChannel);
     setCatalogPrice((data.settings.catalog_default_price as any) || "both");
@@ -430,6 +463,14 @@ export default function StoreApp({
         });
       } else {
         setData(nextData as StoreData);
+        if (body.action === "save_settings" && body.themeDefault) {
+          if (body.themeDefault === "dark") handleSetDark(true);
+          else if (body.themeDefault === "light") handleSetDark(false);
+          else {
+            try { localStorage.removeItem("cr_bazar_theme"); } catch {}
+            setDark(window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
+          }
+        }
       }
       setToast(success);
       if(body.action!=="create_category" && !body.keepModalOpen)setModal("");
@@ -625,7 +666,7 @@ export default function StoreApp({
   const activeNavList = isCashier ? cashierNav : nav;
   const pageTitle=activeNavList.find(n=>n[0]===section)?.[1]||(isCashier ? "Punto de venta" : "Resumen");
 
-  return <div className={`app-shell min-h-screen bg-background text-foreground ${data!.settings?.nav_density==="compact"?"nav-compact":""} ${data!.settings?.motion_level==="reduced"?"motion-reduced":""}`}>
+  return <div className={`app-shell min-h-screen bg-background text-foreground ${dark?"dark":""} ${data!.settings?.nav_density==="compact"?"nav-compact":""} ${data!.settings?.motion_level==="reduced"?"motion-reduced":""}`}>
     <header className="top-shell no-print sticky top-0 z-40">
       <div className="top-brandbar mx-auto flex min-h-20 max-w-[1800px] flex-wrap items-center gap-3 px-4 py-3 sm:flex-nowrap sm:px-7 lg:px-9">
         <button className="brand-block flex shrink-0 items-center gap-3 text-left" onClick={()=>setSection(isCashier ? "ventas" : "resumen")} aria-label="Ir al inicio">
@@ -647,7 +688,7 @@ export default function StoreApp({
             </div>
           )
         )}
-        <Button variant="outline" size="icon" className="ml-auto shrink-0 rounded-xl sm:ml-0" onClick={()=>setDark(!dark)} aria-label={dark?"Activar modo claro":"Activar modo noche"}>{dark?<Sun/>:<Moon/>}</Button>
+        <Button variant="outline" size="icon" className="ml-auto shrink-0 rounded-xl sm:ml-0" onClick={()=>handleSetDark(!dark)} aria-label={dark?"Activar modo claro":"Activar modo noche"}>{dark?<Sun/>:<Moon/>}</Button>
         {!isCashier && (
           <Button
             variant={section === "tienda" ? "default" : "outline"}
@@ -710,7 +751,7 @@ export default function StoreApp({
         {!isCashier && section==="tienda"&&<WholesaleStoreAdmin data={data!} uid={uid} setSection={setSection} setToast={setToast}/>}
         {section==="catalogos"&&<CatalogConfigured data={data!} products={filtered}/>}
         {!isCashier && section==="reportes"&&<Reports data={data!} onSelectSale={(s:any)=>setInvoiceSale(s)}/>} 
-        {!isCashier && section==="configuracion"&&<SettingsCenter data={data!} onSave={action} busy={busy} dark={dark} setDark={setDark} setToast={setToast} uid={uid} setModal={setModal} onEditBankAccount={(acc:any)=>setEditingBankAccount(acc)} onTransferModal={()=>setTransferModalOpen(true)}/>}
+        {!isCashier && section==="configuracion"&&<SettingsCenter data={data!} onSave={action} busy={busy} dark={dark} setDark={handleSetDark} setToast={setToast} uid={uid} setModal={setModal} onEditBankAccount={(acc:any)=>setEditingBankAccount(acc)} onTransferModal={()=>setTransferModalOpen(true)}/>}
       </main>
 
     <NewProductModal
@@ -1094,12 +1135,36 @@ export default function StoreApp({
             <ArrowRight className="size-3.5" />
           </Button>
           <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              try {
+                setToast(`Generando PDF de ${newOrderAlert.orderNumber}...`);
+                await downloadOrderControlPdf({
+                  order: newOrderAlert,
+                  products: data?.products || [],
+                  businessSettings: data?.settings || {},
+                  currency: data?.settings?.currency || "ARS",
+                  includePhotos: true,
+                });
+                setToast(`PDF de ${newOrderAlert.orderNumber} descargado`);
+              } catch {
+                setToast("No se pudo generar el PDF");
+              }
+            }}
+            className="h-9 px-3 text-xs font-bold text-white border-white/20 bg-white/10 hover:bg-white/20 rounded-xl transition-colors cursor-pointer gap-1.5"
+            title="Descargar Remito / Ficha de Control en PDF con imágenes"
+          >
+            <Download className="size-3.5" />
+            <span>PDF</span>
+          </Button>
+          <Button
             variant="ghost"
             size="sm"
             onClick={() => setNewOrderAlert(null)}
-            className="h-9 px-3 text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
+            className="h-9 px-2.5 text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
           >
-            Descartar
+            Cerrar
           </Button>
         </div>
       </aside>,

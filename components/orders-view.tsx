@@ -5,7 +5,8 @@ import {
   ClipboardList, Search, Clock, CheckCircle2, Package, Truck,
   XCircle, ArrowRight, MessageCircle, Printer, Store, User, Phone,
   MapPin, AlertCircle, ShoppingBag, Trash2, Check, Sparkles, Filter,
-  Layers, RefreshCw, Bell, BellRing, Volume2, VolumeX, Eye, Image as ImageIcon
+  Layers, RefreshCw, Bell, BellRing, Volume2, VolumeX, Eye, Image as ImageIcon,
+  Download, FileText, Loader2
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { formatMoney } from "@/lib/currency";
 import { StoreOrder, OrderStatus, updateStoreOrderStatus, deleteStoreOrder } from "@/lib/store-service";
+import { downloadOrderControlPdf } from "@/lib/order-pdf";
 
 interface OrdersViewProps {
   orders: StoreOrder[];
@@ -108,6 +110,41 @@ export function OrdersView({
   const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
   const [includePhotosPrint, setIncludePhotosPrint] = useState<boolean>(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null);
+
+  // Obtener producto completo del catálogo para mostrar todas las especificaciones
+  const resolveProductDetails = (item: { productId?: string | number; name?: string }) => {
+    if (!products || !products.length) return null;
+    return (
+      products.find(
+        (p: any) =>
+          (item.productId !== undefined && String(p.id) === String(item.productId)) ||
+          (item.name && p.name && p.name.trim().toLowerCase() === item.name.trim().toLowerCase())
+      ) || null
+    );
+  };
+
+  // Descargar Remito / Ficha de Control en PDF profesional con imágenes y especificaciones
+  const handleDownloadOrderPdf = async (order: StoreOrder, withPhotos: boolean = true) => {
+    try {
+      setDownloadingPdfId(order.id);
+      setToast(`Generando PDF profesional de ${order.orderNumber} con imágenes...`);
+      await downloadOrderControlPdf({
+        order,
+        products,
+        businessSettings,
+        currency,
+        checkedItems,
+        includePhotos: withPhotos,
+      });
+      setToast(`PDF de ${order.orderNumber} descargado con éxito.`);
+    } catch (err: any) {
+      console.error("Error al generar PDF del pedido:", err);
+      setToast("No se pudo generar el PDF del pedido.");
+    } finally {
+      setDownloadingPdfId(null);
+    }
+  };
 
   // Obtener foto del calzado desde el item del pedido o catálogo de productos
   const resolveItemImage = (item: { productId?: string | number; name?: string; imageUrl?: string }) => {
@@ -276,12 +313,18 @@ export function OrdersView({
     const businessLogo = businessSettings?.logo_url || "";
 
     const itemsWithImages = order.items.map((item) => {
+      const prod = resolveProductDetails(item);
       const img = resolveItemImage(item);
-      const sku = resolveItemSku(item);
+      const sku = prod?.sku || resolveItemSku(item);
       return {
         ...item,
         resolvedImage: img,
         sku,
+        barcode: prod?.barcode || "",
+        category: prod?.category || "",
+        color: prod?.color || "",
+        location: prod?.location || "",
+        brand: item.brand || prod?.brand || "",
       };
     });
 
@@ -613,11 +656,17 @@ export function OrdersView({
                   <div class="item-name">${item.name}</div>
                   <div class="item-meta">
                     ${item.brand ? `Marca: <b>${item.brand}</b>` : ""}
-                    ${item.sku ? `<span class="sku-tag">SKU: ${item.sku}</span>` : ""}
+                    ${item.category ? ` · Cat.: <b>${item.category}</b>` : ""}
+                    ${item.color ? ` · Color/Pres.: <b>${item.color}</b>` : ""}
+                  </div>
+                  <div class="item-meta" style="margin-top:2px;">
+                    ${item.sku ? `<span class="sku-tag" style="margin-left:0;">SKU: ${item.sku}</span>` : ""}
+                    ${item.barcode ? `<span class="sku-tag">EAN: ${item.barcode}</span>` : ""}
+                    ${item.location ? `<span class="sku-tag">Ubicación: ${item.location}</span>` : ""}
                   </div>
                   ${
                     item.size
-                      ? `<div class="size-badge">TALLE / VARIANTE: ${item.size}</div>`
+                      ? `<div class="size-badge">VARIANTE / TALLE: ${item.size}</div>`
                       : `<div style="font-size: 11px; color: #64748b;">Estándar / Único</div>`
                   }
                 </td>
@@ -630,27 +679,9 @@ export function OrdersView({
           </tbody>
         </table>
 
-        <div class="summary-section">
-          <div class="signatures-box">
-            <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #475569; margin-bottom: 6px;">
-              Control de Depósito y Despacho
-            </div>
-            <div class="signature-line">
-              <span>Preparado por:</span>
-              <span style="color: #94a3b8;">Firma y Aclaración</span>
-            </div>
-            <div class="signature-line">
-              <span>Controlado / Embalado por:</span>
-              <span style="color: #94a3b8;">Firma y Aclaración</span>
-            </div>
-            <div style="margin-top: 10px; font-size: 10px; color: #64748b; display: flex; justify-content: space-between;">
-              <span>Fecha: ____/____/________</span>
-              <span>Bultos / Cajas: [_____]</span>
-            </div>
-          </div>
-
-          <div class="totals-box">
-            <div class="total-units">Total de unidades: <b>${order.totalUnits} pares</b></div>
+        <div class="summary-section" style="display: flex; justify-content: flex-end;">
+          <div class="totals-box" style="min-width: 280px;">
+            <div class="total-units">Total de unidades: <b>${order.totalUnits} unidades</b></div>
             <div class="total-price">TOTAL: ${money(order.totalAmount)}</div>
             <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
               Estado: <b>${STATUS_CONFIG[order.status]?.label || order.status}</b>
@@ -1185,7 +1216,7 @@ export function OrdersView({
 
                   {/* Acciones complementarias */}
                   <div className="flex items-center justify-between pt-1 border-t border-border/40 gap-1.5 flex-wrap">
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 flex-wrap">
                       <Button
                         size="sm"
                         variant="outline"
@@ -1195,6 +1226,22 @@ export function OrdersView({
                       >
                         <ClipboardList className="size-3.5 text-purple-600 dark:text-purple-400" />
                         Control Interno
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={downloadingPdfId === order.id}
+                        onClick={() => handleDownloadOrderPdf(order, true)}
+                        className="h-7 px-2.5 text-xs font-bold border-primary/40 text-primary hover:bg-primary/10 gap-1"
+                        title="Descargar Remito / Ficha de Control en PDF profesional con fotos y especificaciones"
+                      >
+                        {downloadingPdfId === order.id ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <Download className="size-3.5" />
+                        )}
+                        PDF con Fotos
                       </Button>
 
                       <Button
@@ -1230,7 +1277,7 @@ export function OrdersView({
       {/* Modal de Detalle Completo de Pedido */}
       {selectedOrder && (
         <Dialog open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-3xl w-[95vw] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <div className="flex items-center justify-between pr-6">
                 <div>
@@ -1367,6 +1414,20 @@ export function OrdersView({
                     <Button
                       size="sm"
                       variant="outline"
+                      disabled={downloadingPdfId === selectedOrder.id}
+                      onClick={() => handleDownloadOrderPdf(selectedOrder, true)}
+                      className="h-7 text-xs font-bold border-primary/40 text-primary hover:bg-primary/10 gap-1"
+                    >
+                      {downloadingPdfId === selectedOrder.id ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Download className="size-3.5" />
+                      )}
+                      Descargar PDF
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
                       onClick={() => handlePrintOrder(selectedOrder, true)}
                       className="h-7 text-xs gap-1"
                     >
@@ -1379,6 +1440,13 @@ export function OrdersView({
                 <div className="divide-y divide-border/40 text-xs">
                   {selectedOrder.items.map((item, idx) => {
                     const itemImg = resolveItemImage(item);
+                    const prod = resolveProductDetails(item);
+                    const itemBrand = item.brand || prod?.brand || "";
+                    const itemCategory = prod?.category || "";
+                    const itemColor = prod?.color || "";
+                    const itemSku = prod?.sku || resolveItemSku(item);
+                    const itemBarcode = prod?.barcode || "";
+                    const itemLocation = prod?.location || "";
                     return (
                       <div key={idx} className="py-2.5 flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -1386,26 +1454,35 @@ export function OrdersView({
                             <img
                               src={itemImg}
                               alt={item.name}
-                              className="size-12 rounded-lg object-cover border shrink-0 bg-muted/40 shadow-xs"
+                              className="size-14 rounded-lg object-cover border shrink-0 bg-muted/40 shadow-xs"
                               loading="lazy"
                             />
                           ) : (
-                            <div className="size-12 rounded-lg bg-muted flex items-center justify-center shrink-0 text-muted-foreground border">
+                            <div className="size-14 rounded-lg bg-muted flex items-center justify-center shrink-0 text-muted-foreground border">
                               <Package className="size-5 opacity-40" />
                             </div>
                           )}
                           <div className="min-w-0">
                             <p className="font-bold text-foreground text-sm truncate">{item.name}</p>
-                            <p className="text-muted-foreground text-xs mt-0.5">
-                              {item.brand && `Marca: ${item.brand} • `}
+                            <div className="flex flex-wrap items-center gap-1.5 text-muted-foreground text-xs mt-1">
                               {item.size ? (
                                 <strong className="text-blue-700 dark:text-blue-300 bg-blue-500/15 border border-blue-500/20 px-1.5 py-0.5 rounded font-bold">
-                                  Talle {item.size}
+                                  Variante / Talle: {item.size}
                                 </strong>
                               ) : (
-                                "Estándar"
+                                <span className="bg-muted px-1.5 py-0.5 rounded">Único / Estándar</span>
                               )}
-                            </p>
+                              {itemBrand && <span>• Marca: <b className="text-foreground">{itemBrand}</b></span>}
+                              {itemCategory && <span>• Cat.: <b className="text-foreground">{itemCategory}</b></span>}
+                              {itemColor && <span>• Color/Pres.: <b className="text-foreground">{itemColor}</b></span>}
+                            </div>
+                            {(itemSku || itemBarcode || itemLocation) && (
+                              <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-muted-foreground mt-0.5">
+                                {itemSku && <span>SKU: {itemSku}</span>}
+                                {itemBarcode && <span>EAN: {itemBarcode}</span>}
+                                {itemLocation && <span className="font-sans text-primary font-semibold">Ubicación: {itemLocation}</span>}
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="text-right shrink-0">
@@ -1464,272 +1541,426 @@ export function OrdersView({
       )}
 
       {/* Modal de Control Interno y Preparación con Fotos */}
-      {prepModalOrder && (
-        <Dialog open={!!prepModalOrder} onOpenChange={(open) => !open && setPrepModalOrder(null)}>
-          <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto">
-            <DialogHeader>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pr-6">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/20">
-                      <ClipboardList className="size-5" />
-                    </div>
-                    <DialogTitle className="text-xl font-black">
-                      Control Interno y Preparación de Pedido
-                    </DialogTitle>
-                  </div>
-                  <DialogDescription className="text-xs mt-1">
-                    Pedido <strong>{prepModalOrder.orderNumber}</strong> • Canal {prepModalOrder.channel.toUpperCase()} • Creado el {formatDate(prepModalOrder.createdAt)}
-                  </DialogDescription>
-                </div>
-                <Badge
-                  className={`text-xs font-bold w-fit ${
-                    STATUS_CONFIG[prepModalOrder.status]?.badgeClass
-                  }`}
-                >
-                  {STATUS_CONFIG[prepModalOrder.status]?.label}
-                </Badge>
-              </div>
-            </DialogHeader>
+      {prepModalOrder && (() => {
+        const totalItemsCount = prepModalOrder.items.length;
+        const checkedCount = prepModalOrder.items.filter(
+          (_, idx) => !!checkedItems[`${prepModalOrder.id}-${idx}`]
+        ).length;
+        const allChecked = totalItemsCount > 0 && checkedCount === totalItemsCount;
 
-            <div className="space-y-4 py-2">
-              {/* Información del Cliente y Entrega */}
-              <div className="rounded-xl border bg-muted/20 p-3.5 space-y-2 text-xs">
-                <div className="grid sm:grid-cols-2 gap-3">
-                  <div>
-                    <span className="text-muted-foreground">Cliente:</span>
-                    <p className="font-bold text-sm text-foreground">{prepModalOrder.customerName}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-muted-foreground">{prepModalOrder.customerPhone}</span>
-                      <button
-                        type="button"
-                        onClick={() => openCustomerWhatsApp(prepModalOrder)}
-                        className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold text-emerald-600 hover:bg-emerald-500/20"
-                      >
-                        <MessageCircle className="size-3" />
-                        Chat WhatsApp
-                      </button>
+        const toggleAllItems = () => {
+          const nextState = !allChecked;
+          setCheckedItems((prev) => {
+            const updated = { ...prev };
+            prepModalOrder.items.forEach((_, idx) => {
+              updated[`${prepModalOrder.id}-${idx}`] = nextState;
+            });
+            return updated;
+          });
+        };
+
+        return (
+          <Dialog open={!!prepModalOrder} onOpenChange={(open) => !open && setPrepModalOrder(null)}>
+            <DialogContent className="sm:max-w-4xl w-[95vw] max-h-[92vh] overflow-y-auto p-5 sm:p-6 gap-5">
+              {/* Cabecera amplia y despejada */}
+              <DialogHeader className="border-b pb-4 pr-8">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2.5 rounded-xl bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/25 shrink-0 mt-0.5">
+                      <ClipboardList className="size-6" />
+                    </div>
+                    <div className="space-y-1 text-left">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <DialogTitle className="text-xl font-black tracking-tight">
+                          Control Interno de Pedido
+                        </DialogTitle>
+                        <span className="font-mono text-sm font-black px-2.5 py-0.5 rounded-md bg-muted border text-foreground">
+                          {prepModalOrder.orderNumber}
+                        </span>
+                      </div>
+                      <DialogDescription className="text-xs flex flex-wrap items-center gap-2">
+                        <span>Creado el <strong>{formatDate(prepModalOrder.createdAt)}</strong></span>
+                        <span>•</span>
+                        <span className="uppercase font-bold text-foreground/80">
+                          Canal {prepModalOrder.channel}
+                        </span>
+                      </DialogDescription>
                     </div>
                   </div>
-                  <div>
-                    <span className="text-muted-foreground">Modalidad de entrega:</span>
-                    <p className="font-bold text-foreground">
+
+                  <Badge
+                    className={`text-xs font-bold px-3 py-1 rounded-full w-fit shrink-0 ${
+                      STATUS_CONFIG[prepModalOrder.status]?.badgeClass
+                    }`}
+                  >
+                    {STATUS_CONFIG[prepModalOrder.status]?.label}
+                  </Badge>
+                </div>
+              </DialogHeader>
+
+              <div className="space-y-5">
+                {/* Tarjeta de Cliente y Logística en 2 columnas bien separadas */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  <div className="rounded-xl border bg-muted/20 p-4 space-y-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-muted-foreground">
+                      <User className="size-3.5 text-purple-600 dark:text-purple-400" />
+                      Cliente / Destinatario
+                    </div>
+                    <p className="font-black text-base text-foreground">
+                      {prepModalOrder.customerName}
+                    </p>
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <Phone className="size-3.5" />
+                        <strong className="text-foreground">{prepModalOrder.customerPhone || "—"}</strong>
+                      </span>
+                      {prepModalOrder.customerPhone && (
+                        <button
+                          type="button"
+                          onClick={() => openCustomerWhatsApp(prepModalOrder)}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/25 transition-colors"
+                        >
+                          <MessageCircle className="size-3.5" />
+                          WhatsApp
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border bg-muted/20 p-4 space-y-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-muted-foreground">
+                      <Truck className="size-3.5 text-purple-600 dark:text-purple-400" />
+                      Logística y Entrega
+                    </div>
+                    <p className="font-black text-base text-foreground">
                       {prepModalOrder.deliveryType === "pickup"
                         ? "Retiro en depósito / local"
-                        : "Envío a domicilio"}
+                        : "Envío a domicilio / transporte"}
                     </p>
-                    {prepModalOrder.customerAddress && (
-                      <p className="text-muted-foreground mt-0.5">
-                        Dirección: <strong className="text-foreground">{prepModalOrder.customerAddress}</strong>
-                      </p>
-                    )}
+                    <p className="text-xs text-muted-foreground flex items-start gap-1.5 pt-1">
+                      <MapPin className="size-3.5 shrink-0 mt-0.5" />
+                      <span>
+                        {prepModalOrder.deliveryType === "pickup"
+                          ? "El cliente retira por mostrador / depósito"
+                          : prepModalOrder.customerAddress || "Dirección a coordinar"}
+                      </span>
+                    </p>
                   </div>
+
                   {prepModalOrder.customerNotes && (
-                    <div className="sm:col-span-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2.5 text-amber-900 dark:text-amber-200">
-                      <span className="font-bold">Indicaciones del cliente:</span> "{prepModalOrder.customerNotes}"
+                    <div className="md:col-span-2 rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                      <AlertCircle className="size-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                      <div>
+                        <span className="font-black uppercase tracking-wide">Observaciones del cliente: </span>
+                        <span className="italic">"{prepModalOrder.customerNotes}"</span>
+                      </div>
                     </div>
                   )}
                 </div>
-              </div>
 
-              {/* Artículos a preparar con fotos y checklist */}
-              <div className="rounded-xl border p-4 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3">
-                  <div>
-                    <h3 className="font-black text-sm text-foreground flex items-center gap-1.5">
-                      <Package className="size-4 text-purple-600 dark:text-purple-400" />
-                      Artículos a Empacar ({prepModalOrder.totalUnits} pares / unidades)
-                    </h3>
-                    <p className="text-xs text-muted-foreground">
-                      Verificá las fotos del producto y marcá con [✓] cada ítem a medida que lo preparás
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer select-none text-muted-foreground hover:text-foreground bg-muted/40 px-2.5 py-1.5 rounded-lg border">
-                      <input
-                        type="checkbox"
-                        checked={includePhotosPrint}
-                        onChange={(e) => setIncludePhotosPrint(e.target.checked)}
-                        className="rounded border-border text-purple-600 focus:ring-purple-500 size-4"
-                      />
-                      Incluir fotos en impresión
-                    </label>
-                  </div>
-                </div>
+                {/* Sección de Artículos con barra de progreso y controles claros */}
+                <div className="rounded-xl border bg-card p-4 sm:p-5 space-y-4">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b pb-3.5">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-black text-base text-foreground flex items-center gap-2">
+                          <Package className="size-4 text-purple-600 dark:text-purple-400" />
+                          Artículos a Verificar ({prepModalOrder.totalUnits} {prepModalOrder.totalUnits === 1 ? "unidad" : "unidades"})
+                        </h3>
+                        <Badge
+                          variant="outline"
+                          className={`text-xs font-bold ${
+                            allChecked
+                              ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                              : "border-purple-500/30 bg-purple-500/10 text-purple-700 dark:text-purple-300"
+                          }`}
+                        >
+                          {checkedCount} de {totalItemsCount} verificados
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Revisá la foto, variante y código de cada producto antes de marcarlo como preparado.
+                      </p>
+                    </div>
 
-                <div className="space-y-3 divide-y divide-border/40">
-                  {prepModalOrder.items.map((item, idx) => {
-                    const itemImg = resolveItemImage(item);
-                    const itemSku = resolveItemSku(item);
-                    const isChecked = !!checkedItems[`${prepModalOrder.id}-${idx}`];
-                    return (
-                      <div
-                        key={idx}
-                        className={`pt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors rounded-xl p-2.5 ${
-                          isChecked ? "bg-emerald-500/10 border border-emerald-500/25" : "hover:bg-muted/30 border border-transparent"
-                        }`}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={toggleAllItems}
+                        className="h-8 text-xs font-bold gap-1.5"
                       >
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                          {/* Checkbox de control interactivo */}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setCheckedItems((prev) => ({
-                                ...prev,
-                                [`${prepModalOrder.id}-${idx}`]: !prev[`${prepModalOrder.id}-${idx}`],
-                              }))
-                            }
-                            className={`size-7 rounded-lg border flex items-center justify-center shrink-0 transition-all ${
-                              isChecked
-                                ? "bg-emerald-600 border-emerald-600 text-white shadow-xs"
-                                : "border-muted-foreground/40 hover:border-foreground bg-background"
-                            }`}
-                            title={isChecked ? "Marcado como preparado" : "Click para marcar como preparado"}
-                          >
-                            {isChecked ? <Check className="size-4 stroke-[3]" /> : null}
-                          </button>
+                        <Check className="size-3.5" />
+                        {allChecked ? "Desmarcar todos" : "Marcar todos"}
+                      </Button>
 
-                          {/* Foto grande y nítida del Calzado */}
-                          <div className="relative size-16 sm:size-20 rounded-xl overflow-hidden border bg-background shrink-0 shadow-sm">
-                            {itemImg ? (
-                              <img
-                                src={itemImg}
-                                alt={item.name}
-                                className="size-full object-cover transition-transform hover:scale-105"
-                                loading="lazy"
-                              />
-                            ) : (
-                              <div className="size-full flex flex-col items-center justify-center text-muted-foreground bg-muted/40">
-                                <Package className="size-6 opacity-40" />
-                                <span className="text-[9px] mt-0.5">Sin foto</span>
+                      <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer select-none text-muted-foreground hover:text-foreground bg-muted/40 px-3 py-1.5 rounded-lg border h-8">
+                        <input
+                          type="checkbox"
+                          checked={includePhotosPrint}
+                          onChange={(e) => setIncludePhotosPrint(e.target.checked)}
+                          className="rounded border-border text-purple-600 focus:ring-purple-500 size-3.5"
+                        />
+                        Incluir fotos en PDF / Impresión
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Tarjetas individuales por producto (sin amontonar) */}
+                  <div className="space-y-3">
+                    {prepModalOrder.items.map((item, idx) => {
+                      const itemImg = resolveItemImage(item);
+                      const prod = resolveProductDetails(item);
+                      const itemBrand = item.brand || prod?.brand || "";
+                      const itemCategory = prod?.category || "";
+                      const itemColor = prod?.color || "";
+                      const itemLocation = prod?.location || "";
+                      const itemSku = prod?.sku || resolveItemSku(item);
+                      const itemBarcode = prod?.barcode || "";
+                      const isChecked = !!checkedItems[`${prepModalOrder.id}-${idx}`];
+
+                      return (
+                        <div
+                          key={idx}
+                          className={`rounded-xl border p-3.5 sm:p-4 transition-all ${
+                            isChecked
+                              ? "bg-emerald-500/10 border-emerald-500/35 shadow-xs"
+                              : "bg-background hover:bg-muted/20 border-border"
+                          }`}
+                        >
+                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            {/* Bloque Izquierdo + Central: Checkbox, Foto y Especificaciones ordenadas por líneas */}
+                            <div className="flex items-start sm:items-center gap-3.5 min-w-0 flex-1">
+                              {/* Checkbox grande */}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setCheckedItems((prev) => ({
+                                    ...prev,
+                                    [`${prepModalOrder.id}-${idx}`]: !prev[`${prepModalOrder.id}-${idx}`],
+                                  }))
+                                }
+                                className={`size-8 rounded-xl border-2 flex items-center justify-center shrink-0 transition-all cursor-pointer mt-1 sm:mt-0 ${
+                                  isChecked
+                                    ? "bg-emerald-600 border-emerald-600 text-white shadow-sm"
+                                    : "border-muted-foreground/40 hover:border-purple-500 bg-background"
+                                }`}
+                                title={isChecked ? "Marcado como preparado" : "Marcar como preparado"}
+                              >
+                                {isChecked ? <Check className="size-4 stroke-[3]" /> : <span className="text-xs font-bold text-muted-foreground">{idx + 1}</span>}
+                              </button>
+
+                              {/* Miniatura cuadrada grande */}
+                              <div className="relative size-20 sm:size-22 rounded-xl overflow-hidden border bg-muted/30 shrink-0 shadow-xs">
+                                {itemImg ? (
+                                  <img
+                                    src={itemImg}
+                                    alt={item.name}
+                                    className="size-full object-cover"
+                                    loading="lazy"
+                                  />
+                                ) : (
+                                  <div className="size-full flex flex-col items-center justify-center text-muted-foreground">
+                                    <Package className="size-6 opacity-40" />
+                                    <span className="text-[10px] font-semibold mt-1">Sin foto</span>
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
 
-                          {/* Detalles del producto */}
-                          <div className="min-w-0 flex-1">
-                            <p className={`font-bold text-sm text-foreground ${isChecked ? "line-through opacity-70" : ""}`}>
-                              {item.name}
-                            </p>
-                            <div className="flex flex-wrap items-center gap-1.5 mt-1 text-xs">
-                              {item.brand && (
-                                <span className="text-muted-foreground">Marca: <b className="text-foreground">{item.brand}</b></span>
-                              )}
-                              {itemSku && (
-                                <span className="text-muted-foreground font-mono text-[11px]">SKU: {itemSku}</span>
-                              )}
-                              {item.size ? (
-                                <span className="inline-flex items-center rounded-md bg-blue-500/15 border border-blue-500/30 px-2 py-0.5 text-xs font-black text-blue-700 dark:text-blue-300">
-                                  TALLE: {item.size}
-                                </span>
-                              ) : (
-                                <span className="text-muted-foreground">Estándar</span>
-                              )}
+                              {/* Información del Producto en 3 renglones limpios */}
+                              <div className="min-w-0 flex-1 space-y-2">
+                                {/* Renglón 1: Nombre del Artículo */}
+                                <div>
+                                  <p
+                                    className={`font-black text-base leading-snug text-foreground ${
+                                      isChecked ? "line-through opacity-75" : ""
+                                    }`}
+                                  >
+                                    {idx + 1}. {item.name}
+                                  </p>
+                                </div>
+
+                                {/* Renglón 2: Variante / Talle + Atributos principales en píldoras separadas */}
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="inline-flex items-center rounded-lg bg-blue-500/15 border border-blue-500/30 px-2.5 py-1 text-xs font-black text-blue-700 dark:text-blue-300">
+                                    Variante / Talle: {item.size || "Único"}
+                                  </span>
+
+                                  {itemBrand && (
+                                    <span className="inline-flex items-center rounded-lg bg-muted px-2.5 py-1 text-xs font-medium text-foreground border border-border/60">
+                                      Marca: <strong className="ml-1 font-bold">{itemBrand}</strong>
+                                    </span>
+                                  )}
+
+                                  {itemColor && (
+                                    <span className="inline-flex items-center rounded-lg bg-muted px-2.5 py-1 text-xs font-medium text-foreground border border-border/60">
+                                      Color/Pres.: <strong className="ml-1 font-bold">{itemColor}</strong>
+                                    </span>
+                                  )}
+
+                                  {itemCategory && (
+                                    <span className="inline-flex items-center rounded-lg bg-muted px-2.5 py-1 text-xs font-medium text-foreground border border-border/60">
+                                      Cat.: <strong className="ml-1 font-bold">{itemCategory}</strong>
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Renglón 3: Códigos técnicos (SKU, EAN-13 y Ubicación) */}
+                                {(itemSku || itemBarcode || itemLocation) && (
+                                  <div className="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
+                                    {itemSku && (
+                                      <span className="font-mono text-[11px] bg-muted/60 border px-2 py-0.5 rounded text-muted-foreground">
+                                        SKU: <strong className="text-foreground">{itemSku}</strong>
+                                      </span>
+                                    )}
+                                    {itemBarcode && (
+                                      <span className="font-mono text-[11px] bg-muted/60 border px-2 py-0.5 rounded text-muted-foreground">
+                                        EAN: <strong className="text-foreground">{itemBarcode}</strong>
+                                      </span>
+                                    )}
+                                    {itemLocation && (
+                                      <span className="font-semibold text-[11px] text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded">
+                                        Ubicación: {itemLocation}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Bloque Derecho: Cantidad, Subtotal y Botón de Verificación */}
+                            <div className="flex flex-row md:flex-col items-center md:items-end justify-between gap-3 pt-3 md:pt-0 border-t md:border-t-0 md:border-l border-border/50 md:pl-4 shrink-0">
+                              <div className="flex items-center gap-3 md:flex-col md:items-end md:gap-0.5">
+                                <div className="inline-flex items-center justify-center rounded-xl bg-muted border px-3 py-1 text-base font-black text-foreground">
+                                  x{item.qty} {item.qty === 1 ? "un." : "un."}
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-[11px] text-muted-foreground">
+                                    {money(item.price)} c/u
+                                  </p>
+                                  <p className="text-sm font-black text-foreground">
+                                    Subt.: {money(item.subtotal)}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setCheckedItems((prev) => ({
+                                    ...prev,
+                                    [`${prepModalOrder.id}-${idx}`]: !prev[`${prepModalOrder.id}-${idx}`],
+                                  }))
+                                }
+                                className={`inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer active:scale-95 min-w-[155px] ${
+                                  isChecked
+                                    ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                                    : "bg-amber-500/15 border border-amber-500/40 text-amber-900 dark:text-amber-200 hover:bg-amber-500/25"
+                                }`}
+                              >
+                                {isChecked ? (
+                                  <>
+                                    <Check className="size-4 stroke-[3]" />
+                                    <span>Preparado / En Caja</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Clock className="size-4 text-amber-600 dark:text-amber-400" />
+                                    <span>Pendiente de Armar</span>
+                                  </>
+                                )}
+                              </button>
                             </div>
                           </div>
                         </div>
+                      );
+                    })}
+                  </div>
 
-                        <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3 shrink-0 pl-10 sm:pl-0">
-                          <div className="text-right">
-                            <span className="text-base font-black text-foreground">
-                              x{item.qty} {item.qty === 1 ? "par" : "pares"}
-                            </span>
-                            <p className="text-xs text-muted-foreground">
-                              {money(item.price)} c/u
-                            </p>
-                          </div>
-
-                          {/* Botón interactivo de Estado del Producto */}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setCheckedItems((prev) => ({
-                                ...prev,
-                                [`${prepModalOrder.id}-${idx}`]: !prev[`${prepModalOrder.id}-${idx}`],
-                              }))
-                            }
-                            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all shadow-xs cursor-pointer active:scale-95 ${
-                              isChecked
-                                ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/30 ring-2 ring-emerald-500/20"
-                                : "bg-amber-500/15 border-2 border-amber-500/40 text-amber-900 dark:text-amber-200 hover:bg-amber-500/25"
-                            }`}
-                            title="Click para cambiar el estado de este calzado"
-                          >
-                            {isChecked ? (
-                              <>
-                                <Check className="size-4 stroke-[3]" />
-                                <span>Preparado / En Caja</span>
-                              </>
-                            ) : (
-                              <>
-                                <Clock className="size-4 text-amber-600 dark:text-amber-400" />
-                                <span>Pendiente de Armar</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="flex items-center justify-between border-t pt-3 mt-2">
-                  <span className="text-xs font-bold text-muted-foreground">TOTAL A COBRAR / ENTREGAR:</span>
-                  <span className="text-xl font-black text-foreground">
-                    {money(prepModalOrder.totalAmount)}
-                  </span>
+                  {/* Resumen Total al pie de la lista */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl bg-muted/30 border p-4 mt-2">
+                    <div className="text-xs text-muted-foreground">
+                      Total del pedido:{" "}
+                      <strong className="text-foreground">
+                        {prepModalOrder.items.length} {prepModalOrder.items.length === 1 ? "artículo" : "artículos"} ({prepModalOrder.totalUnits} unidades)
+                      </strong>
+                    </div>
+                    <div className="flex items-center justify-between sm:justify-end gap-3">
+                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        TOTAL A COBRAR / ENTREGAR:
+                      </span>
+                      <span className="text-2xl font-black text-foreground">
+                        {money(prepModalOrder.totalAmount)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <DialogFooter className="flex flex-col sm:flex-row gap-2 justify-between">
-              <div className="flex items-center gap-2">
-                {prepModalOrder.status !== "en_preparacion" && (
-                  <Button
-                    size="sm"
-                    disabled={updatingId === prepModalOrder.id}
-                    onClick={async () => {
-                      await handleChangeStatus(prepModalOrder, "en_preparacion");
-                      setPrepModalOrder({ ...prepModalOrder, status: "en_preparacion" });
-                    }}
-                    className="h-9 px-4 text-xs font-black bg-purple-600 hover:bg-purple-700 text-white shadow-sm gap-1.5 rounded-lg active:scale-95"
-                  >
-                    <Package className="size-4" />
-                    Marcar "En Preparación"
-                  </Button>
-                )}
-                {prepModalOrder.status === "en_preparacion" && (
-                  <Button
-                    size="sm"
-                    disabled={updatingId === prepModalOrder.id}
-                    onClick={async () => {
-                      await handleChangeStatus(prepModalOrder, "listo");
-                      setPrepModalOrder({ ...prepModalOrder, status: "listo" });
-                    }}
-                    className="h-9 px-4 text-xs font-black bg-teal-600 hover:bg-teal-700 text-white shadow-sm gap-1.5 rounded-lg active:scale-95"
-                  >
-                    <Truck className="size-4" />
-                    Marcar "Listo para Entrega"
-                  </Button>
-                )}
-              </div>
+              {/* Pie de acciones espaciado */}
+              <DialogFooter className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t pt-4">
+                <div className="flex items-center gap-2">
+                  {prepModalOrder.status !== "en_preparacion" && (
+                    <Button
+                      size="sm"
+                      disabled={updatingId === prepModalOrder.id}
+                      onClick={async () => {
+                        await handleChangeStatus(prepModalOrder, "en_preparacion");
+                        setPrepModalOrder({ ...prepModalOrder, status: "en_preparacion" });
+                      }}
+                      className="h-9 px-4 text-xs font-black bg-purple-600 hover:bg-purple-700 text-white shadow-sm gap-1.5 rounded-lg active:scale-95"
+                    >
+                      <Package className="size-4" />
+                      Marcar "En Preparación"
+                    </Button>
+                  )}
+                  {prepModalOrder.status === "en_preparacion" && (
+                    <Button
+                      size="sm"
+                      disabled={updatingId === prepModalOrder.id}
+                      onClick={async () => {
+                        await handleChangeStatus(prepModalOrder, "listo");
+                        setPrepModalOrder({ ...prepModalOrder, status: "listo" });
+                      }}
+                      className="h-9 px-4 text-xs font-black bg-teal-600 hover:bg-teal-700 text-white shadow-sm gap-1.5 rounded-lg active:scale-95"
+                    >
+                      <Truck className="size-4" />
+                      Marcar "Listo para Entrega"
+                    </Button>
+                  )}
+                </div>
 
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={() => handlePrintOrder(prepModalOrder, includePhotosPrint)}
-                  className="gap-1.5 font-bold bg-purple-700 hover:bg-purple-800 text-white"
-                >
-                  <Printer className="size-4" />
-                  Imprimir Hoja de Control
-                </Button>
-                <Button variant="outline" onClick={() => setPrepModalOrder(null)}>
-                  Cerrar
-                </Button>
-              </div>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button
+                    disabled={downloadingPdfId === prepModalOrder.id}
+                    onClick={() => handleDownloadOrderPdf(prepModalOrder, includePhotosPrint)}
+                    className="h-9 gap-1.5 text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm"
+                  >
+                    {downloadingPdfId === prepModalOrder.id ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Download className="size-4" />
+                    )}
+                    Descargar PDF Profesional
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => handlePrintOrder(prepModalOrder, includePhotosPrint)}
+                    className="h-9 gap-1.5 text-xs font-bold border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40"
+                  >
+                    <Printer className="size-4" />
+                    Imprimir Hoja
+                  </Button>
+                  <Button variant="outline" className="h-9 text-xs" onClick={() => setPrepModalOrder(null)}>
+                    Cerrar
+                  </Button>
+                </div>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       {/* Confirmar Eliminación */}
       {orderToDelete && (
