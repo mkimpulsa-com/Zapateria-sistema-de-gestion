@@ -15,6 +15,7 @@ import {
   Image as ImageIcon,
   Loader2,
   Receipt,
+  ShoppingBag,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BarcodeView } from "@/components/barcode-view";
@@ -25,6 +26,7 @@ interface SaleInvoiceModalProps {
   onOpenChange: (open: boolean) => void;
   sale: any | null;
   settings?: any;
+  products?: any[];
   onNewSale?: () => void;
 }
 
@@ -86,6 +88,7 @@ export function SaleInvoiceModal({
   onOpenChange,
   sale,
   settings = {},
+  products = [],
   onNewSale,
 }: SaleInvoiceModalProps) {
   const printRef = useRef<HTMLDivElement>(null);
@@ -362,6 +365,19 @@ export function SaleInvoiceModal({
   };
 
   const getInvoiceDataUrl = async (element: HTMLElement): Promise<string> => {
+    // Asegurar que todas las imágenes del documento estén totalmente cargadas
+    const images = Array.from(element.querySelectorAll("img"));
+    await Promise.all(
+      images.map(
+        (img) =>
+          new Promise<void>((resolve) => {
+            if (img.complete && img.naturalHeight !== 0) return resolve();
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+          })
+      )
+    );
+
     const html2canvasPro = (await import("html2canvas-pro")).default;
     const canvas = await html2canvasPro(element, {
       scale: 2,
@@ -554,7 +570,7 @@ export function SaleInvoiceModal({
               size="sm"
               disabled={Boolean(downloading)}
               onClick={handleDownloadPdf}
-              className="h-8 gap-1.5 rounded-lg border-white/10 text-slate-200 hover:text-white hover:bg-white/10 text-xs font-medium shadow-sm"
+              className="h-8 gap-1.5 rounded-lg border-slate-700 bg-slate-800 text-white hover:bg-slate-700 hover:text-white text-xs font-semibold shadow-sm"
               title="Descargar factura en archivo PDF para enviar al cliente"
             >
               {downloading === "pdf" ? (
@@ -566,10 +582,10 @@ export function SaleInvoiceModal({
             </Button>
 
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
               onClick={handlePrintA4}
-              className="h-8 gap-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 text-xs font-medium"
+              className="h-8 gap-1.5 rounded-lg border-slate-700 bg-slate-800 text-white hover:bg-slate-700 hover:text-white text-xs font-semibold shadow-sm"
               title="Imprimir en hoja A4 / impresora estándar"
             >
               <Printer className="size-3.5" />
@@ -584,7 +600,7 @@ export function SaleInvoiceModal({
                   onOpenChange(false);
                   onNewSale();
                 }}
-                className="h-8 gap-1 rounded-lg border-white/10 text-xs text-white hover:bg-white/10"
+                className="h-8 gap-1 rounded-lg border-slate-700 bg-slate-800 text-white hover:bg-slate-700 hover:text-white text-xs font-semibold shadow-sm"
               >
                 <Check className="size-3.5" />
                 <span className="hidden sm:inline">Listo</span>
@@ -931,7 +947,8 @@ export function SaleInvoiceModal({
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-900 text-white font-bold text-[10px] uppercase tracking-wider">
-                    <th className="py-2 px-3 text-center w-12 border-r border-slate-700">Cant.</th>
+                    <th className="py-2 px-2 text-center w-12 border-r border-slate-700">Cant.</th>
+                    <th className="py-2 px-2 text-center w-12 border-r border-slate-700">Foto</th>
                     <th className="py-2 px-3 border-r border-slate-700">Descripción / Artículo</th>
                     <th className="py-2 px-3 text-center w-20 border-r border-slate-700">
                       {isInvoiceA ? "Alíc. IVA" : "Variante"}
@@ -947,7 +964,7 @@ export function SaleInvoiceModal({
                 <tbody className="divide-y divide-slate-200">
                   {items.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-6 text-center text-slate-400 italic">
+                      <td colSpan={6} className="py-6 text-center text-slate-400 italic">
                         Sin artículos registrados
                       </td>
                     </tr>
@@ -959,10 +976,34 @@ export function SaleInvoiceModal({
                       const unitNet = unitGross / (1 + rate / 100);
                       const itemNetTotal = grossTotal / (1 + rate / 100);
 
+                      const prod = (products || []).find((p: any) =>
+                        String(p.id) === String(item.product_id || item.productId || item.id) ||
+                        (item.sku && p.sku && String(p.sku).trim().toLowerCase() === String(item.sku).trim().toLowerCase()) ||
+                        (item.name && p.name && String(p.name).trim().toLowerCase() === String(item.name).trim().toLowerCase())
+                      );
+                      const itemImg = item.image_url || prod?.image_url || (Array.isArray(prod?.images) && prod.images[0]) || "";
+
                       return (
                         <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
-                          <td className="py-2 px-3 text-center font-bold text-slate-900 border-r border-slate-200">
+                          <td className="py-2 px-2 text-center font-bold text-slate-900 border-r border-slate-200">
                             {item.quantity}
+                          </td>
+                          <td className="py-2 px-2 text-center border-r border-slate-200 w-12 align-middle">
+                            {itemImg ? (
+                              <div className="size-10 mx-auto rounded-md overflow-hidden border border-slate-200 bg-white flex items-center justify-center">
+                                <img
+                                  src={itemImg}
+                                  alt={item.name}
+                                  crossOrigin="anonymous"
+                                  className="size-full object-cover"
+                                  loading="eager"
+                                />
+                              </div>
+                            ) : (
+                              <div className="size-10 mx-auto rounded-md border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-slate-300">
+                                <ShoppingBag className="size-4" />
+                              </div>
+                            )}
                           </td>
                           <td className="py-2 px-3 border-r border-slate-200">
                             <span className="font-bold text-slate-900 block">{item.name}</span>

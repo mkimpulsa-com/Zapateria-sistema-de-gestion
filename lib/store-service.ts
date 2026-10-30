@@ -1771,6 +1771,7 @@ export async function runStoreAction(body: any, uid?: string) {
           net_unit_price: netUnitPrice,
           net_total: netTotal,
           vat_amount: itemVat,
+          image_url: item.product.image_url || (Array.isArray(item.product.images) && item.product.images[0]) || "",
         };
       });
 

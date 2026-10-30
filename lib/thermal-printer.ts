@@ -19,8 +19,42 @@ export interface ThermalShiftPrintData {
   paperWidth?: "80mm" | "58mm";
 }
 
+/**
+ * Normaliza y sanea cualquier texto para impresoras térmicas ESC/POS:
+ * - Elimina acentos/tildes diacríticas (ó -> o, í -> i, etc.)
+ * - Convierte la ñ/Ñ en n/N
+ * - Reemplaza espacios de no separación (\\u00A0) por espacio ASCII estándar (evita caracteres extraños como 'ù' o '¿')
+ * - Reemplaza guiones largos (—, –) y puntos medios (·) por guión estándar (-)
+ * - Reemplaza viñetas (•, ●) por asterisco (*)
+ * - Reemplaza comillas tipográficas por comillas ASCII
+ */
+export function cleanThermalText(str: any): string {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // quita tildes
+    .replace(/[ñ]/g, "n")
+    .replace(/[Ñ]/g, "N")
+    .replace(/\u00A0/g, " ") // espacio indivisible a espacio simple
+    .replace(/[—–]/g, "-")
+    .replace(/[•●▪]/g, "*")
+    .replace(/·/g, "-")
+    .replace(/°/g, ".")
+    .replace(/[«»“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .trim();
+}
+
+/**
+ * Formatea un monto monetario para impresora térmica asegurando caracteres 100% compatibles
+ */
+export function thermalMoney(value: number | string | null | undefined, curr: string = "ARS"): string {
+  const formatted = formatMoney(value, curr);
+  return cleanThermalText(formatted);
+}
+
 const dateFmt = (value?: string) => {
-  if (!value) return "—";
+  if (!value) return "-";
   try {
     const d = new Date(value);
     return new Intl.DateTimeFormat("es-AR", {
@@ -29,7 +63,7 @@ const dateFmt = (value?: string) => {
       year: "numeric",
     }).format(d);
   } catch {
-    return value;
+    return cleanThermalText(value);
   }
 };
 
@@ -55,8 +89,8 @@ function generateBarcodeBase64(value: string): string {
     const canvas = document.createElement("canvas");
     JsBarcode(canvas, String(value).trim(), {
       format: "CODE128",
-      width: 1.6,
-      height: 38,
+      width: 1.5,
+      height: 32,
       displayValue: true,
       fontSize: 10,
       margin: 4,
@@ -71,16 +105,17 @@ function generateBarcodeBase64(value: string): string {
 }
 
 /**
- * Imprime un ticket térmico de venta discreto y profesional
+ * Imprime un ticket térmico de venta discreto, limpio y profesional
  */
 export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm" }: ThermalSalePrintData) {
   if (typeof window === "undefined" || !sale) return;
 
-  const businessName = settings.business_name || "CR BAZAR";
-  const branchName = settings.branch_name || "Sucursal Principal";
-  const address = settings.address || "";
-  const phone = settings.phone || settings.whatsapp || "";
-  const receiptNo = sale.receipt_no || "TICKET";
+  const rawBusinessName = settings.business_name || "CR BAZAR";
+  const businessName = cleanThermalText(rawBusinessName).toUpperCase();
+  const branchName = cleanThermalText(settings.branch_name || "");
+  const address = cleanThermalText(settings.address || "");
+  const phone = cleanThermalText(settings.phone || settings.whatsapp || "");
+  const receiptNo = cleanThermalText(sale.receipt_no || "TICKET");
 
   const curr = (sale.currency || settings.currency || "ARS") as "ARS" | "BRL" | "USD";
   const items: any[] = Array.isArray(sale.items) ? sale.items : [];
@@ -91,14 +126,15 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
   const total = Number(sale.total || 0);
   const paidAmount = Number(sale.paid_amount !== undefined ? sale.paid_amount : total);
   const debtAmount = Math.max(0, total - paidAmount);
-  const paymentMethod = sale.payment_method || "Efectivo";
+  const rawPayment = sale.payment_method || "Efectivo";
+  const paymentMethod = cleanThermalText(rawPayment);
 
-  const customerName = sale.customer_name && sale.customer_name !== "Consumidor final" && sale.customer_name !== "Consumidor Final"
+  const rawCustomerName = sale.customer_name && sale.customer_name !== "Consumidor final" && sale.customer_name !== "Consumidor Final"
     ? sale.customer_name
     : "Consumidor Final";
-
-  const customerDoc = sale.customer_document ? String(sale.customer_document).trim() : "";
-  const cashierName = sale.cashier_name || "";
+  const customerName = cleanThermalText(rawCustomerName);
+  const customerDoc = sale.customer_document ? cleanThermalText(String(sale.customer_document).trim()) : "";
+  const cashierName = sale.cashier_name ? cleanThermalText(sale.cashier_name) : "";
 
   const barcodeImg = generateBarcodeBase64(receiptNo);
   const is58mm = paperWidth === "58mm";
@@ -111,7 +147,7 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
   <style>
     @page {
       size: ${is58mm ? "58mm auto" : "80mm auto"};
-      margin: 0;
+      margin: 0mm;
     }
     *, *::before, *::after {
       box-sizing: border-box;
@@ -120,12 +156,12 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
     }
     body {
       margin: 0;
-      padding: ${is58mm ? "2mm 2mm 8mm 2mm" : "3mm 4mm 10mm 4mm"};
+      padding: ${is58mm ? "2mm 2mm 6mm 2mm" : "3mm 4mm 8mm 4mm"};
       width: ${is58mm ? "54mm" : "74mm"};
       max-width: 100%;
       background: #ffffff;
       color: #000000;
-      font-family: 'Courier New', Courier, monospace, 'Segoe UI', Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Courier New", monospace, sans-serif;
       font-size: ${is58mm ? "11px" : "12px"};
       line-height: 1.25;
       text-align: left;
@@ -133,7 +169,7 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
     .text-center { text-align: center; }
     .text-right { text-align: right; }
     .font-bold { font-weight: bold; }
-    
+
     .divider {
       border-top: 1px dashed #000000;
       margin: 4px 0;
@@ -158,7 +194,7 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
     }
     .brand-info {
       font-size: ${is58mm ? "9px" : "10px"};
-      margin-bottom: 3px;
+      margin-bottom: 2px;
     }
 
     /* Metadatos */
@@ -170,11 +206,6 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
     }
 
     /* Tabla de artículos */
-    .items-table {
-      width: 100%;
-      margin: 4px 0;
-      border-collapse: collapse;
-    }
     .items-header {
       display: flex;
       justify-content: space-between;
@@ -185,7 +216,7 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
       margin-bottom: 3px;
     }
     .item-block {
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
     .item-main {
       display: flex;
@@ -193,10 +224,27 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
       align-items: flex-start;
       font-size: ${is58mm ? "10px" : "11.5px"};
     }
+    .col-qty {
+      width: ${is58mm ? "20px" : "26px"};
+      flex-shrink: 0;
+      font-weight: bold;
+    }
+    .col-desc {
+      flex: 1;
+      padding: 0 4px;
+      word-break: break-word;
+    }
+    .col-tot {
+      width: ${is58mm ? "55px" : "70px"};
+      text-align: right;
+      flex-shrink: 0;
+      font-weight: bold;
+      white-space: nowrap;
+    }
     .item-desc {
       font-size: ${is58mm ? "8.5px" : "9.5px"};
-      padding-left: 14px;
-      opacity: 0.85;
+      padding-left: ${is58mm ? "20px" : "26px"};
+      color: #333333;
     }
 
     /* Totales */
@@ -237,13 +285,13 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
       text-align: center;
     }
     .barcode-container img {
-      max-width: ${is58mm ? "46mm" : "58mm"};
+      max-width: ${is58mm ? "46mm" : "56mm"};
       height: auto;
     }
 
     /* Espacio de corte */
     .cut-feed {
-      height: 15mm;
+      height: 12mm;
     }
   </style>
 </head>
@@ -253,7 +301,7 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
     <div class="brand-title">${businessName}</div>
     ${branchName ? `<div class="brand-subtitle">${branchName}</div>` : ""}
     ${address ? `<div class="brand-info">${address}</div>` : ""}
-    ${phone ? `<div class="brand-info">Tel / WhatsApp: ${phone}</div>` : ""}
+    ${phone ? `<div class="brand-info">Tel: ${phone}</div>` : ""}
   </div>
 
   <div class="divider"></div>
@@ -273,27 +321,31 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
 
   <!-- Detalle de Productos -->
   <div class="items-header">
-    <span style="width: 25px;">CANT</span>
-    <span style="flex: 1; padding: 0 4px;">DESCRIPCIÓN</span>
-    <span style="width: 55px; text-align: right;">TOTAL</span>
+    <span class="col-qty">CANT</span>
+    <span class="col-desc">DESCRIPCION</span>
+    <span class="col-tot">TOTAL</span>
   </div>
 
   ${items.map((item) => {
     const qty = Number(item.quantity || 1);
     const unitPrice = Number(item.unit_price || 0);
     const itemTotal = Number(item.total || (qty * unitPrice));
+    const name = cleanThermalText(item.name || "Articulo");
+    const size = cleanThermalText(item.size || "");
+    const sku = cleanThermalText(item.sku || "");
+
     const extraDetails = [
-      item.size && !["Único", "Unico", "General", "Estándar"].includes(item.size) ? `Talle: ${item.size}` : null,
-      item.sku ? `Cód: ${item.sku}` : null,
-      qty > 1 ? `(${qty} x ${formatMoney(unitPrice, curr)})` : null,
-    ].filter(Boolean).join(" · ");
+      size && !["Unico", "General", "Estandar"].includes(size) ? `Var: ${size}` : null,
+      sku ? `Cod: ${sku}` : null,
+      qty > 1 ? `(${qty} x ${thermalMoney(unitPrice, curr)})` : null,
+    ].filter(Boolean).join(" - ");
 
     return `
       <div class="item-block">
         <div class="item-main">
-          <span style="width: 25px; font-weight: bold;">${qty}</span>
-          <span style="flex: 1; padding: 0 4px; font-weight: bold;">${item.name}</span>
-          <span style="width: 55px; text-align: right; font-weight: bold;">${formatMoney(itemTotal, curr)}</span>
+          <span class="col-qty">${qty}</span>
+          <span class="col-desc font-bold">${name}</span>
+          <span class="col-tot font-bold">${thermalMoney(itemTotal, curr)}</span>
         </div>
         ${extraDetails ? `<div class="item-desc">${extraDetails}</div>` : ""}
       </div>
@@ -305,46 +357,46 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
   <!-- Totales y Pago -->
   <div class="totals-block">
     <div class="meta-row">
-      <span>Total de artículos:</span>
+      <span>Total de articulos:</span>
       <span>${totalUnits} ${totalUnits === 1 ? "unidad" : "unidades"}</span>
     </div>
 
     ${discount > 0 ? `
       <div class="total-row">
         <span>Subtotal:</span>
-        <span>${formatMoney(subtotal, curr)}</span>
+        <span>${thermalMoney(subtotal, curr)}</span>
       </div>
       <div class="total-row">
         <span>Descuento${sale.discount_percent ? ` (${sale.discount_percent}%)` : ""}:</span>
-        <span>-${formatMoney(discount, curr)}</span>
+        <span>-${thermalMoney(discount, curr)}</span>
       </div>
     ` : ""}
 
     ${additionalCharge > 0 ? `
       <div class="total-row">
         <span>Cargo Adicional:</span>
-        <span>+${formatMoney(additionalCharge, curr)}</span>
+        <span>+${thermalMoney(additionalCharge, curr)}</span>
       </div>
     ` : ""}
 
     <div class="grand-total">
       <span>TOTAL:</span>
-      <span>${formatMoney(total, curr)}</span>
+      <span>${thermalMoney(total, curr)}</span>
     </div>
 
     <div class="total-row">
-      <span>Forma de pago:</span>
+      <span>Medio de pago:</span>
       <span><strong>${paymentMethod}</strong></span>
     </div>
 
     ${debtAmount > 0 ? `
       <div class="total-row" style="color: #000; font-weight: bold;">
         <span>Monto abonado:</span>
-        <span>${formatMoney(paidAmount, curr)}</span>
+        <span>${thermalMoney(paidAmount, curr)}</span>
       </div>
       <div class="total-row" style="font-weight: 900;">
         <span>SALDO PENDIENTE:</span>
-        <span>${formatMoney(debtAmount, curr)}</span>
+        <span>${thermalMoney(debtAmount, curr)}</span>
       </div>
       <div style="margin-top: 15px; text-align: center;">
         <div style="border-top: 1px dashed #000; width: 80%; margin: 0 auto 3px auto;"></div>
@@ -360,11 +412,11 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
 
   <div class="divider-double"></div>
 
-  <!-- Mensaje de Despedida -->
+  <!-- Mensaje de Despedida Discreto -->
   <div class="footer-block">
-    <div class="footer-highlight">¡GRACIAS POR TU COMPRA!</div>
-    <div>Conservá este comprobante para cambios</div>
-    <div>dentro de los 30 días de realizada la compra.</div>
+    <div class="footer-highlight">¡GRACIAS POR SU COMPRA!</div>
+    <div>Cambios dentro de los 30 dias</div>
+    <div>presentando este comprobante.</div>
   </div>
 
   ${barcodeImg ? `
@@ -387,8 +439,9 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
 export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth = "80mm" }: ThermalShiftPrintData) {
   if (typeof window === "undefined" || !shift) return;
 
-  const businessName = settings.business_name || "CR BAZAR";
-  const branchName = settings.branch_name || "Sucursal Principal";
+  const rawBusinessName = settings.business_name || "CR BAZAR";
+  const businessName = cleanThermalText(rawBusinessName).toUpperCase();
+  const branchName = cleanThermalText(settings.branch_name || "");
   const shiftNumber = shift.shift_number || 1;
   const is58mm = paperWidth === "58mm";
 
@@ -408,8 +461,11 @@ export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth 
   const diffLabel = difference === 0 
     ? "EXACTA ($ 0)" 
     : difference > 0 
-      ? `SOBRANTE (+${formatMoney(difference, "ARS")})` 
-      : `FALTANTE (-${formatMoney(Math.abs(difference), "ARS")})`;
+      ? `SOBRANTE (+${thermalMoney(difference, "ARS")})` 
+      : `FALTANTE (-${thermalMoney(Math.abs(difference), "ARS")})`;
+
+  const openedByName = cleanThermalText(shift.opened_by_name || "Administrador");
+  const closedByName = cleanThermalText(shift.closed_by_name || "Administrador");
 
   const printHtml = `<!DOCTYPE html>
 <html lang="es">
@@ -419,7 +475,7 @@ export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth 
   <style>
     @page {
       size: ${is58mm ? "58mm auto" : "80mm auto"};
-      margin: 0;
+      margin: 0mm;
     }
     *, *::before, *::after {
       box-sizing: border-box;
@@ -428,12 +484,12 @@ export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth 
     }
     body {
       margin: 0;
-      padding: ${is58mm ? "2mm 2mm 8mm 2mm" : "3mm 4mm 10mm 4mm"};
+      padding: ${is58mm ? "2mm 2mm 6mm 2mm" : "3mm 4mm 8mm 4mm"};
       width: ${is58mm ? "54mm" : "74mm"};
       max-width: 100%;
       background: #ffffff;
       color: #000000;
-      font-family: 'Courier New', Courier, monospace, 'Segoe UI', Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Courier New", monospace, sans-serif;
       font-size: ${is58mm ? "10.5px" : "11.5px"};
       line-height: 1.25;
     }
@@ -469,7 +525,7 @@ export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth 
       padding: 2.5px 0;
       margin: 3px 0;
     }
-    .cut-feed { height: 14mm; }
+    .cut-feed { height: 12mm; }
   </style>
 </head>
 <body>
@@ -477,7 +533,7 @@ export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth 
     <div class="title">${businessName}</div>
     ${branchName ? `<div>${branchName}</div>` : ""}
     <div class="subtitle">CIERRE Y ARQUEO DE CAJA</div>
-    <div class="font-bold">TURNO N° ${shiftNumber}</div>
+    <div class="font-bold">TURNO N. ${shiftNumber}</div>
   </div>
 
   <div class="divider"></div>
@@ -488,7 +544,7 @@ export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth 
   </div>
   <div class="row">
     <span>Abierto por:</span>
-    <span><strong>${shift.opened_by_name || "Administrador"}</strong></span>
+    <span><strong>${openedByName}</strong></span>
   </div>
 
   <div class="row" style="margin-top: 3px;">
@@ -497,32 +553,32 @@ export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth 
   </div>
   <div class="row">
     <span>Cerrado por:</span>
-    <span><strong>${shift.closed_by_name || "Administrador"}</strong></span>
+    <span><strong>${closedByName}</strong></span>
   </div>
 
   <div class="divider"></div>
 
   <!-- MOVIMIENTOS EN EFECTIVO -->
-  <div class="font-bold text-center" style="margin: 2px 0;">CONTROL DE EFECTIVO (CAJÓN)</div>
+  <div class="font-bold text-center" style="margin: 2px 0;">CONTROL DE EFECTIVO (CAJON)</div>
 
   <div class="row">
     <span>(+) Fondo Inicial de Caja:</span>
-    <span>${formatMoney(initialCash, "ARS")}</span>
+    <span>${thermalMoney(initialCash, "ARS")}</span>
   </div>
   <div class="row">
     <span>(+) Ventas en Efectivo (${salesCount}):</span>
-    <span>${formatMoney(cashSales, "ARS")}</span>
+    <span>${thermalMoney(cashSales, "ARS")}</span>
   </div>
   ${cashIncomes > 0 ? `
     <div class="row">
       <span>(+) Ingresos / Aportes Caja:</span>
-      <span>+${formatMoney(cashIncomes, "ARS")}</span>
+      <span>+${thermalMoney(cashIncomes, "ARS")}</span>
     </div>
   ` : ""}
   ${cashExpenses > 0 ? `
     <div class="row">
       <span>(-) Retiros / Gastos Caja:</span>
-      <span>-${formatMoney(cashExpenses, "ARS")}</span>
+      <span>-${thermalMoney(cashExpenses, "ARS")}</span>
     </div>
   ` : ""}
 
@@ -530,11 +586,11 @@ export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth 
 
   <div class="row font-bold">
     <span>EFECTIVO ESPERADO:</span>
-    <span>${formatMoney(expectedCash, "ARS")}</span>
+    <span>${thermalMoney(expectedCash, "ARS")}</span>
   </div>
   <div class="row font-bold" style="font-size: ${is58mm ? "11.5px" : "13px"};">
     <span>EFECTIVO REAL CONTADO:</span>
-    <span>${formatMoney(actualCash, "ARS")}</span>
+    <span>${thermalMoney(actualCash, "ARS")}</span>
   </div>
 
   <div class="highlight-box">
@@ -549,12 +605,12 @@ export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth 
   <!-- DESTINO DE FONDOS -->
   <div class="font-bold text-center" style="margin: 2px 0;">DESTINO DEL EFECTIVO</div>
   <div class="row">
-    <span>Retiro / Entrega a Tesorería:</span>
-    <span><strong>${formatMoney(withdrawnCash, "ARS")}</strong></span>
+    <span>Retiro / Entrega Tesoreria:</span>
+    <span><strong>${thermalMoney(withdrawnCash, "ARS")}</strong></span>
   </div>
   <div class="row">
-    <span>Queda en Cajón (Sig. Turno):</span>
-    <span><strong>${formatMoney(retainedCash, "ARS")}</strong></span>
+    <span>Queda en Cajon (Sig. Turno):</span>
+    <span><strong>${thermalMoney(retainedCash, "ARS")}</strong></span>
   </div>
 
   <div class="divider"></div>
@@ -563,33 +619,33 @@ export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth 
   <div class="font-bold text-center" style="margin: 2px 0;">TOTAL FACTURADO DEL TURNO</div>
   <div class="row">
     <span>Ventas Efectivo:</span>
-    <span>${formatMoney(cashSales, "ARS")}</span>
+    <span>${thermalMoney(cashSales, "ARS")}</span>
   </div>
   <div class="row">
     <span>Transferencia / Tarjeta:</span>
-    <span>${formatMoney(otherSales, "ARS")}</span>
+    <span>${thermalMoney(otherSales, "ARS")}</span>
   </div>
   <div class="grand-row">
     <span>TOTAL VENDIDO:</span>
-    <span>${formatMoney(totalSales, "ARS")}</span>
+    <span>${thermalMoney(totalSales, "ARS")}</span>
   </div>
 
   ${shift.closing_notes ? `
     <div class="divider"></div>
     <div style="font-size: 9.5px; margin: 3px 0;">
-      <strong>Observaciones:</strong> ${shift.closing_notes}
+      <strong>Observaciones:</strong> ${cleanThermalText(shift.closing_notes)}
     </div>
   ` : ""}
 
   <div class="divider-double"></div>
 
   <!-- FIRMAS DE CONFORMIDAD -->
-  <div style="margin-top: 18px; text-align: center;">
+  <div style="margin-top: 16px; text-align: center;">
     <div style="border-top: 1px dashed #000; width: 75%; margin: 0 auto 2px auto;"></div>
-    <div style="font-size: 9px;">Firma Cajero (${shift.closed_by_name || "Responsable"})</div>
+    <div style="font-size: 9px;">Firma Cajero (${closedByName})</div>
   </div>
 
-  <div style="margin-top: 18px; text-align: center;">
+  <div style="margin-top: 16px; text-align: center;">
     <div style="border-top: 1px dashed #000; width: 75%; margin: 0 auto 2px auto;"></div>
     <div style="font-size: 9px;">Firma Encargado / Supervisor</div>
   </div>
@@ -607,12 +663,16 @@ export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth 
 export function printCashThermalTicket({ movement, settings = {}, paperWidth = "80mm" }: ThermalCashPrintData) {
   if (typeof window === "undefined" || !movement) return;
 
-  const businessName = settings.business_name || "CR BAZAR";
-  const branchName = settings.branch_name || "Sucursal Principal";
+  const rawBusinessName = settings.business_name || "CR BAZAR";
+  const businessName = cleanThermalText(rawBusinessName).toUpperCase();
+  const branchName = cleanThermalText(settings.branch_name || "");
   const isIncome = movement.type === "ingreso";
   const receiptNo = `CAJA-${String(movement.id).slice(-6).toUpperCase()}`;
   const amount = Number(movement.amount || 0);
   const is58mm = paperWidth === "58mm";
+  const category = cleanThermalText(movement.category || "General");
+  const description = cleanThermalText(movement.description || "");
+  const reference = cleanThermalText(movement.reference || "");
 
   const printHtml = `<!DOCTYPE html>
 <html lang="es">
@@ -622,7 +682,7 @@ export function printCashThermalTicket({ movement, settings = {}, paperWidth = "
   <style>
     @page {
       size: ${is58mm ? "58mm auto" : "80mm auto"};
-      margin: 0;
+      margin: 0mm;
     }
     *, *::before, *::after {
       box-sizing: border-box;
@@ -631,12 +691,12 @@ export function printCashThermalTicket({ movement, settings = {}, paperWidth = "
     }
     body {
       margin: 0;
-      padding: ${is58mm ? "2mm 2mm 8mm 2mm" : "3mm 4mm 10mm 4mm"};
+      padding: ${is58mm ? "2mm 2mm 6mm 2mm" : "3mm 4mm 8mm 4mm"};
       width: ${is58mm ? "54mm" : "74mm"};
       max-width: 100%;
       background: #ffffff;
       color: #000000;
-      font-family: 'Courier New', Courier, monospace, 'Segoe UI', Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Courier New", monospace, sans-serif;
       font-size: ${is58mm ? "11px" : "12px"};
       line-height: 1.25;
     }
@@ -667,24 +727,24 @@ export function printCashThermalTicket({ movement, settings = {}, paperWidth = "
   <div class="divider"></div>
 
   <div class="row">
-    <span><strong>N°:</strong> ${receiptNo}</span>
+    <span><strong>N.:</strong> ${receiptNo}</span>
     <span><strong>${dateFmt(movement.created_at)}</strong> ${timeFmt(movement.created_at)}</span>
   </div>
   <div class="row">
-    <span>Categoría: ${movement.category || "General"}</span>
+    <span>Categoria: ${category}</span>
   </div>
-  ${movement.description ? `<div class="row"><span>Concepto: ${movement.description}</span></div>` : ""}
-  ${movement.reference ? `<div class="row"><span>Ref: ${movement.reference}</span></div>` : ""}
+  ${description ? `<div class="row"><span>Concepto: ${description}</span></div>` : ""}
+  ${reference ? `<div class="row"><span>Ref: ${reference}</span></div>` : ""}
 
   <div class="amount-box">
-    ${isIncome ? "+ " : "- "}${formatMoney(amount, "ARS")}
+    ${isIncome ? "+ " : "- "}${thermalMoney(amount, "ARS")}
   </div>
 
   <div class="divider"></div>
 
-  <div style="margin-top: 20px; text-align: center;">
+  <div style="margin-top: 18px; text-align: center;">
     <div style="border-top: 1px dashed #000; width: 75%; margin: 0 auto 3px auto;"></div>
-    <div style="font-size: 9px;">Firma y Aclaración (Responsable)</div>
+    <div style="font-size: 9px;">Firma y Aclaracion (Responsable)</div>
   </div>
 
   <div class="cut-feed"></div>
@@ -706,14 +766,14 @@ function executeThermalPrint(html: string, title: string) {
     iframe.id = "thermal-print-frame";
     iframe.setAttribute(
       "style",
-      "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none;"
+      "position:fixed;top:-9999px;left:-9999px;width:80mm;height:400px;border:0;opacity:0;pointer-events:none;"
     );
     document.body.appendChild(iframe);
 
     const iframeDoc = iframe.contentWindow?.document;
     if (!iframeDoc) {
-      console.error("No se pudo acceder al documento del iframe de impresión térmica.");
-      window.print();
+      console.warn("No se pudo acceder al iframe de impresion termica, usando ventana auxiliar.");
+      openPrintWindow(html);
       return;
     }
 
@@ -726,8 +786,8 @@ function executeThermalPrint(html: string, title: string) {
         iframe.contentWindow?.focus();
         iframe.contentWindow?.print();
       } catch (e) {
-        console.error("Error al disparar iframe.contentWindow.print:", e);
-        window.print();
+        console.warn("Fallo impresion por iframe, abriendo ventana auxiliar:", e);
+        openPrintWindow(html);
       } finally {
         setTimeout(() => {
           iframe.remove();
@@ -735,8 +795,34 @@ function executeThermalPrint(html: string, title: string) {
       }
     }, 250);
   } catch (err) {
-    console.error("Error general en executeThermalPrint:", err);
-    window.print();
+    console.warn("Error general en executeThermalPrint, usando ventana auxiliar:", err);
+    openPrintWindow(html);
   }
 }
 
+/**
+ * Fallback seguro que abre una pequeña ventana para imprimir sólo el ticket térmico
+ * sin afectar la interfaz principal de la aplicación
+ */
+function openPrintWindow(html: string) {
+  try {
+    const win = window.open("", "_blank", "width=380,height=550,top=100,left=100");
+    if (!win) return;
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => {
+      try {
+        win.print();
+        setTimeout(() => {
+          try {
+            win.close();
+          } catch {}
+        }, 800);
+      } catch {}
+    }, 250);
+  } catch (e) {
+    console.error("No se pudo abrir la ventana de impresion termica:", e);
+  }
+}

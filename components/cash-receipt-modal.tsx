@@ -262,7 +262,7 @@ export function CashReceiptModal({
               variant="outline"
               size="sm"
               onClick={handlePrint}
-              className="h-8 gap-1.5 rounded-lg border-white/10 text-slate-200 hover:text-white hover:bg-white/10 text-xs font-medium shadow-sm"
+              className="h-8 gap-1.5 rounded-lg border-slate-700 bg-slate-800 text-white hover:bg-slate-700 hover:text-white text-xs font-semibold shadow-sm"
               title="Imprimir hoja completa A4 o guardar como PDF"
             >
               <Printer className="size-3.5" />
@@ -273,7 +273,7 @@ export function CashReceiptModal({
               variant="outline"
               size="sm"
               onClick={() => onOpenChange(false)}
-              className="h-8 gap-1 rounded-lg border-white/10 text-xs text-white hover:bg-white/10"
+              className="h-8 gap-1 rounded-lg border-slate-700 bg-slate-800 text-white hover:bg-slate-700 hover:text-white text-xs font-semibold shadow-sm"
             >
               <X className="size-3.5" />
               <span className="hidden sm:inline">Cerrar</span>

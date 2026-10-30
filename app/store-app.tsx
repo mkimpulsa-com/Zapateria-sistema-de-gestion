@@ -893,6 +893,7 @@ export default function StoreApp({
       onOpenChange={v=>!v&&setInvoiceSale(null)}
       sale={invoiceSale}
       settings={data?.settings}
+      products={data?.products || []}
       onNewSale={()=>{
         setInvoiceSale(null);
         setSection("ventas");
