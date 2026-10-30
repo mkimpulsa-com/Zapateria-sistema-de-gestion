@@ -1671,6 +1671,7 @@ function Products({data,filtered,setModal,onView,onEdit,onAdjust,onDelete}:any){
                 <TableHead className="font-bold text-xs">Producto</TableHead>
                 <TableHead className="font-bold text-xs">Código</TableHead>
                 <TableHead className="font-bold text-xs">Stock por talle</TableHead>
+                <TableHead className="font-bold text-xs">Costo</TableHead>
                 <TableHead className="font-bold text-xs">Minorista</TableHead>
                 <TableHead className="font-bold text-xs">Mayorista</TableHead>
                 <TableHead className="font-bold text-xs">Margen</TableHead>
@@ -1680,7 +1681,7 @@ function Products({data,filtered,setModal,onView,onEdit,onAdjust,onDelete}:any){
             <TableBody>
               {visibleProducts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Search className="size-6 opacity-40" />
                       <p className="font-semibold text-sm text-foreground">No se encontraron productos</p>
@@ -1745,6 +1746,9 @@ function Products({data,filtered,setModal,onView,onEdit,onAdjust,onDelete}:any){
                           );
                         })}
                       </div>
+                    </TableCell>
+                    <TableCell className="py-3 text-sm font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                      {money(unitCost)}
                     </TableCell>
                     <TableCell className="py-3 font-extrabold text-sm text-foreground whitespace-nowrap">
                       {money(effectiveRetail)}
@@ -2279,7 +2283,7 @@ function Inventory({data,filtered,adjust,isCashier,onView,onAddToCart}:any){
                       </TableCell>
                       <TableCell className="py-3 whitespace-nowrap">
                         <p className="font-extrabold text-sm text-foreground">{money(effectiveRetail)}</p>
-                        <p className="text-[11px] text-muted-foreground">May.: {money(effectiveWholesale)}</p>
+                        <p className="text-[11px] text-muted-foreground">May.: {money(effectiveWholesale)} · Costo: {money(Number(p.cost) || 0)}</p>
                       </TableCell>
                       <TableCell className="py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex flex-wrap gap-1.5">
