@@ -281,7 +281,10 @@ export async function loadStore(uid?: string) {
   const activeShift = cashShifts.find((s: any) => s.status === "open") || null;
   if (activeShift) {
     const shiftOpenedAt = activeShift.opened_at;
-    const shiftSales = sales.filter((s: any) => String(s.created_at) >= shiftOpenedAt);
+    const shiftSales = sales.filter((s: any) => 
+      (s.shift_id && String(s.shift_id) === String(activeShift.id)) || 
+      String(s.created_at) >= shiftOpenedAt
+    );
     
     // Ventas en efectivo vs otros medios (en moneda de la venta o ARS)
     let cashSales = 0;
@@ -296,11 +299,13 @@ export async function loadStore(uid?: string) {
       }
     });
 
-    // Movimientos manuales de caja durante el turno (excluyendo el propio aporte de apertura)
+    // Movimientos manuales de caja durante el turno (excluyendo ventas, apertura y retiros de cierre)
     const shiftCashMoves = movements.filter((m: any) => 
       String(m.created_at) >= shiftOpenedAt && 
+      m.category !== "Venta" && 
       m.category !== "Apertura de Caja" && 
-      m.reference !== "APERTURA"
+      !String(m.reference || "").startsWith("APERTURA") &&
+      !String(m.reference || "").startsWith("CIERRE")
     );
     const cashIncomes = shiftCashMoves.filter((m: any) => m.type === "ingreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
     const cashExpenses = shiftCashMoves.filter((m: any) => m.type === "egreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
@@ -362,7 +367,7 @@ async function deleteCollection(name: string, uid?: string) {
 
 async function resetOperationalData(uid?: string) {
   const userId = getStoreUid(uid);
-  for (const name of ["stockMovements","cashMovements","customerMovements","supplierMovements","bankAccounts","bankMovements","sales","products","customers","suppliers"]) {
+  for (const name of ["stockMovements","cashMovements","customerMovements","supplierMovements","bankAccounts","bankMovements","sales","products","customers","suppliers","cashShifts"]) {
     await deleteCollection(name, userId);
   }
   await updateDoc(userSettingsDoc(userId), { next_receipt_number: 1, updated_at: now() });
@@ -1209,7 +1214,10 @@ export async function runStoreAction(body: any, uid?: string) {
 
     // Consultar ventas ocurridas durante el turno
     const salesSnap = await getDocs(query(userCol("sales", userId), orderBy("created_at", "desc"), limit(200)));
-    const shiftSales = withId(salesSnap).filter((s: any) => String(s.created_at) >= shiftOpenedAt);
+    const shiftSales = withId(salesSnap).filter((s: any) => 
+      (s.shift_id && String(s.shift_id) === String(shiftId)) || 
+      String(s.created_at) >= shiftOpenedAt
+    );
 
     let cashSales = 0;
     let otherSales = 0;
@@ -1223,12 +1231,14 @@ export async function runStoreAction(body: any, uid?: string) {
       }
     });
 
-    // Consultar movimientos de caja durante el turno
+    // Consultar movimientos de caja manuales durante el turno (excluyendo ventas, apertura y retiros de cierre)
     const movesSnap = await getDocs(query(userCol("cashMovements", userId), orderBy("created_at", "desc"), limit(200)));
     const shiftMoves = withId(movesSnap).filter((m: any) => 
       String(m.created_at) >= shiftOpenedAt && 
+      m.category !== "Venta" && 
       m.category !== "Apertura de Caja" && 
-      m.reference !== `APERTURA-#${shiftData.shift_number}`
+      !String(m.reference || "").startsWith("APERTURA") &&
+      !String(m.reference || "").startsWith("CIERRE")
     );
 
     const cashIncomes = shiftMoves.filter((m: any) => m.type === "ingreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
@@ -1238,7 +1248,7 @@ export async function runStoreAction(body: any, uid?: string) {
     const expectedCash = initialCash + cashSales + cashIncomes - cashExpenses;
 
     const actualCash = number(body.actualCash !== undefined ? body.actualCash : body.actual_cash, expectedCash);
-    const difference = actualCash - expectedCash;
+    const difference = Math.round((actualCash - expectedCash) * 100) / 100;
     const withdrawnCash = Math.max(0, number(body.withdrawnCash !== undefined ? body.withdrawnCash : body.withdrawn_cash, 0));
     const retainedCash = Math.max(0, number(body.retainedCash !== undefined ? body.retainedCash : body.retained_cash, Math.max(0, actualCash - withdrawnCash)));
     const closingNotes = text(body.closingNotes || body.closing_notes, "");
@@ -1286,6 +1296,11 @@ export async function runStoreAction(body: any, uid?: string) {
         ...closedData,
       },
     };
+  } else if (action === "delete_cash_shift") {
+    const shiftId = String(body.shiftId || body.id || "");
+    if (!shiftId) throw new Error("ID de turno no provisto.");
+    await deleteDoc(userDoc("cashShifts", shiftId, userId));
+    return { success: true, deletedId: shiftId };
   } else if (action === "create_bank_account") {
     const name = text(body.name);
     if (!name) throw new Error("Ingresá el nombre o alias de la cuenta bancaria.");
@@ -1560,6 +1575,10 @@ export async function runStoreAction(body: any, uid?: string) {
     const bankAccountId = String(body.bankAccountId || "").trim();
     const customerId = String(body.customerId || "").trim();
 
+    // Obtener turno de caja activo para asociar la venta
+    const openShiftsSnap = await getDocs(query(userCol("cashShifts", userId), orderBy("opened_at", "desc"), limit(5)));
+    const activeOpenShift = withId(openShiftsSnap).find((s: any) => s.status === "open");
+
     let createdSaleData: any = null;
     let deltaResult: any = null;
     await runTransaction(database, async (transaction: any) => {
@@ -1832,6 +1851,8 @@ export async function runStoreAction(body: any, uid?: string) {
         cashier_id: body.cashierId ? String(body.cashierId) : null,
         cashier_name: body.cashierName ? String(body.cashierName) : "Administrador",
         status: saleStatus,
+        shift_id: activeOpenShift ? activeOpenShift.id : null,
+        shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
         created_at: createdAt,
         items: itemsDetailed,
       };
@@ -1880,17 +1901,24 @@ export async function runStoreAction(body: any, uid?: string) {
           });
         }
 
-        // Registro de movimiento en caja consolidado en BRL (moneda base)
-        transaction.set(doc(userCol("cashMovements", userId)), {
-          type: "ingreso",
-          category: "Venta",
-          amount: paidAmountBrl,
-          currency: saleCurrency,
-          amount_currency: depositAmount,
-          description: `Venta ${body.channel === "minorista" ? "minorista" : "mayorista"} (${saleCurrency === "BRL" ? `R$ ${paidAmountBrl.toFixed(2)}` : (saleCurrency === "USD" ? `US$ ${paidAmountUsd.toFixed(2)}` : `$${paidAmountArs} ARS`)}) · ${bankAccountName || "Caja general"}`,
-          reference: receiptNo,
-          created_at: createdAt,
-        });
+        // Registro de movimiento en caja si el cobro fue en efectivo (en moneda de la tienda)
+        const isCashPayment = String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo");
+        const effectiveCashAmount = saleCurrency === "ARS" ? paidAmountArs : (saleCurrency === "BRL" ? paidAmountBrl : paidAmountUsd);
+
+        if (isCashPayment && effectiveCashAmount > 0) {
+          transaction.set(doc(userCol("cashMovements", userId)), {
+            type: "ingreso",
+            category: "Venta",
+            amount: effectiveCashAmount,
+            currency: saleCurrency,
+            amount_currency: effectiveCashAmount,
+            shift_id: activeOpenShift ? activeOpenShift.id : null,
+            shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
+            description: `Venta en efectivo ${body.channel === "minorista" ? "minorista" : "mayorista"} comprobante ${receiptNo}`,
+            reference: receiptNo,
+            created_at: createdAt,
+          });
+        }
       }
 
       // El saldo pendiente (deuda) se acumula en la cuenta corriente del cliente (si hay cliente seleccionado)
@@ -1924,6 +1952,9 @@ export async function runStoreAction(body: any, uid?: string) {
 
       transaction.update(settingsRef, { next_receipt_number: receiptNumber + 1, updated_at: createdAt });
 
+      const isCashPayment = String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo");
+      const effectiveCashAmount = saleCurrency === "ARS" ? paidAmountArs : (saleCurrency === "BRL" ? paidAmountBrl : paidAmountUsd);
+
       deltaResult = {
         _fastUpdate: true,
         createdSale: createdSaleData,
@@ -1938,7 +1969,12 @@ export async function runStoreAction(body: any, uid?: string) {
         }),
         nextReceiptNumber: receiptNumber + 1,
         paidAmountBrl,
+        paidAmountArs,
+        paidAmount: effectiveCashAmount,
+        isCashPayment,
+        totalArs,
         totalBrl,
+        totalUsd,
         saleCurrency,
         depositAmount: depositAmount > 0 ? depositAmount : 0,
         bankAccountId: bankAccountId || null,

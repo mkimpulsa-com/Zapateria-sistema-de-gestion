@@ -172,6 +172,7 @@ export default function StoreApp({
   const [openShiftModal, setOpenShiftModal] = useState(false);
   const [closeShiftModal, setCloseShiftModal] = useState(false);
   const [viewingShift, setViewingShift] = useState<any | null>(null);
+  const [deletingShift, setDeletingShift] = useState<any | null>(null);
   const [editingBankAccount,setEditingBankAccount]=useState<any|null>(null);
   const [transferModalOpen,setTransferModalOpen]=useState(false);
   const [bankAccountId,setBankAccountId]=useState("");
@@ -407,17 +408,20 @@ export default function StoreApp({
           // 2. Insertar la nueva venta al principio
           const updatedSales = [nextData.createdSale, ...(prevData.sales||[])].slice(0, 50);
 
-          // 3. Movimiento de caja si hubo cobro
+          // 3. Movimiento de caja si hubo cobro en efectivo
           let updatedMovements = prevData.movements||[];
-          if(nextData.paidAmountBrl>0){
+          const isCash = Boolean(nextData.isCashPayment);
+          const salePaid = Number(nextData.paidAmount || nextData.paidAmountArs || 0);
+
+          if(isCash && salePaid > 0){
             const newCashMove = {
               id: `cm-${Date.now()}`,
               type: "ingreso",
               category: "Venta",
-              amount: nextData.paidAmountBrl,
-              currency: nextData.createdSale.currency,
-              amount_currency: nextData.depositAmount,
-              description: `Venta ${nextData.createdSale.channel} · ${nextData.createdSale.bank_account_name || "Caja general"}`,
+              amount: salePaid,
+              currency: nextData.createdSale.currency || "ARS",
+              amount_currency: salePaid,
+              description: `Venta en efectivo ${nextData.createdSale.channel || "minorista"} · ${nextData.createdSale.receipt_no}`,
               reference: nextData.createdSale.receipt_no,
               created_at: nextData.createdAt,
             };
@@ -446,13 +450,32 @@ export default function StoreApp({
             });
           }
 
-          // 6. Estadísticas rápidas
+          // 6. Actualizar turno de caja activo en tiempo real
+          let updatedActiveShift = prevData.activeShift;
+          if (updatedActiveShift && updatedActiveShift.status === "open") {
+            const shiftSalesCount = (Number(updatedActiveShift.sales_count) || 0) + 1;
+            const shiftCashSales = (Number(updatedActiveShift.cash_sales) || 0) + (isCash ? salePaid : 0);
+            const shiftOtherSales = (Number(updatedActiveShift.other_sales) || 0) + (!isCash ? salePaid : 0);
+            const shiftTotalSales = shiftCashSales + shiftOtherSales;
+            const shiftExpected = Number(updatedActiveShift.initial_cash || 0) + shiftCashSales + Number(updatedActiveShift.cash_incomes || 0) - Number(updatedActiveShift.cash_expenses || 0);
+
+            updatedActiveShift = {
+              ...updatedActiveShift,
+              sales_count: shiftSalesCount,
+              cash_sales: shiftCashSales,
+              other_sales: shiftOtherSales,
+              total_sales: shiftTotalSales,
+              expected_cash: shiftExpected,
+            };
+          }
+
+          // 7. Estadísticas rápidas
           const prevStats = prevData.stats || {};
           const updatedStats = {
             ...prevStats,
             salesToday: (prevStats.salesToday||0) + 1,
-            revenueToday: (prevStats.revenueToday||0) + (nextData.paidAmountBrl||0),
-            cashBalance: (prevStats.cashBalance||0) + (nextData.paidAmountBrl||0),
+            revenueToday: (prevStats.revenueToday||0) + salePaid,
+            cashBalance: (prevStats.cashBalance||0) + (isCash ? salePaid : 0),
           };
 
           return {
@@ -462,6 +485,10 @@ export default function StoreApp({
             movements: updatedMovements,
             customers: updatedCustomers,
             bankAccounts: updatedBankAccounts,
+            activeShift: updatedActiveShift,
+            cashShifts: (prevData.cashShifts || []).map((cs: any) =>
+              cs.id === updatedActiveShift?.id ? updatedActiveShift : cs
+            ),
             stats: updatedStats,
             settings: {
               ...prevData.settings,
@@ -755,7 +782,7 @@ export default function StoreApp({
         {section==="inventario"&&<Inventory data={data!} filtered={filtered} isCashier={isCashier} onView={(p:Product)=>setViewingProduct(p)} onAddToCart={(p:Product,v:Variant)=>{addVariant(p,v);setSection("ventas");setToast(`${p.name} (Talle ${v.size}) agregado a la venta`);}} adjust={(v:Variant,p:Product)=>{setAdjustTarget({v,p});setModal("stock");}}/>}
         {section==="clientes"&&<CustomersView customers={data!.customers} sales={data!.sales} customerMoves={data!.customerMoves||[]} isCashier={isCashier} onNewCustomer={()=>setModal("customer")} onEditCustomer={(c:any)=>setEditingCustomer(c)} onAdjustDebt={(c:any)=>setAdjustingCustomer(c)} onViewDetail={(c:any)=>setViewingCustomer(c)} onDeleteCustomer={(c:any)=>setDeletingCustomer(c)}/>} 
         {!isCashier && section==="proveedores"&&<SuppliersView suppliers={data!.suppliers} supplierMoves={data!.supplierMoves||[]} onNewSupplier={()=>setModal("supplier")} onEditSupplier={(s:any)=>setEditingSupplier(s)} onAdjustDebt={(s:any)=>setAdjustingSupplier(s)} onViewDetail={(s:any)=>setViewingSupplier(s)} onDeleteSupplier={(s:any)=>setDeletingSupplier(s)}/>} 
-        {section==="caja"&&<Cash data={data!} isCashier={isCashier} setModal={setModal} onEdit={(m:any)=>setEditingCashMovement(m)} onDelete={(m:any)=>setDeletingCashMovement(m)} onViewReceipt={(m:any)=>setViewingCashMovement(m)} onOpenShift={()=>setOpenShiftModal(true)} onCloseShift={()=>setCloseShiftModal(true)} onViewShift={(s:any)=>setViewingShift(s)} />} 
+        {section==="caja"&&<Cash data={data!} isCashier={isCashier} setModal={setModal} onEdit={(m:any)=>setEditingCashMovement(m)} onDelete={(m:any)=>setDeletingCashMovement(m)} onViewReceipt={(m:any)=>setViewingCashMovement(m)} onOpenShift={()=>setOpenShiftModal(true)} onCloseShift={()=>setCloseShiftModal(true)} onViewShift={(s:any)=>setViewingShift(s)} onDeleteShift={(s:any)=>setDeletingShift(s)} />} 
         {!isCashier && section==="tienda"&&<WholesaleStoreAdmin data={data!} uid={uid} setSection={setSection} setToast={setToast}/>}
         {section==="catalogos"&&<CatalogConfigured data={data!} products={filtered}/>}
         {!isCashier && section==="reportes"&&<Reports data={data!} onSelectSale={(s:any)=>setInvoiceSale(s)}/>} 
@@ -1026,6 +1053,30 @@ export default function StoreApp({
       shift={viewingShift}
       settings={data?.settings}
     />
+    <AlertDialog open={Boolean(deletingShift)} onOpenChange={v => !v && setDeletingShift(null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Eliminar este turno de caja?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Vas a eliminar el registro del Turno #{deletingShift?.shift_number || 1}. Esta acción eliminará el comprobante del historial de caja.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={busy}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={async () => {
+              if (!deletingShift) return;
+              await action({ action: "delete_cash_shift", shiftId: deletingShift.id }, "Turno de caja eliminado");
+              setDeletingShift(null);
+            }}
+          >
+            {busy ? "Eliminando…" : "Sí, eliminar turno"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <EditCashMovementModal
       open={Boolean(editingCashMovement)}
       onOpenChange={v => !v && setEditingCashMovement(null)}
@@ -2363,7 +2414,7 @@ function Inventory({data,filtered,adjust,isCashier,onView,onAddToCart}:any){
 
 function Parties({title,text,parties,kind,setModal}:any){return <><SectionTitle eyebrow="Relaciones comerciales" title={title} text={text} action={<Button onClick={()=>setModal(kind==="clientes"?"customer":"supplier")}><Plus/>Agregar</Button>}/><Card className="border-0 shadow-sm"><CardContent className="px-3 sm:px-5"><Table><TableHeader><TableRow><TableHead>Nombre</TableHead><TableHead>Tipo / contacto</TableHead><TableHead>Teléfono</TableHead><TableHead>Saldo</TableHead><TableHead>Estado</TableHead></TableRow></TableHeader><TableBody>{parties.map((p:Party)=><TableRow key={p.id}><TableCell className="font-semibold">{p.name}</TableCell><TableCell className="capitalize">{p.type||p.contact||"—"}</TableCell><TableCell>{p.phone||"—"}</TableCell><TableCell className={p.balance>0?"font-semibold text-amber-600":"text-muted-foreground"}>{money(p.balance)}</TableCell><TableCell><Badge variant={p.balance>0?"secondary":"outline"}>{p.balance>0?"Pendiente":"Al día"}</Badge></TableCell></TableRow>)}</TableBody></Table></CardContent></Card></>}
 
-function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift,onCloseShift,onViewShift}:any){
+function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift,onCloseShift,onViewShift,onDeleteShift}:any){
   const [cashTab, setCashTab] = useState<"movimientos" | "turnos">("movimientos");
   const activeShift = data.activeShift;
   const cashShifts: any[] = data.cashShifts || [];
@@ -2728,6 +2779,17 @@ function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift
                             >
                               <Printer className="size-3.5 text-emerald-600" />
                               <span className="hidden lg:inline">Ticket Z</span>
+                            </Button>
+                          )}
+                          {!isCashier && (
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              onClick={() => onDeleteShift && onDeleteShift(shift)}
+                              className="h-8 gap-1 rounded-lg text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
+                              title="Eliminar turno de caja"
+                            >
+                              <Trash2 className="size-3.5" />
                             </Button>
                           )}
                         </div>

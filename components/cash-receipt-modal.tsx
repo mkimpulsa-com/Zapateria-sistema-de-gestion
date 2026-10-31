@@ -237,7 +237,6 @@ export function CashReceiptModal({
 
           <div className="flex items-center gap-2">
             <Button
-              variant="default"
               size="sm"
               onClick={handlePrintThermal}
               className="h-8 gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm"
@@ -248,10 +247,9 @@ export function CashReceiptModal({
             </Button>
 
             <Button
-              variant="outline"
               size="sm"
               onClick={handleWhatsApp}
-              className="h-8 gap-1.5 rounded-lg border-emerald-600/40 bg-emerald-950/30 text-emerald-300 hover:bg-emerald-900/50 hover:text-emerald-200 text-xs font-semibold"
+              className="h-8 gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-950/80 text-emerald-200 hover:bg-emerald-900 hover:text-white text-xs font-semibold shadow-sm"
               title="Compartir comprobante por WhatsApp"
             >
               <MessageCircle className="size-3.5" />
@@ -259,10 +257,9 @@ export function CashReceiptModal({
             </Button>
 
             <Button
-              variant="outline"
               size="sm"
               onClick={handlePrint}
-              className="h-8 gap-1.5 rounded-lg border-slate-700 bg-slate-800 text-white hover:bg-slate-700 hover:text-white text-xs font-semibold shadow-sm"
+              className="h-8 gap-1.5 rounded-lg border border-slate-700 bg-slate-800 text-white hover:bg-slate-700 hover:text-white text-xs font-semibold shadow-sm"
               title="Imprimir hoja completa A4 o guardar como PDF"
             >
               <Printer className="size-3.5" />
@@ -270,10 +267,9 @@ export function CashReceiptModal({
             </Button>
 
             <Button
-              variant="outline"
               size="sm"
               onClick={() => onOpenChange(false)}
-              className="h-8 gap-1 rounded-lg border-slate-700 bg-slate-800 text-white hover:bg-slate-700 hover:text-white text-xs font-semibold shadow-sm"
+              className="h-8 gap-1 rounded-lg border border-slate-700 bg-slate-800 text-white hover:bg-slate-700 hover:text-white text-xs font-semibold shadow-sm"
             >
               <X className="size-3.5" />
               <span className="hidden sm:inline">Cerrar</span>

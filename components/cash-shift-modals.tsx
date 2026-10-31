@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useId } from "react";
+import { useState, useEffect, useId } from "react";
 import {
   Dialog,
   DialogContent,
@@ -281,6 +281,16 @@ export function CloseCashShiftModal({
   const [counts, setCounts] = useState<Record<number, number>>({});
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    if (open) {
+      setActualCash(expectedCash);
+      setWithdrawnCash(0);
+      setClosingNotes("");
+      setShowDenominations(false);
+      setCounts({});
+    }
+  }, [open, expectedCash]);
+
   const difference = actualCash - expectedCash;
   const retainedCash = Math.max(0, actualCash - withdrawnCash);
 
@@ -511,6 +521,35 @@ export function CloseCashShiftModal({
                 className="font-mono text-xs font-bold"
               />
               <p className="text-[10px] text-muted-foreground">Efectivo que se retira del local.</p>
+              <div className="flex flex-wrap gap-1 pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  className="text-[10px] h-6 px-2 py-0 border-border"
+                  onClick={() => setWithdrawnCash(Math.max(0, actualCash - Number(activeShift.initial_cash || 0)))}
+                >
+                  Dejar fondo (${Number(activeShift.initial_cash || 0).toLocaleString("es-AR")})
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  className="text-[10px] h-6 px-2 py-0 border-border"
+                  onClick={() => setWithdrawnCash(actualCash)}
+                >
+                  Retirar todo
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  className="text-[10px] h-6 px-2 py-0 border-border"
+                  onClick={() => setWithdrawnCash(0)}
+                >
+                  Dejar todo en caja
+                </Button>
+              </div>
             </div>
 
             <div className="space-y-1.5">

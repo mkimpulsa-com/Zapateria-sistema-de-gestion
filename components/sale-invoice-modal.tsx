@@ -284,7 +284,7 @@ export function SaleInvoiceModal({
 </html>`);
       iframeDoc.close();
 
-      setTimeout(() => {
+      const triggerPrint = () => {
         try {
           iframe.contentWindow?.focus();
           iframe.contentWindow?.print();
@@ -296,7 +296,27 @@ export function SaleInvoiceModal({
             iframe.remove();
           }, 1500);
         }
-      }, 300);
+      };
+
+      // Wait for all product images inside iframe to load before printing
+      const iframeImages = Array.from(iframeDoc.images || []);
+      if (iframeImages.length === 0) {
+        setTimeout(triggerPrint, 250);
+      } else {
+        Promise.all(
+          iframeImages.map(
+            (img) =>
+              new Promise<void>((res) => {
+                if (img.complete && img.naturalHeight !== 0) return res();
+                img.onload = () => res();
+                img.onerror = () => res();
+                setTimeout(() => res(), 2000);
+              })
+          )
+        ).then(() => {
+          setTimeout(triggerPrint, 200);
+        });
+      }
     } catch (err) {
       document.body.classList.add("printing-invoice");
       window.print();
@@ -374,6 +394,7 @@ export function SaleInvoiceModal({
             if (img.complete && img.naturalHeight !== 0) return resolve();
             img.onload = () => resolve();
             img.onerror = () => resolve();
+            setTimeout(() => resolve(), 2500);
           })
       )
     );
@@ -528,7 +549,6 @@ export function SaleInvoiceModal({
 
           <div className="flex flex-wrap items-center gap-2">
             <Button
-              variant="default"
               size="sm"
               onClick={() => handlePrintThermal("80mm")}
               className="h-8 gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm"
@@ -539,10 +559,9 @@ export function SaleInvoiceModal({
             </Button>
 
             <Button
-              variant="outline"
               size="sm"
               onClick={handleWhatsApp}
-              className="h-8 gap-1.5 rounded-lg border-emerald-600/40 bg-emerald-950/30 text-emerald-300 hover:bg-emerald-900/50 hover:text-emerald-200 text-xs font-semibold"
+              className="h-8 gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-950/80 text-emerald-200 hover:bg-emerald-900 hover:text-white text-xs font-semibold shadow-sm"
               title="Compartir comprobante detallado por WhatsApp"
             >
               <MessageCircle className="size-3.5" />
@@ -550,11 +569,10 @@ export function SaleInvoiceModal({
             </Button>
 
             <Button
-              variant="outline"
               size="sm"
               disabled={Boolean(downloading)}
               onClick={handleDownloadImage}
-              className="h-8 gap-1.5 rounded-lg border-sky-600/40 bg-sky-950/30 text-sky-300 hover:bg-sky-900/50 hover:text-sky-200 text-xs font-semibold"
+              className="h-8 gap-1.5 rounded-lg border border-sky-500/40 bg-sky-950/80 text-sky-200 hover:bg-sky-900 hover:text-white text-xs font-semibold shadow-sm"
               title="Descargar imagen PNG para enviar por WhatsApp o guardar"
             >
               {downloading === "image" ? (
@@ -566,11 +584,10 @@ export function SaleInvoiceModal({
             </Button>
 
             <Button
-              variant="outline"
               size="sm"
               disabled={Boolean(downloading)}
               onClick={handleDownloadPdf}
-              className="h-8 gap-1.5 rounded-lg border-slate-700 bg-slate-800 text-white hover:bg-slate-700 hover:text-white text-xs font-semibold shadow-sm"
+              className="h-8 gap-1.5 rounded-lg border border-slate-700 bg-slate-800 text-white hover:bg-slate-700 hover:text-white text-xs font-semibold shadow-sm"
               title="Descargar factura en archivo PDF para enviar al cliente"
             >
               {downloading === "pdf" ? (
@@ -582,10 +599,9 @@ export function SaleInvoiceModal({
             </Button>
 
             <Button
-              variant="outline"
               size="sm"
               onClick={handlePrintA4}
-              className="h-8 gap-1.5 rounded-lg border-slate-700 bg-slate-800 text-white hover:bg-slate-700 hover:text-white text-xs font-semibold shadow-sm"
+              className="h-8 gap-1.5 rounded-lg border border-slate-700 bg-slate-800 text-white hover:bg-slate-700 hover:text-white text-xs font-semibold shadow-sm"
               title="Imprimir en hoja A4 / impresora estándar"
             >
               <Printer className="size-3.5" />
@@ -594,13 +610,12 @@ export function SaleInvoiceModal({
 
             {onNewSale && (
               <Button
-                variant="outline"
                 size="sm"
                 onClick={() => {
                   onOpenChange(false);
                   onNewSale();
                 }}
-                className="h-8 gap-1 rounded-lg border-slate-700 bg-slate-800 text-white hover:bg-slate-700 hover:text-white text-xs font-semibold shadow-sm"
+                className="h-8 gap-1 rounded-lg border border-slate-700 bg-slate-800 text-white hover:bg-slate-700 hover:text-white text-xs font-semibold shadow-sm"
               >
                 <Check className="size-3.5" />
                 <span className="hidden sm:inline">Listo</span>
@@ -773,8 +788,10 @@ export function SaleInvoiceModal({
           <div
             id="printable-invoice"
             ref={printRef}
-            className={`invoice-paper w-full max-w-2xl bg-white text-slate-900 rounded-xl shadow-2xl p-6 sm:p-8 border border-slate-200 font-sans print:border-0 print:shadow-none print:p-0 print:rounded-none print:max-w-none print:w-full print:m-0 ${
-              viewFormat === "a4" ? "block" : "hidden"
+            className={`invoice-paper max-w-2xl bg-white text-slate-900 rounded-xl shadow-2xl p-6 sm:p-8 border border-slate-200 font-sans print:border-0 print:shadow-none print:p-0 print:rounded-none print:max-w-none print:w-full print:m-0 ${
+              viewFormat === "a4"
+                ? "w-full block"
+                : "fixed -left-[9999px] top-0 pointer-events-none opacity-0 w-[794px]"
             }`}
           >
             {/* INVOICE HEADER */}

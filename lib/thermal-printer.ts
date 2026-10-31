@@ -42,6 +42,8 @@ export function cleanThermalText(str: any): string {
     .replace(/°/g, ".")
     .replace(/[«»“”]/g, '"')
     .replace(/[‘’]/g, "'")
+    .replace(/[¡]/g, "")
+    .replace(/[¿]/g, "")
     .trim();
 }
 
@@ -49,8 +51,14 @@ export function cleanThermalText(str: any): string {
  * Formatea un monto monetario para impresora térmica asegurando caracteres 100% compatibles
  */
 export function thermalMoney(value: number | string | null | undefined, curr: string = "ARS"): string {
-  const formatted = formatMoney(value, curr);
-  return cleanThermalText(formatted);
+  const n = Number(value || 0);
+  const formatted = n.toLocaleString("es-AR", {
+    minimumFractionDigits: curr === "ARS" ? 0 : 2,
+    maximumFractionDigits: curr === "ARS" ? 0 : 2,
+  }).replace(/\u00A0/g, " ");
+
+  const symbol = curr === "USD" ? "US$" : (curr === "BRL" ? "R$" : "$");
+  return `${symbol} ${formatted}`;
 }
 
 const dateFmt = (value?: string) => {
@@ -414,7 +422,7 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
 
   <!-- Mensaje de Despedida Discreto -->
   <div class="footer-block">
-    <div class="footer-highlight">¡GRACIAS POR SU COMPRA!</div>
+    <div class="footer-highlight">GRACIAS POR SU COMPRA</div>
     <div>Cambios dentro de los 30 dias</div>
     <div>presentando este comprobante.</div>
   </div>
