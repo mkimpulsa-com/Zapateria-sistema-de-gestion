@@ -394,8 +394,9 @@ button:not(:disabled), [role="button"]:not([aria-disabled="true"]) { cursor: poi
     display: none !important;
   }
 
-  /* When printing an invoice (via modal or Ctrl+P) */
+  /* When printing an invoice or thermal ticket (via modal or Ctrl+P) */
   body:has(#printable-invoice) > *:not(:has(#printable-invoice)),
+  body:has(#printable-thermal-ticket) > *:not(:has(#printable-thermal-ticket)),
   body.printing-invoice > *:not(:has(#printable-invoice)) {
     display: none !important;
   }

@@ -628,7 +628,10 @@ export function SaleInvoiceModal({
         <div className="p-4 sm:p-6 lg:p-8 bg-slate-950/40 flex justify-center print:p-0 print:bg-transparent print:block">
           {/* Vista 1: Ticket Térmico Compacto & Profesional (80mm / 58mm) */}
           {viewFormat === "thermal" && (
-            <div className="w-full max-w-sm bg-white text-slate-900 rounded-xl shadow-2xl p-6 border border-slate-200 font-mono text-xs flex flex-col items-stretch animate-in fade-in duration-200">
+            <div
+              id="printable-thermal-ticket"
+              className="w-full max-w-sm bg-white text-slate-900 rounded-xl shadow-2xl p-6 border border-slate-200 font-mono text-xs flex flex-col items-stretch animate-in fade-in duration-200 print:shadow-none print:border-0 print:p-0 print:max-w-[78mm] print:w-[78mm]"
+            >
               {/* Encabezado */}
               <div className="text-center space-y-0.5">
                 <h2 className="text-base font-black tracking-tight uppercase text-slate-900">
@@ -791,7 +794,7 @@ export function SaleInvoiceModal({
             className={`invoice-paper max-w-2xl bg-white text-slate-900 rounded-xl shadow-2xl p-6 sm:p-8 border border-slate-200 font-sans print:border-0 print:shadow-none print:p-0 print:rounded-none print:max-w-none print:w-full print:m-0 ${
               viewFormat === "a4"
                 ? "w-full block"
-                : "fixed -left-[9999px] top-0 pointer-events-none opacity-0 w-[794px]"
+                : "fixed -left-[9999px] top-0 pointer-events-none opacity-0 w-[794px] print:hidden"
             }`}
           >
             {/* INVOICE HEADER */}
