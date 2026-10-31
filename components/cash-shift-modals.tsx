@@ -224,11 +224,10 @@ export function OpenCashShiftModal({
             </Button>
             <Button
               type="submit"
-              size="sm"
               disabled={busy}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold gap-1.5"
+              className="h-11 px-5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm gap-2 shadow-md shadow-emerald-600/25 hover:scale-[1.02] active:scale-[0.98] transition-all"
             >
-              <LockOpen className="size-3.5" />
+              <LockOpen className="size-4" />
               {busy ? "Abriendo..." : "Abrir Turno de Caja"}
             </Button>
           </DialogFooter>
@@ -603,11 +602,10 @@ export function CloseCashShiftModal({
             </Button>
             <Button
               type="submit"
-              size="sm"
               disabled={busy}
-              className="bg-red-600 hover:bg-red-500 text-white font-bold gap-1.5"
+              className="h-11 px-5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black text-sm gap-2 shadow-md shadow-rose-600/25 hover:scale-[1.02] active:scale-[0.98] transition-all"
             >
-              <Printer className="size-3.5" />
+              <Printer className="size-4" />
               {busy ? "Cerrando..." : "Cerrar Turno e Imprimir Ticket"}
             </Button>
           </DialogFooter>

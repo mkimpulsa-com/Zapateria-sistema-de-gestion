@@ -730,6 +730,28 @@ export default function StoreApp({
           )
         )}
         <Button variant="outline" size="icon" className="ml-auto shrink-0 rounded-xl sm:ml-0" onClick={()=>handleSetDark(!dark)} aria-label={dark?"Activar modo claro":"Activar modo noche"}>{dark?<Sun/>:<Moon/>}</Button>
+        {data?.activeShift ? (
+          <Button
+            type="button"
+            onClick={() => setCloseShiftModal(true)}
+            className="hidden sm:inline-flex h-11 shrink-0 rounded-xl bg-rose-600/10 hover:bg-rose-600 text-rose-700 hover:text-white dark:text-rose-300 dark:hover:text-white border border-rose-500/30 font-bold text-xs gap-2 transition-all shadow-xs"
+            title="Turno de caja abierto. Hacé clic para realizar el Arqueo y Cierre Z"
+          >
+            <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+            <Lock className="size-4 text-rose-600 group-hover:text-white" />
+            <span>Turno #{data.activeShift.shift_number || 1} · Cerrar Caja</span>
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            onClick={() => setOpenShiftModal(true)}
+            className="hidden sm:inline-flex h-11 shrink-0 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs gap-2 transition-all shadow-md shadow-emerald-600/25 hover:scale-[1.02] active:scale-[0.98]"
+            title="La caja está cerrada. Hacé clic para abrir turno con fondo de cambio"
+          >
+            <LockOpen className="size-4" />
+            <span>Abrir Caja</span>
+          </Button>
+        )}
         {!isCashier && (
           <Button
             variant={section === "tienda" ? "default" : "outline"}
@@ -2434,12 +2456,11 @@ function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift
       title={isCashier ? "Caja de Turno y Arqueo" : "Caja, Turnos y Arqueo"}
       text={isCashier ? "Control del efectivo en caja, registro de ingresos/egresos y cierre Z con arqueo físico." : "Gestioná aperturas de caja, flujo de dinero, arqueos de cierre e historial de turnos."}
       action={
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2.5 flex-wrap">
           {activeShift ? (
             <Button
-              variant="destructive"
               onClick={onCloseShift}
-              className="gap-1.5 font-bold shadow-sm"
+              className="h-11 px-5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs gap-2 shadow-md shadow-rose-600/25 transition-all hover:scale-[1.02] active:scale-[0.98]"
             >
               <Lock className="size-4" />
               Cerrar Caja / Arqueo
@@ -2447,13 +2468,13 @@ function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift
           ) : (
             <Button
               onClick={onOpenShift}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold gap-1.5 shadow-sm"
+              className="h-11 px-6 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs gap-2 shadow-md shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
             >
               <LockOpen className="size-4" />
               Abrir Turno de Caja
             </Button>
           )}
-          <Button variant="outline" onClick={()=>setModal("cash")} className="gap-1.5">
+          <Button variant="outline" onClick={()=>setModal("cash")} className="h-11 px-4 rounded-xl gap-1.5 font-bold">
             <Plus className="size-4" />
             Nuevo movimiento
           </Button>
@@ -2464,56 +2485,59 @@ function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift
     {/* Hero Card: Estado del Turno de Caja en Vivo */}
     <Card className={`mb-6 border-2 overflow-hidden shadow-sm transition-all ${
       activeShift 
-        ? "border-emerald-500/40 bg-gradient-to-br from-emerald-500/5 via-card to-card" 
-        : "border-amber-500/30 bg-gradient-to-br from-amber-500/5 via-card to-card"
+        ? "border-emerald-500/40 bg-gradient-to-br from-emerald-500/10 via-card to-card" 
+        : "border-amber-500/40 bg-gradient-to-br from-amber-500/10 via-card to-card"
     }`}>
       <CardContent className="p-4 sm:p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider ${
                 activeShift
-                  ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
-                  : "bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30"
+                  ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 shadow-xs"
+                  : "bg-amber-500/20 text-amber-800 dark:text-amber-200 border border-amber-500/40 shadow-xs"
               }`}>
-                <span className={`size-2 rounded-full ${activeShift ? "bg-emerald-500 animate-pulse" : "bg-amber-500"}`} />
+                <span className={`size-2.5 rounded-full ${activeShift ? "bg-emerald-500 animate-pulse" : "bg-amber-500 animate-ping"}`} />
                 {activeShift ? `Caja Abierta · Turno #${activeShift.shift_number || 1}` : "Caja Cerrada"}
               </span>
 
               {activeShift && (
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-muted-foreground font-medium">
                   Iniciado por <strong className="text-foreground">{activeShift.opened_by_name || "Administrador"}</strong> a las{" "}
                   {new Date(activeShift.opened_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })} hs ({new Date(activeShift.opened_at).toLocaleDateString("es-AR")})
                 </span>
               )}
             </div>
 
-            <p className="text-xs text-muted-foreground pt-0.5">
+            <h3 className="text-lg font-black text-foreground">
               {activeShift 
-                ? "El turno actual está registrando ventas y cobros en tiempo real. Al finalizar la jornada o cambio de cajero, realizá el cierre con arqueo físico."
-                : "No hay un turno de caja abierto en este momento. Abrí la caja con el fondo inicial para registrar ventas y cobrar en mostrador."}
+                ? `Turno #${activeShift.shift_number || 1} en curso`
+                : "La caja se encuentra cerrada"}
+            </h3>
+
+            <p className="text-xs text-muted-foreground max-w-xl">
+              {activeShift 
+                ? "El turno actual está registrando ventas, cobros e ingresos en tiempo real. Al finalizar la jornada o cambio de cajero, realizá el cierre con arqueo físico."
+                : "Para empezar a registrar ventas en mostrador, cobrar en efectivo y emitir tickets, abrí el turno registrando el fondo inicial de cambio."}
             </p>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-3 shrink-0">
             {activeShift ? (
               <Button
-                variant="destructive"
-                size="sm"
                 onClick={onCloseShift}
-                className="gap-1.5 font-bold shadow-sm"
+                className="h-12 px-6 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-sm gap-2.5 shadow-lg shadow-rose-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
               >
-                <Lock className="size-3.5" />
-                Cerrar Caja / Arqueo
+                <Lock className="size-4" />
+                <span>Cerrar Caja / Arqueo</span>
               </Button>
             ) : (
               <Button
-                size="sm"
                 onClick={onOpenShift}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold gap-1.5 shadow-sm"
+                className="h-12 px-7 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm gap-2.5 shadow-xl shadow-emerald-600/30 hover:scale-[1.03] active:scale-[0.98] transition-all"
               >
-                <LockOpen className="size-3.5" />
-                Abrir Turno de Caja
+                <LockOpen className="size-4" />
+                <span>ABRIR TURNO DE CAJA</span>
               </Button>
             )}
           </div>
@@ -4043,26 +4067,29 @@ function SalesPOSConfigured({
       <SectionTitle eyebrow="Venta rápida" title="Punto de venta" text="Escaneá, elegí el talle y cobrá sin salir de la pantalla."/>
       <div className="flex items-center gap-1.5 flex-wrap pb-4 sm:pb-0">
         {data.activeShift ? (
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={onCloseShift}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 px-2.5 py-1 text-xs font-bold hover:bg-emerald-500/20 transition-colors shadow-xs"
+            className="h-9 gap-2 rounded-xl bg-emerald-500/10 hover:bg-rose-600 hover:text-white hover:border-rose-600 text-emerald-700 dark:text-emerald-300 border-emerald-500/40 text-xs font-bold shadow-xs transition-all group"
             title="Caja abierta. Hacé clic para realizar el arqueo y cierre del turno"
           >
-            <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-            <LockOpen className="size-3.5 text-emerald-600" />
-            <span>Turno #{data.activeShift.shift_number || 1} Abierto</span>
-          </button>
+            <span className="size-2 rounded-full bg-emerald-500 group-hover:bg-white animate-pulse" />
+            <Lock className="size-3.5 text-emerald-600 group-hover:text-white dark:text-emerald-400" />
+            <span>Turno #{data.activeShift.shift_number || 1} · Cerrar Caja</span>
+          </Button>
         ) : (
-          <button
+          <Button
             type="button"
+            size="sm"
             onClick={onOpenShift}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 px-2.5 py-1 text-xs font-bold hover:bg-amber-500/25 transition-colors shadow-xs"
-            title="La caja está cerrada. Hacé clic para registrar el fondo de apertura"
+            className="h-9 gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-md shadow-amber-500/25 animate-pulse hover:animate-none transition-all"
+            title="La caja está cerrada. Hacé clic para abrir turno con fondo de cambio"
           >
-            <Lock className="size-3.5 text-amber-600" />
-            <span>Caja Cerrada · Abrir Caja</span>
-          </button>
+            <LockOpen className="size-3.5" />
+            <span>Caja Cerrada · Abrir Ahora</span>
+          </Button>
         )}
         <kbd className="inline-flex items-center gap-1 rounded-lg bg-muted/80 px-2.5 py-1 font-mono text-[11px] font-semibold text-foreground border border-border/70 shadow-xs">
           <span className="text-primary font-bold">F2</span> Buscar / Escanear
