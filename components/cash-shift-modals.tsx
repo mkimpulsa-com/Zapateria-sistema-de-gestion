@@ -450,13 +450,12 @@ export function CloseCashShiftModal({
             </div>
 
             {/* Indicador de Diferencia */}
-            <div className={`rounded-xl p-3 flex items-center justify-between border text-xs font-semibold ${
-              difference === 0
+            <div className={`rounded-xl p-3 flex items-center justify-between border text-xs font-semibold ${difference === 0
                 ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
                 : difference > 0
-                ? "bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-400"
-                : "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400"
-            }`}>
+                  ? "bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-400"
+                  : "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400"
+              }`}>
               <span className="flex items-center gap-1.5">
                 {difference === 0 ? (
                   <CheckCircle2 className="size-4 text-emerald-600" />

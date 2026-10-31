@@ -496,7 +496,7 @@ export default function StoreApp({
             },
           };
         });
-      } else {
+      } else if (nextData && Array.isArray(nextData.products)) {
         setData(nextData as StoreData);
         if (body.action === "save_settings" && body.themeDefault) {
           if (body.themeDefault === "dark") handleSetDark(true);
@@ -505,6 +505,12 @@ export default function StoreApp({
             try { localStorage.removeItem("cr_bazar_theme"); } catch {}
             setDark(window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
           }
+        }
+      } else {
+        // En caso de que la respuesta sea un objeto auxiliar, recargar store completo para nunca dejar `products` undefined
+        const fresh = await loadStore(uid);
+        if (fresh && Array.isArray(fresh.products)) {
+          setData(fresh as StoreData);
         }
       }
       setToast(success);

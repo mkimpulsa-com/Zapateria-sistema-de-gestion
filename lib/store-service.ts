@@ -1198,7 +1198,10 @@ export async function runStoreAction(body: any, uid?: string) {
       });
     }
 
-    return { success: true, shiftId: shiftRef.id, shiftNumber: nextNumber };
+    const store = await loadStore(userId);
+    (store as any).shiftId = shiftRef.id;
+    (store as any).shiftNumber = nextNumber;
+    return store;
   } else if (action === "close_cash_shift") {
     const shiftId = String(body.shiftId || body.shift_id || "");
     if (!shiftId) throw new Error("ID de turno no provisto para el cierre.");
@@ -1288,19 +1291,20 @@ export async function runStoreAction(body: any, uid?: string) {
       });
     }
 
-    return {
-      success: true,
-      closedShift: {
-        id: shiftId,
-        ...shiftData,
-        ...closedData,
-      },
+    const store = await loadStore(userId);
+    (store as any).closedShift = {
+      id: shiftId,
+      ...shiftData,
+      ...closedData,
     };
+    return store;
   } else if (action === "delete_cash_shift") {
     const shiftId = String(body.shiftId || body.id || "");
     if (!shiftId) throw new Error("ID de turno no provisto.");
     await deleteDoc(userDoc("cashShifts", shiftId, userId));
-    return { success: true, deletedId: shiftId };
+    const store = await loadStore(userId);
+    (store as any).deletedId = shiftId;
+    return store;
   } else if (action === "create_bank_account") {
     const name = text(body.name);
     if (!name) throw new Error("Ingresá el nombre o alias de la cuenta bancaria.");
