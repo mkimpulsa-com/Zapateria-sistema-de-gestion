@@ -265,6 +265,17 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
     });
   }, [products, search, selectedCategory, selectedGender]);
 
+  // Paginación progresiva para velocidad y fluidez
+  const [displayLimit, setDisplayLimit] = useState(20);
+
+  useEffect(() => {
+    setDisplayLimit(20);
+  }, [search, selectedCategory, selectedGender]);
+
+  const visibleProducts = useMemo(() => {
+    return filteredProducts.slice(0, displayLimit);
+  }, [filteredProducts, displayLimit]);
+
   // Cart calculations
   const totalCartPairs = useMemo(() => {
     return cart.reduce((sum, item) => sum + item.qty, 0);
@@ -695,8 +706,9 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-            {filteredProducts.map((p) => {
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            {visibleProducts.map((p) => {
               const displayPrice = isMayorista ? p.wholesale_price : (p.retail_price || p.wholesale_price);
               const secondaryPrice = isMayorista ? p.retail_price : p.wholesale_price;
 
@@ -915,6 +927,37 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
               );
             })}
           </div>
+
+          {filteredProducts.length > displayLimit && (
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-8 pb-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDisplayLimit((prev) => prev + 20)}
+                className={`h-11 px-6 gap-2 font-bold rounded-2xl shadow-xs transition-all ${
+                  isMayorista
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20"
+                    : "border-indigo-500/40 bg-indigo-500/10 text-indigo-700 hover:bg-indigo-500/20"
+                }`}
+              >
+                <Plus className="size-4" />
+                Cargar más productos ({Math.min(displayLimit + 20, filteredProducts.length)} de {filteredProducts.length})
+              </Button>
+
+              {filteredProducts.length > displayLimit + 20 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setDisplayLimit(filteredProducts.length)}
+                  className="text-xs text-slate-500 hover:text-slate-800 font-semibold"
+                >
+                  Mostrar todos ({filteredProducts.length})
+                </Button>
+              )}
+            </div>
+          )}
+        </>
         )}
       </main>
 

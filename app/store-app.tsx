@@ -5192,9 +5192,13 @@ function CatalogConfigured({ data, products }: any) {
   const [catalogMode, setCatalogMode] = useState<"wholesale" | "retail" | "both">(
     (data.settings?.catalog_default_price as any) || "both"
   );
-  const visibleProducts = data.settings?.catalog_in_stock_only
+  const [displayLimit, setDisplayLimit] = useState(20);
+
+  const allProducts = data.settings?.catalog_in_stock_only
     ? products.filter((product: Product) => product.total_stock > 0)
     : products;
+
+  const visibleProducts = allProducts.slice(0, displayLimit);
 
   return (
     <div className="print-only-area">
@@ -5204,8 +5208,15 @@ function CatalogConfigured({ data, products }: any) {
           title="Generador de Catálogos"
           text="Compartí o imprimí los productos disponibles con precios minoristas, mayoristas o ambos."
           action={
-            <Button variant="outline" onClick={() => window.print()} className="rounded-xl">
-              <Printer /> Imprimir / PDF
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDisplayLimit(allProducts.length);
+                setTimeout(() => window.print(), 150);
+              }}
+              className="rounded-xl font-bold gap-1.5"
+            >
+              <Printer className="size-4" /> Imprimir / PDF
             </Button>
           }
         />
@@ -5245,8 +5256,8 @@ function CatalogConfigured({ data, products }: any) {
               Ambas Listas
             </button>
           </div>
-          <Badge variant="outline" className="ml-auto">
-            {data.settings?.catalog_in_stock_only ? "Solo con stock" : "Todos los productos"}
+          <Badge variant="outline" className="ml-auto font-bold text-xs">
+            Mostrando {Math.min(displayLimit, allProducts.length)} de {allProducts.length} productos
           </Badge>
         </div>
       </div>
@@ -5359,6 +5370,32 @@ function CatalogConfigured({ data, products }: any) {
           </Card>
         ))}
       </div>
+
+      {allProducts.length > displayLimit && (
+        <div className="no-print flex flex-col sm:flex-row items-center justify-center gap-3 pt-6 pb-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setDisplayLimit((prev) => prev + 20)}
+            className="h-10 px-5 gap-2 font-bold rounded-xl border-primary/40 bg-primary/5 hover:bg-primary/10 text-primary shadow-xs transition-all"
+          >
+            <Plus className="size-4" />
+            Cargar más productos ({Math.min(displayLimit + 20, allProducts.length)} de {allProducts.length})
+          </Button>
+
+          {allProducts.length > displayLimit + 20 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setDisplayLimit(allProducts.length)}
+              className="text-xs text-muted-foreground hover:text-foreground font-semibold"
+            >
+              Mostrar todos ({allProducts.length})
+            </Button>
+          )}
+        </div>
+      )}
 
       {data.settings?.catalog_terms && (
         <p className="mt-6 text-center text-xs text-muted-foreground">{data.settings.catalog_terms}</p>
