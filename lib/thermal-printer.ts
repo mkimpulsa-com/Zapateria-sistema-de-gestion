@@ -127,11 +127,34 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
   const curr = (sale.currency || settings.currency || "ARS") as "ARS" | "BRL" | "USD";
   const items: any[] = Array.isArray(sale.items) ? sale.items : [];
   const totalUnits = items.reduce((acc, it) => acc + Number(it.quantity || 1), 0);
-  const subtotal = Number(sale.subtotal || sale.total || 0);
+  const itemsSum = items.reduce((sum, it) => sum + Number(it.total || (Number(it.quantity || 1) * Number(it.unit_price || 0))), 0);
   const discount = Number(sale.discount || 0);
   const additionalCharge = Number(sale.additional_charge || 0);
-  const total = Number(sale.total || 0);
-  const paidAmount = Number(sale.paid_amount !== undefined ? sale.paid_amount : total);
+
+  // Resolver total real según la moneda de la venta y asegurar compatibilidad con ventas existentes
+  let total = Number(sale.total || 0);
+  if (curr === "ARS" && sale.total_ars !== undefined) {
+    total = Number(sale.total_ars);
+  } else if (curr === "USD" && sale.total_usd !== undefined) {
+    total = Number(sale.total_usd);
+  } else if (curr === "BRL" && sale.total_brl !== undefined) {
+    total = Number(sale.total_brl);
+  } else if (curr === "ARS" && itemsSum > 0 && total > 0 && itemsSum >= total * 5) {
+    // Si el total histórico guardado correspondía a BRL/USD por el template original
+    total = Math.max(0, itemsSum - discount + additionalCharge);
+  }
+
+  const subtotal = Number(sale.subtotal !== undefined && sale.subtotal >= total ? sale.subtotal : (itemsSum > 0 ? itemsSum : total));
+
+  let paidAmount = Number(sale.paid_amount !== undefined ? sale.paid_amount : total);
+  if (curr === "ARS" && sale.paid_amount_ars !== undefined) {
+    paidAmount = Number(sale.paid_amount_ars);
+  } else if (curr === "USD" && sale.paid_amount_usd !== undefined) {
+    paidAmount = Number(sale.paid_amount_usd);
+  } else if (curr === "BRL" && sale.paid_amount_brl !== undefined) {
+    paidAmount = Number(sale.paid_amount_brl);
+  }
+
   const debtAmount = Math.max(0, total - paidAmount);
   const rawPayment = sale.payment_method || "Efectivo";
   const paymentMethod = cleanThermalText(rawPayment);

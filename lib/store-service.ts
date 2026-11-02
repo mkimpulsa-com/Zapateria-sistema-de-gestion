@@ -267,7 +267,47 @@ export async function loadStore(uid?: string) {
     );
   const customers = withId(customersSnap).sort((a:any,b:any)=>String(a.name).localeCompare(String(b.name)));
   const suppliers = withId(suppliersSnap).sort((a:any,b:any)=>String(a.name).localeCompare(String(b.name)));
-  const sales = withId(salesSnap).sort((a:any,b:any)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0,50);
+  const sales = withId(salesSnap)
+    .map((s: any) => {
+      const saleCurrency = String(s.currency || settings.currency || "ARS").toUpperCase();
+      let realTotal = Number(s.total || 0);
+      let realPaid = Number(s.paid_amount !== undefined ? s.paid_amount : realTotal);
+      let realPending = Number(s.pending_amount !== undefined ? s.pending_amount : (s.debt_amount || 0));
+
+      if (saleCurrency === "ARS" && s.total_ars !== undefined) {
+        realTotal = Number(s.total_ars);
+        if (s.paid_amount_ars !== undefined) realPaid = Number(s.paid_amount_ars);
+        if (s.pending_amount_ars !== undefined) realPending = Number(s.pending_amount_ars);
+      } else if (saleCurrency === "USD" && s.total_usd !== undefined) {
+        realTotal = Number(s.total_usd);
+        if (s.paid_amount_usd !== undefined) realPaid = Number(s.paid_amount_usd);
+        if (s.pending_amount_usd !== undefined) realPending = Number(s.pending_amount_usd);
+      } else if (saleCurrency === "BRL" && s.total_brl !== undefined) {
+        realTotal = Number(s.total_brl);
+        if (s.paid_amount_brl !== undefined) realPaid = Number(s.paid_amount_brl);
+        if (s.pending_amount_brl !== undefined) realPending = Number(s.pending_amount_brl);
+      }
+
+      // Si los ítems suman un monto muy superior (caso histórico donde se guardó total_brl)
+      const itemsSum = Array.isArray(s.items)
+        ? s.items.reduce((sum: number, it: any) => sum + Number(it.total || (Number(it.quantity || 1) * Number(it.unit_price || 0))), 0)
+        : 0;
+      if (saleCurrency === "ARS" && itemsSum > 0 && realTotal > 0 && itemsSum >= realTotal * 5) {
+        realTotal = itemsSum;
+        realPaid = itemsSum;
+        realPending = 0;
+      }
+
+      return {
+        ...s,
+        total: realTotal,
+        paid_amount: realPaid,
+        pending_amount: realPending,
+        debt_amount: realPending,
+      };
+    })
+    .sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)))
+    .slice(0, 50);
   const movements = withId(movementsSnap).sort((a:any,b:any)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0,50);
   const stockMoves = withId(stockSnap).sort((a:any,b:any)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0,30);
   const customerMoves = withId(customerMovesSnap).sort((a:any,b:any)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0,100);
@@ -1837,7 +1877,7 @@ export async function runStoreAction(body: any, uid?: string) {
         total_usd: totalUsd,
         paid_amount_usd: paidAmountUsd,
         pending_amount_usd: pendingAmountUsd,
-        total: totalBrl,
+        total: saleCurrency === "ARS" ? totalArs : (saleCurrency === "USD" ? totalUsd : totalBrl),
         net_amount: Math.round(totalNetAmount * 100) / 100,
         vat_amount: Math.round(totalVatAmount * 100) / 100,
         vat_amount_21: Math.round(vatAmount21 * 100) / 100,
@@ -1929,7 +1969,8 @@ export async function runStoreAction(body: any, uid?: string) {
           throw new Error("Para ventas con saldo pendiente / deuda es obligatorio seleccionar un cliente registrado.");
         }
         const prevBal = number(customerData.balance, 0);
-        const nextBal = prevBal + pendingAmountBrl;
+        const effectivePending = saleCurrency === "ARS" ? pendingAmountArs : (saleCurrency === "USD" ? pendingAmountUsd : pendingAmountBrl);
+        const nextBal = prevBal + effectivePending;
         transaction.update(customerRef, {
           balance: nextBal,
           updated_at: createdAt,
@@ -1938,14 +1979,14 @@ export async function runStoreAction(body: any, uid?: string) {
           customer_id: customerId,
           customer_name: customerName,
           type: "cargo",
-          amount: pendingAmountBrl,
+          amount: effectivePending,
           amount_ars: pendingAmountArs,
           amount_usd: pendingAmountUsd,
-          currency: "BRL",
+          currency: saleCurrency,
           balance_before: prevBal,
           balance_after: nextBal,
           payment_method: text(body.paymentMethod, "Cuenta corriente"),
-          note: `Saldo pendiente venta ${receiptNo} (Total: R$ ${totalBrl.toFixed(2)} · Abonó: ${saleCurrency === "BRL" ? `R$ ${paidAmountBrl.toFixed(2)}` : (saleCurrency === "USD" ? `US$ ${paidAmountUsd.toFixed(2)}` : `$${paidAmountArs} ARS`)} · Deuda: R$ ${pendingAmountBrl.toFixed(2)} / $${pendingAmountArs} ARS)`,
+          note: `Saldo pendiente venta ${receiptNo} (Total: ${saleCurrency === "ARS" ? `$${totalArs}` : (saleCurrency === "USD" ? `US$ ${totalUsd.toFixed(2)}` : `R$ ${totalBrl.toFixed(2)}`)} · Abonó: ${saleCurrency === "ARS" ? `$${paidAmountArs}` : (saleCurrency === "USD" ? `US$ ${paidAmountUsd.toFixed(2)}` : `R$ ${paidAmountBrl.toFixed(2)}`)} · Deuda: ${saleCurrency === "ARS" ? `$${pendingAmountArs}` : (saleCurrency === "USD" ? `US$ ${pendingAmountUsd.toFixed(2)}` : `R$ ${pendingAmountBrl.toFixed(2)}`)})`,
           receipt_no: receiptNo,
           sale_id: saleRef.id,
           created_at: createdAt,
@@ -1983,6 +2024,9 @@ export async function runStoreAction(body: any, uid?: string) {
         bankAccountName: bankAccountName || null,
         customerId: (pendingAmount > 0 && customerId) ? customerId : null,
         pendingAmountBrl: (pendingAmount > 0) ? pendingAmountBrl : 0,
+        pendingAmountArs: (pendingAmount > 0) ? pendingAmountArs : 0,
+        pendingAmountUsd: (pendingAmount > 0) ? pendingAmountUsd : 0,
+        pendingAmount: (pendingAmount > 0) ? (saleCurrency === "ARS" ? pendingAmountArs : (saleCurrency === "USD" ? pendingAmountUsd : pendingAmountBrl)) : 0,
         createdAt,
       };
     });

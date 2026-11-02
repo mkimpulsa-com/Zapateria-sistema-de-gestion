@@ -430,10 +430,13 @@ export default function StoreApp({
 
           // 4. Actualizar saldo del cliente si quedó deuda
           let updatedCustomers = prevData.customers||[];
-          if(nextData.customerId && nextData.pendingAmountBrl>0){
+          const pendingToAdd = Number(nextData.pendingAmount !== undefined
+            ? nextData.pendingAmount
+            : (nextData.saleCurrency === "ARS" ? nextData.pendingAmountArs : nextData.pendingAmountBrl) || 0);
+          if(nextData.customerId && pendingToAdd > 0){
             updatedCustomers = updatedCustomers.map((c:any)=>{
               if(String(c.id)===String(nextData.customerId)){
-                return {...c, balance: Number(c.balance||0) + nextData.pendingAmountBrl};
+                return {...c, balance: Number(c.balance||0) + pendingToAdd};
               }
               return c;
             });
