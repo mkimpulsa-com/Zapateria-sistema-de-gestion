@@ -1253,7 +1253,15 @@ export async function runStoreAction(body: any, uid?: string) {
       await deleteDoc(moveRef);
     }
   } else if (action === "delete_sale") {
-    const saleId = String(body.saleId || body.id || "").trim();
+    let saleId = String(body.saleId || body.id || "").trim();
+    if (!saleId && (body.receiptNo || body.orderId)) {
+      const salesSnap = await getDocs(query(userCol("sales", userId), orderBy("created_at", "desc"), limit(100)));
+      const found = withId(salesSnap).find((s: any) => 
+        (body.receiptNo && s.receipt_no === body.receiptNo) ||
+        (body.orderId && (s.order_id === body.orderId || s.orderId === body.orderId))
+      );
+      if (found) saleId = found.id;
+    }
     if (!saleId) throw new Error("ID de venta no especificado.");
     const saleRef = userDoc("sales", saleId, userId);
     const saleSnap = await getDoc(saleRef);
@@ -1330,14 +1338,16 @@ export async function runStoreAction(body: any, uid?: string) {
       }
     }
 
-    // 4. Si la venta provino de un pedido online, devolver el pedido a pendiente
-    if (saleData.order_id) {
+    // 4. Si la venta provino de un pedido online, devolver el pedido a pendiente o cancelado
+    const targetOrderId = saleData.order_id || body.orderId;
+    if (targetOrderId) {
       try {
-        const orderRef = userDoc("orders", String(saleData.order_id), userId);
+        const orderRef = userDoc("orders", String(targetOrderId), userId);
         const oSnap = await getDoc(orderRef);
         if (oSnap.exists()) {
+          const nextStatus = body.cancelOrder ? "cancelado" : (body.orderStatus || "pendiente");
           await updateDoc(orderRef, {
-            status: "pendiente",
+            status: nextStatus,
             convertedToSaleId: null,
             saleReceiptNo: null,
             sale_id: null,
@@ -2596,7 +2606,45 @@ export async function deleteStoreOrder(storeUid: string, orderId: string) {
 
   const database = requireFirebase();
   const orderDocRef = doc(database, "users", cleanUid, "orders", cleanOrderId);
+  const oSnap = await getDoc(orderDocRef);
+  if (oSnap.exists()) {
+    const oData = oSnap.data() as any;
+    const saleId = oData.convertedToSaleId || oData.converted_to_sale_id || oData.sale_id;
+    const receiptNo = oData.saleReceiptNo || oData.sale_receipt_no;
+    if (saleId || receiptNo) {
+      try {
+        await runStoreAction({
+          action: "delete_sale",
+          saleId: saleId || "",
+          receiptNo: receiptNo || "",
+          orderId: cleanOrderId,
+          restoreStock: true,
+        }, cleanUid);
+      } catch (err) {
+        console.warn("No se pudo anular la venta vinculada al eliminar el pedido:", err);
+      }
+    }
+  }
+
   await deleteDoc(orderDocRef);
+}
+
+export async function cancelStoreOrderSale(
+  storeUid: string,
+  orderId: string,
+  options?: { cancelOrder?: boolean; saleId?: string; receiptNo?: string }
+) {
+  return runStoreAction(
+    {
+      action: "delete_sale",
+      orderId,
+      saleId: options?.saleId,
+      receiptNo: options?.receiptNo,
+      cancelOrder: Boolean(options?.cancelOrder),
+      restoreStock: true,
+    },
+    storeUid
+  );
 }
 
 export async function confirmStoreOrderAsSale(

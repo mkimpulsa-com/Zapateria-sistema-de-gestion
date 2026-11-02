@@ -6,7 +6,7 @@ import {
   XCircle, ArrowRight, MessageCircle, Printer, Store, User, Phone,
   MapPin, AlertCircle, ShoppingBag, Trash2, Check, Sparkles, Filter,
   Layers, RefreshCw, Bell, BellRing, Volume2, VolumeX, Eye, Image as ImageIcon,
-  Download, FileText, Loader2
+  Download, FileText, Loader2, RotateCcw
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,7 @@ interface OrdersViewProps {
   bankAccounts?: any[];
   onSelectOrderForSale?: (order: StoreOrder) => void;
   onConfirmOrderAsSale?: (order: StoreOrder, options: { paymentMethod: string; bankAccountId?: string }) => Promise<void>;
+  onCancelOrderSale?: (order: StoreOrder, options?: { cancelOrder?: boolean }) => Promise<void>;
   onViewSaleInvoice?: (receiptNoOrSaleId: string) => void;
   setToast: (msg: string) => void;
 }
@@ -104,6 +105,7 @@ export function OrdersView({
   bankAccounts = [],
   onSelectOrderForSale,
   onConfirmOrderAsSale,
+  onCancelOrderSale,
   onViewSaleInvoice,
   setToast,
 }: OrdersViewProps) {
@@ -112,6 +114,9 @@ export function OrdersView({
   const [channelFilter, setChannelFilter] = useState<string>("todos");
   const [selectedOrder, setSelectedOrder] = useState<StoreOrder | null>(null);
   const [orderToDelete, setOrderToDelete] = useState<StoreOrder | null>(null);
+  const [orderToCancelSale, setOrderToCancelSale] = useState<StoreOrder | null>(null);
+  const [orderToCancel, setOrderToCancel] = useState<StoreOrder | null>(null);
+  const [cancelingSaleBusy, setCancelingSaleBusy] = useState<boolean>(false);
   const [prepModalOrder, setPrepModalOrder] = useState<StoreOrder | null>(null);
   const [saleModalOrder, setSaleModalOrder] = useState<StoreOrder | null>(null);
   const [salePaymentMethod, setSalePaymentMethod] = useState<string>("Transferencia");
@@ -277,6 +282,10 @@ export function OrdersView({
   // Cambiar estado de un pedido
   const handleChangeStatus = async (order: StoreOrder, newStatus: OrderStatus) => {
     if (order.status === newStatus) return;
+    if (newStatus === "cancelado") {
+      setOrderToCancel(order);
+      return;
+    }
     try {
       setUpdatingId(order.id);
       await updateStoreOrderStatus(storeUid, order.id, newStatus);
@@ -326,6 +335,51 @@ export function OrdersView({
       console.error("Error al confirmar venta online:", err);
     } finally {
       setConfirmingSaleBusy(false);
+    }
+  };
+
+  // Anular la venta online vinculada a un pedido
+  const handleExecuteCancelSale = async (cancelOrder: boolean = false) => {
+    if (!orderToCancelSale || !onCancelOrderSale) return;
+    try {
+      setCancelingSaleBusy(true);
+      await onCancelOrderSale(orderToCancelSale, { cancelOrder });
+      setToast(
+        cancelOrder
+          ? `Venta anulada y pedido ${orderToCancelSale.orderNumber} cancelado correctamente.`
+          : `Venta anulada y stock restituido al inventario.`
+      );
+      if (selectedOrder?.id === orderToCancelSale.id) {
+        setSelectedOrder(null);
+      }
+      setOrderToCancelSale(null);
+    } catch (err: any) {
+      console.error("Error al anular venta online:", err);
+    } finally {
+      setCancelingSaleBusy(false);
+    }
+  };
+
+  // Cancelar un pedido web
+  const handleExecuteCancelOrder = async () => {
+    if (!orderToCancel) return;
+    try {
+      setCancelingSaleBusy(true);
+      if (orderToCancel.convertedToSaleId && onCancelOrderSale) {
+        await onCancelOrderSale(orderToCancel, { cancelOrder: true });
+      } else {
+        await updateStoreOrderStatus(storeUid, orderToCancel.id, "cancelado");
+      }
+      setToast(`Pedido ${orderToCancel.orderNumber} cancelado exitosamente.`);
+      if (selectedOrder?.id === orderToCancel.id) {
+        setSelectedOrder({ ...selectedOrder, status: "cancelado" });
+      }
+      setOrderToCancel(null);
+    } catch (err: any) {
+      console.error("Error al cancelar pedido:", err);
+      setToast("No se pudo cancelar el pedido.");
+    } finally {
+      setCancelingSaleBusy(false);
     }
   };
 
@@ -1190,6 +1244,17 @@ export function OrdersView({
                               Ver Comprobante
                             </button>
                           )}
+                          {onCancelOrderSale && (
+                            <button
+                              type="button"
+                              onClick={() => setOrderToCancelSale(order)}
+                              title="Anular venta online y restablecer stock al inventario"
+                              className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 text-[11px] font-black border border-rose-500/30 transition-colors cursor-pointer"
+                            >
+                              <RotateCcw className="size-3" />
+                              Anular Venta
+                            </button>
+                          )}
                         </div>
                       ) : (
                         onConfirmOrderAsSale && order.status !== "cancelado" && (
@@ -1319,16 +1384,42 @@ export function OrdersView({
                       </Button>
                     </div>
 
-                    {onSelectOrderForSale && order.status !== "cancelado" && (
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {order.status !== "cancelado" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setOrderToCancel(order)}
+                          className="h-7 px-2 text-xs font-bold text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 gap-1"
+                          title="Cancelar pedido web"
+                        >
+                          <XCircle className="size-3.5" />
+                          Cancelar
+                        </Button>
+                      )}
+
                       <Button
                         size="sm"
-                        onClick={() => onSelectOrderForSale(order)}
-                        className="h-7 text-xs font-bold gap-1"
+                        variant="ghost"
+                        onClick={() => setOrderToDelete(order)}
+                        className="h-7 px-2 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 gap-1"
+                        title="Eliminar pedido permanentemente"
                       >
-                        <ShoppingBag className="size-3.5" />
-                        Cargar a Venta
+                        <Trash2 className="size-3.5" />
+                        Eliminar
                       </Button>
-                    )}
+
+                      {onSelectOrderForSale && order.status !== "cancelado" && (
+                        <Button
+                          size="sm"
+                          onClick={() => onSelectOrderForSale(order)}
+                          className="h-7 text-xs font-bold gap-1"
+                        >
+                          <ShoppingBag className="size-3.5" />
+                          Cargar a Venta
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </Card>
@@ -1571,21 +1662,57 @@ export function OrdersView({
             </div>
 
             <DialogFooter className="flex flex-col sm:flex-row gap-2 justify-between">
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => setOrderToDelete(selectedOrder)}
-                className="gap-1.5"
-              >
-                <Trash2 className="size-4" />
-                Eliminar Pedido
-              </Button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setOrderToDelete(selectedOrder)}
+                  className="gap-1.5 font-bold"
+                >
+                  <Trash2 className="size-4" />
+                  Eliminar Pedido
+                </Button>
+                {selectedOrder.status !== "cancelado" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setOrderToCancel(selectedOrder)}
+                    className="gap-1.5 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10 font-bold"
+                  >
+                    <XCircle className="size-4" />
+                    Cancelar Pedido
+                  </Button>
+                )}
+              </div>
 
               <div className="flex items-center gap-2 flex-wrap">
                 {selectedOrder.convertedToSaleId ? (
-                  <Badge variant="outline" className="border-emerald-500/30 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 px-3 py-1 font-bold gap-1.5">
-                    <CheckCircle2 className="size-4" /> Venta Facturada #{selectedOrder.saleReceiptNo || ""}
-                  </Badge>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant="outline" className="border-emerald-500/30 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 px-3 py-1 font-bold gap-1.5">
+                      <CheckCircle2 className="size-4" /> Venta Facturada #{selectedOrder.saleReceiptNo || ""}
+                    </Badge>
+                    {onViewSaleInvoice && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => onViewSaleInvoice(selectedOrder.saleReceiptNo || selectedOrder.convertedToSaleId!)}
+                        className="h-8 text-xs font-bold"
+                      >
+                        Ver Comprobante
+                      </Button>
+                    )}
+                    {onCancelOrderSale && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setOrderToCancelSale(selectedOrder)}
+                        className="h-8 text-xs font-bold border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 gap-1.5"
+                      >
+                        <RotateCcw className="size-3.5" />
+                        Anular Venta Online
+                      </Button>
+                    )}
+                  </div>
                 ) : (
                   onConfirmOrderAsSale && selectedOrder.status !== "cancelado" && (
                     <Button
@@ -2182,23 +2309,121 @@ export function OrdersView({
         </Dialog>
       )}
 
+      {/* Modal Confirmar Anulación de Venta Online */}
+      {orderToCancelSale && (
+        <AlertDialog open={!!orderToCancelSale} onOpenChange={(open) => !open && !cancelingSaleBusy && setOrderToCancelSale(null)}>
+          <AlertDialogContent className="sm:max-w-md">
+            <AlertDialogHeader>
+              <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+                <AlertCircle className="size-5 shrink-0" />
+                <AlertDialogTitle>¿Anular venta del pedido {orderToCancelSale.orderNumber}?</AlertDialogTitle>
+              </div>
+              <AlertDialogDescription className="space-y-2 pt-2 text-foreground/80">
+                <p>
+                  Esta acción anulará la venta <strong className="text-foreground">{orderToCancelSale.saleReceiptNo || ""}</strong>:
+                </p>
+                <ul className="list-disc pl-5 space-y-1 text-xs text-muted-foreground">
+                  <li><strong>Se reincorporará el stock</strong> vendido de todos los productos al inventario.</li>
+                  <li><strong>Se anulará el ingreso</strong> en los totales de venta, caja y banco.</li>
+                  <li>Se retirará el comprobante de los Reportes y del Resumen del negocio.</li>
+                </ul>
+                <p className="text-xs font-semibold pt-1 text-foreground">
+                  ¿Cómo deseas que quede este pedido en Pedidos Web?
+                </p>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+              <AlertDialogCancel disabled={cancelingSaleBusy} onClick={() => setOrderToCancelSale(null)}>
+                Volver
+              </AlertDialogCancel>
+              <Button
+                variant="outline"
+                disabled={cancelingSaleBusy}
+                onClick={() => handleExecuteCancelSale(false)}
+                className="text-amber-700 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/10 font-bold"
+              >
+                {cancelingSaleBusy ? <Loader2 className="size-4 animate-spin mr-1" /> : <RotateCcw className="size-4 mr-1" />}
+                Anular Venta y Dejar Pendiente
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={cancelingSaleBusy}
+                onClick={() => handleExecuteCancelSale(true)}
+                className="font-bold bg-rose-600 hover:bg-rose-700"
+              >
+                {cancelingSaleBusy ? <Loader2 className="size-4 animate-spin mr-1" /> : <XCircle className="size-4 mr-1" />}
+                Anular Venta y Cancelar Pedido
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+
+      {/* Modal Confirmar Cancelación de Pedido */}
+      {orderToCancel && (
+        <AlertDialog open={!!orderToCancel} onOpenChange={(open) => !open && !cancelingSaleBusy && setOrderToCancel(null)}>
+          <AlertDialogContent className="sm:max-w-md">
+            <AlertDialogHeader>
+              <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                <AlertCircle className="size-5 shrink-0" />
+                <AlertDialogTitle>¿Cancelar pedido {orderToCancel.orderNumber}?</AlertDialogTitle>
+              </div>
+              <AlertDialogDescription className="space-y-2 pt-2 text-foreground/80">
+                <p>
+                  El pedido de <strong>{orderToCancel.customerName}</strong> cambiará su estado a <strong className="text-rose-600">Cancelado</strong>.
+                </p>
+                {orderToCancel.convertedToSaleId ? (
+                  <p className="text-xs bg-amber-500/15 border border-amber-500/30 p-2.5 rounded-lg text-amber-900 dark:text-amber-200">
+                    ⚠️ <strong>Atención:</strong> Este pedido tiene una venta confirmada ({orderToCancel.saleReceiptNo}). Al cancelarlo, <strong>la venta se anulará automáticamente</strong>, el stock volverá al inventario y se revertirá el cobro.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    El pedido no tiene venta facturada asociada, únicamente cambiará su estado en la lista.
+                  </p>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={cancelingSaleBusy} onClick={() => setOrderToCancel(null)}>
+                Volver
+              </AlertDialogCancel>
+              <AlertDialogAction
+                disabled={cancelingSaleBusy}
+                onClick={handleExecuteCancelOrder}
+                className="bg-rose-600 hover:bg-rose-700 font-bold"
+              >
+                {cancelingSaleBusy ? <Loader2 className="size-4 animate-spin mr-1" /> : <XCircle className="size-4 mr-1" />}
+                Sí, Cancelar Pedido
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+
       {/* Confirmar Eliminación */}
       {orderToDelete && (
         <AlertDialog open={!!orderToDelete} onOpenChange={(open) => !open && setOrderToDelete(null)}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>¿Eliminar pedido {orderToDelete.orderNumber}?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Esta acción eliminará permanentemente el registro del pedido de la base de datos.
+              <AlertDialogDescription className="space-y-2 pt-1">
+                <p>
+                  Esta acción eliminará permanentemente el registro del pedido de la base de datos.
+                </p>
+                {orderToDelete.convertedToSaleId && (
+                  <p className="text-xs bg-amber-500/15 border border-amber-500/30 p-2 rounded-lg text-amber-900 dark:text-amber-200">
+                    ℹ️ También se anulará la venta confirmada ({orderToDelete.saleReceiptNo}) y se restituirá el stock al inventario.
+                  </p>
+                )}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel onClick={() => setOrderToDelete(null)}>Cancelar</AlertDialogCancel>
               <AlertDialogAction
                 onClick={handleConfirmDelete}
-                className="bg-rose-600 hover:bg-rose-700"
+                className="bg-rose-600 hover:bg-rose-700 font-bold"
               >
-                Eliminar
+                Eliminar Definitivamente
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
