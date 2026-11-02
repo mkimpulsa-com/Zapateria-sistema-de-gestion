@@ -37,7 +37,10 @@ interface OrdersViewProps {
   currency?: string;
   products?: any[];
   businessSettings?: any;
+  bankAccounts?: any[];
   onSelectOrderForSale?: (order: StoreOrder) => void;
+  onConfirmOrderAsSale?: (order: StoreOrder, options: { paymentMethod: string; bankAccountId?: string }) => Promise<void>;
+  onViewSaleInvoice?: (receiptNoOrSaleId: string) => void;
   setToast: (msg: string) => void;
 }
 
@@ -98,7 +101,10 @@ export function OrdersView({
   currency = "ARS",
   products = [],
   businessSettings,
+  bankAccounts = [],
   onSelectOrderForSale,
+  onConfirmOrderAsSale,
+  onViewSaleInvoice,
   setToast,
 }: OrdersViewProps) {
   const [searchTerm, setSearchTerm] = useState("");
@@ -107,6 +113,10 @@ export function OrdersView({
   const [selectedOrder, setSelectedOrder] = useState<StoreOrder | null>(null);
   const [orderToDelete, setOrderToDelete] = useState<StoreOrder | null>(null);
   const [prepModalOrder, setPrepModalOrder] = useState<StoreOrder | null>(null);
+  const [saleModalOrder, setSaleModalOrder] = useState<StoreOrder | null>(null);
+  const [salePaymentMethod, setSalePaymentMethod] = useState<string>("Transferencia");
+  const [saleBankAccountId, setSaleBankAccountId] = useState<string>("");
+  const [confirmingSaleBusy, setConfirmingSaleBusy] = useState<boolean>(false);
   const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
   const [includePhotosPrint, setIncludePhotosPrint] = useState<boolean>(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -295,6 +305,27 @@ export function OrdersView({
     } catch (err: any) {
       console.error("Error al eliminar pedido:", err);
       setToast("No se pudo eliminar el pedido.");
+    }
+  };
+
+  // Confirmar y facturar pedido web como venta online (descontar stock e ingresar dinero)
+  const handleExecuteConfirmSale = async () => {
+    if (!saleModalOrder || !onConfirmOrderAsSale) return;
+    try {
+      setConfirmingSaleBusy(true);
+      await onConfirmOrderAsSale(saleModalOrder, {
+        paymentMethod: salePaymentMethod,
+        bankAccountId: saleBankAccountId || undefined,
+      });
+      setToast(`Pedido ${saleModalOrder.orderNumber} confirmado como venta online.`);
+      if (selectedOrder?.id === saleModalOrder.id) {
+        setSelectedOrder(null);
+      }
+      setSaleModalOrder(null);
+    } catch (err: any) {
+      console.error("Error al confirmar venta online:", err);
+    } finally {
+      setConfirmingSaleBusy(false);
     }
   };
 
@@ -1146,16 +1177,48 @@ export function OrdersView({
                     </div>
 
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      {order.status === "pendiente" && (
+                      {order.convertedToSaleId ? (
+                        <div className="flex items-center gap-1.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 px-2.5 py-1 rounded-lg text-xs font-bold">
+                          <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span>Venta {order.saleReceiptNo || "Online Facturada"}</span>
+                          {onViewSaleInvoice && (
+                            <button
+                              type="button"
+                              onClick={() => onViewSaleInvoice(order.saleReceiptNo || order.convertedToSaleId!)}
+                              className="ml-1 text-[11px] underline font-black hover:text-emerald-900 dark:hover:text-emerald-100 cursor-pointer"
+                            >
+                              Ver Comprobante
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        onConfirmOrderAsSale && order.status !== "cancelado" && (
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              setSaleModalOrder(order);
+                              setSalePaymentMethod("Transferencia");
+                              setSaleBankAccountId(bankAccounts?.[0]?.id || "");
+                            }}
+                            className="h-8 px-3 text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm gap-1.5 rounded-lg transition-transform active:scale-95"
+                            title="Confirmar este pedido como venta real, descontar stock de inventario y registrar el dinero"
+                          >
+                            <CheckCircle2 className="size-3.5" />
+                            Confirmar Venta
+                          </Button>
+                        )
+                      )}
+
+                      {order.status === "pendiente" && !order.convertedToSaleId && (
                         <Button
                           size="sm"
+                          variant="outline"
                           disabled={updatingId === order.id}
                           onClick={() => handleChangeStatus(order, "confirmado")}
-                          className="h-8 px-3 text-xs font-black bg-blue-600 hover:bg-blue-700 text-white shadow-sm gap-1.5 rounded-lg transition-transform active:scale-95"
-                          title="Confirmar y aceptar este pedido"
+                          className="h-8 px-2.5 text-xs font-semibold gap-1 rounded-lg"
+                          title="Aceptar pedido sin facturar aún"
                         >
-                          <CheckCircle2 className="size-3.5" />
-                          Confirmar Pedido
+                          Aceptar
                         </Button>
                       )}
                       {order.status === "confirmado" && (
@@ -1197,7 +1260,7 @@ export function OrdersView({
                           Marcar Entregado
                         </Button>
                       )}
-                      {order.status === "entregado" && (
+                      {order.status === "entregado" && !order.convertedToSaleId && (
                         <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-700 dark:text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-lg">
                           <Check className="size-3.5 stroke-[3]" /> Completado
                         </span>
@@ -1518,9 +1581,30 @@ export function OrdersView({
                 Eliminar Pedido
               </Button>
 
-              <div className="flex items-center gap-2">
-                {onSelectOrderForSale && selectedOrder.status !== "cancelado" && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {selectedOrder.convertedToSaleId ? (
+                  <Badge variant="outline" className="border-emerald-500/30 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 px-3 py-1 font-bold gap-1.5">
+                    <CheckCircle2 className="size-4" /> Venta Facturada #{selectedOrder.saleReceiptNo || ""}
+                  </Badge>
+                ) : (
+                  onConfirmOrderAsSale && selectedOrder.status !== "cancelado" && (
+                    <Button
+                      onClick={() => {
+                        setSaleModalOrder(selectedOrder);
+                        setSalePaymentMethod("Transferencia");
+                        setSaleBankAccountId(bankAccounts?.[0]?.id || "");
+                      }}
+                      className="gap-1.5 font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+                    >
+                      <CheckCircle2 className="size-4" />
+                      Confirmar y Cobrar Venta
+                    </Button>
+                  )
+                )}
+
+                {onSelectOrderForSale && selectedOrder.status !== "cancelado" && !selectedOrder.convertedToSaleId && (
                   <Button
+                    variant="outline"
                     onClick={() => {
                       onSelectOrderForSale(selectedOrder);
                       setSelectedOrder(null);
@@ -1528,7 +1612,7 @@ export function OrdersView({
                     className="gap-1.5 font-bold"
                   >
                     <ShoppingBag className="size-4" />
-                    Cargar a Venta / POS
+                    Cargar a POS Manual
                   </Button>
                 )}
                 <Button variant="outline" onClick={() => setSelectedOrder(null)}>
@@ -1961,6 +2045,142 @@ export function OrdersView({
           </Dialog>
         );
       })()}
+
+      {/* Modal para Confirmar y Facturar Venta Online */}
+      {saleModalOrder && (
+        <Dialog open={!!saleModalOrder} onOpenChange={(open) => !open && setSaleModalOrder(null)}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-lg">
+                <CheckCircle2 className="size-5 text-emerald-600" />
+                Confirmar Venta Online · {saleModalOrder.orderNumber}
+              </DialogTitle>
+              <DialogDescription>
+                Esta acción registrará la venta en el sistema, descontará el stock de inventario e ingresará el cobro a la caja/banco.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2 text-sm">
+              {/* Resumen del cliente */}
+              <div className="rounded-xl border bg-muted/30 p-3 space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="font-bold text-foreground">{saleModalOrder.customerName}</span>
+                  <Badge variant="outline" className="text-xs">{saleModalOrder.channel === "mayorista" ? "Mayorista" : "Minorista"}</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Phone className="size-3" /> {saleModalOrder.customerPhone || "Sin teléfono"}
+                </p>
+                {saleModalOrder.customerAddress && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <MapPin className="size-3" /> {saleModalOrder.customerAddress}
+                  </p>
+                )}
+              </div>
+
+              {/* Items y Stock Check */}
+              <div className="space-y-1.5">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                  Productos a descontar de stock ({saleModalOrder.items.length})
+                </p>
+                <div className="rounded-xl border divide-y max-h-48 overflow-y-auto">
+                  {saleModalOrder.items.map((item, idx) => {
+                    const prod = resolveProductDetails(item);
+                    const variant = prod?.variants?.find((v: any) => String(v.id) === String(item.variantId) || String(v.size) === String(item.size));
+                    const currentStock = variant?.stock !== undefined ? Number(variant.stock) : (prod?.variants?.[0]?.stock !== undefined ? Number(prod.variants[0].stock) : 0);
+                    const hasEnough = currentStock >= Number(item.qty || 1);
+
+                    return (
+                      <div key={idx} className="p-2.5 flex items-center justify-between text-xs gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-foreground truncate">{item.name}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Talle: <strong>{item.size || "Estándar"}</strong> · Cant: <strong>{item.qty} u.</strong>
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-foreground">{money(item.subtotal || (item.price * item.qty))}</p>
+                          <span className={`text-[10px] font-bold inline-flex items-center gap-0.5 ${hasEnough ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                            Stock actual: {currentStock} u.
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Medio de Pago y Cuenta */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-muted-foreground">Medio de Pago</label>
+                  <select
+                    value={salePaymentMethod}
+                    onChange={(e) => setSalePaymentMethod(e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-xs shadow-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="Transferencia">Transferencia Bancaria</option>
+                    <option value="Efectivo">Efectivo al recibir</option>
+                    <option value="Mercado Pago">Mercado Pago</option>
+                    <option value="Tarjeta Débito">Tarjeta Débito</option>
+                    <option value="Tarjeta Crédito">Tarjeta Crédito</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-muted-foreground">Cuenta de Destino</label>
+                  <select
+                    value={saleBankAccountId}
+                    onChange={(e) => setSaleBankAccountId(e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-xs shadow-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="">Caja General (Efectivo/General)</option>
+                    {bankAccounts.map((acc: any) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.name} ({acc.bank || acc.type || "Banco"})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Total a cobrar */}
+              <div className="flex items-center justify-between border-t pt-3 bg-muted/10 p-3 rounded-xl border">
+                <span className="font-bold text-sm text-foreground">TOTAL A FACTURAR:</span>
+                <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                  {money(saleModalOrder.totalAmount)}
+                </span>
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                variant="outline"
+                disabled={confirmingSaleBusy}
+                onClick={() => setSaleModalOrder(null)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                disabled={confirmingSaleBusy}
+                onClick={handleExecuteConfirmSale}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-2"
+              >
+                {confirmingSaleBusy ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    Procesando Venta...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="size-4" />
+                    Confirmar Venta y Descontar Stock
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Confirmar Eliminación */}
       {orderToDelete && (

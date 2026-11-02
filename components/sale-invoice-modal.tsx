@@ -671,6 +671,12 @@ export function SaleInvoiceModal({
                   <span>Ticket: {receiptNo}</span>
                   <span>{dateFmt(sale.created_at)} {timeFmt(sale.created_at)}</span>
                 </div>
+                {sale.order_number && (
+                  <div className="flex justify-between text-[11px] font-bold text-sky-700">
+                    <span>Pedido Web: {sale.order_number}</span>
+                    <span className="rounded bg-sky-100 text-sky-800 text-[9px] px-1 py-0.2">Online</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span>Cliente: <strong className="text-slate-800">{sale.customer_name || "Consumidor Final"}</strong></span>
                   {sale.customer_document && (
@@ -914,6 +920,12 @@ export function SaleInvoiceModal({
                       <strong className="text-slate-900">Canal comercial:</strong>{" "}
                       <span className="font-bold uppercase">{channel}</span>
                     </p>
+                    {sale.order_number && (
+                      <p>
+                        <strong className="text-slate-900">Pedido Web:</strong>{" "}
+                        <span className="font-mono font-bold text-sky-700">{sale.order_number}</span>
+                      </p>
+                    )}
                     {sale.cashier_name && (
                       <p>
                         <strong className="text-slate-900">Atendió:</strong>{" "}

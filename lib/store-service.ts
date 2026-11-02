@@ -1235,6 +1235,18 @@ export async function runStoreAction(body: any, uid?: string) {
               }
             }
           }
+          if (linkedSale.order_id) {
+            try {
+              const orderRef = userDoc("orders", String(linkedSale.order_id), userId);
+              await updateDoc(orderRef, {
+                status: "pendiente",
+                convertedToSaleId: null,
+                saleReceiptNo: null,
+                sale_id: null,
+                updatedAt: now(),
+              });
+            } catch (e) {}
+          }
           await deleteDoc(userDoc("sales", linkedSale.id, userId));
         }
       }
@@ -1318,7 +1330,26 @@ export async function runStoreAction(body: any, uid?: string) {
       }
     }
 
-    // 4. Eliminar el documento de la venta
+    // 4. Si la venta provino de un pedido online, devolver el pedido a pendiente
+    if (saleData.order_id) {
+      try {
+        const orderRef = userDoc("orders", String(saleData.order_id), userId);
+        const oSnap = await getDoc(orderRef);
+        if (oSnap.exists()) {
+          await updateDoc(orderRef, {
+            status: "pendiente",
+            convertedToSaleId: null,
+            saleReceiptNo: null,
+            sale_id: null,
+            updatedAt: now(),
+          });
+        }
+      } catch (err) {
+        console.warn("No se pudo revertir el estado del pedido:", err);
+      }
+    }
+
+    // 5. Eliminar el documento de la venta
     await deleteDoc(saleRef);
   } else if (action === "open_cash_shift") {
     // Verificar si ya existe un turno abierto
@@ -1737,7 +1768,100 @@ export async function runStoreAction(body: any, uid?: string) {
     }
     changes.receipt_prefix = changes.receipt_prefix === undefined ? current.receipt_prefix : text(changes.receipt_prefix, "X").toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 8) || "X";
     await updateDoc(refSettings, changes);
-  } else if (action === "create_sale") {
+  } else if (action === "create_sale" || action === "confirm_store_order_as_sale") {
+    if (action === "confirm_store_order_as_sale") {
+      const orderId = String(body.orderId || body.order_id || "").trim();
+      if (!orderId) throw new Error("ID de pedido no especificado.");
+      const orderRef = userDoc("orders", orderId, userId);
+      const orderSnap = await getDoc(orderRef);
+      if (!orderSnap.exists()) throw new Error("El pedido web no existe o fue eliminado.");
+      const orderData = orderSnap.data() as any;
+      if (orderData.convertedToSaleId) {
+        throw new Error(`Este pedido ya fue confirmado y facturado previamente (${orderData.saleReceiptNo || ""}).`);
+      }
+
+      const prodsSnap = await getDocs(userCol("products", userId));
+      const allProducts = withId(prodsSnap);
+      const itemsToSell: any[] = [];
+
+      for (const item of (orderData.items || [])) {
+        let prod = allProducts.find((p: any) =>
+          (item.productId !== undefined && String(p.id) === String(item.productId)) ||
+          (item.name && p.name && p.name.trim().toLowerCase() === String(item.name).trim().toLowerCase())
+        );
+        if (!prod && allProducts.length > 0) {
+          prod = allProducts[0];
+        }
+        if (!prod) throw new Error(`No se encontró el producto ${item.name} en el inventario.`);
+
+        let variant: any = null;
+        if (item.variantId) {
+          variant = (prod.variants || []).find((v: any) => String(v.id) === String(item.variantId));
+        }
+        if (!variant && item.size) {
+          variant = (prod.variants || []).find((v: any) => String(v.size) === String(item.size));
+        }
+        if (!variant && (prod.variants || []).length > 0) {
+          variant = prod.variants[0];
+        }
+        if (!variant) {
+          variant = { id: `${prod.id}-std`, size: item.size || "Estándar", stock: 999 };
+        }
+
+        const qty = Math.max(1, Number(item.qty || item.quantity || 1));
+        const unitPrice = Number(item.price || item.unitPrice || 0);
+
+        itemsToSell.push({
+          productId: prod.id,
+          variantId: variant.id,
+          name: item.name || prod.name,
+          size: item.size || variant.size || "Estándar",
+          quantity: qty,
+          unitPrice: unitPrice,
+        });
+      }
+
+      let customerId = "";
+      const cleanOrderPhone = String(orderData.customerPhone || "").replace(/[^0-9]/g, "");
+      const custsSnap = await getDocs(userCol("customers", userId));
+      const allCustomers = withId(custsSnap);
+      const matchedCustomer = allCustomers.find((c: any) =>
+        (cleanOrderPhone && c.phone && String(c.phone).replace(/[^0-9]/g, "") === cleanOrderPhone) ||
+        (c.name && orderData.customerName && c.name.trim().toLowerCase() === String(orderData.customerName).trim().toLowerCase())
+      );
+
+      if (matchedCustomer) {
+        customerId = matchedCustomer.id;
+      } else if (orderData.customerName && orderData.customerName.trim()) {
+        const newCustRef = await addDoc(userCol("customers", userId), {
+          name: orderData.customerName.trim(),
+          phone: orderData.customerPhone || "",
+          address: orderData.customerAddress || "",
+          city: "",
+          type: orderData.channel === "mayorista" ? "mayorista" : "minorista",
+          balance: 0,
+          credit_limit: 0,
+          created_at: now(),
+          source: "tienda_online",
+        });
+        customerId = newCustRef.id;
+      }
+
+      body = {
+        ...body,
+        items: itemsToSell,
+        channel: "online",
+        orderId: orderId,
+        orderNumber: orderData.orderNumber,
+        customerId: customerId,
+        paymentMethod: body.paymentMethod || "Transferencia",
+        bankAccountId: body.bankAccountId || "",
+        paidAmount: body.paidAmount !== undefined ? Number(body.paidAmount) : Number(orderData.totalAmount || 0),
+        currency: "ARS",
+        invoiceType: body.invoiceType || "X",
+      };
+    }
+
     const items = Array.isArray(body.items) ? body.items : [];
     if (!items.length) throw new Error("La venta no tiene productos.");
     const bankAccountId = String(body.bankAccountId || "").trim();
@@ -2021,11 +2145,25 @@ export async function runStoreAction(body: any, uid?: string) {
         status: saleStatus,
         shift_id: activeOpenShift ? activeOpenShift.id : null,
         shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
+        order_id: body.orderId || null,
+        order_number: body.orderNumber || null,
         created_at: createdAt,
         items: itemsDetailed,
       };
 
       transaction.set(saleRef, createdSaleData);
+
+      if (body.orderId) {
+        const orderRef = userDoc("orders", String(body.orderId), userId);
+        transaction.update(orderRef, {
+          status: "confirmado",
+          convertedToSaleId: saleRef.id,
+          saleReceiptNo: receiptNo,
+          sale_id: saleRef.id,
+          updatedAt: createdAt,
+          updated_at: createdAt,
+        });
+      }
 
       checked.forEach(item => transaction.set(doc(userCol("stockMovements", userId)), {
         product_id: item.product.id,
@@ -2034,59 +2172,61 @@ export async function runStoreAction(body: any, uid?: string) {
         size: item.variant.size,
         type: "venta",
         quantity: -item.quantity,
-        note: receiptNo,
+        note: receiptNo + (body.orderNumber ? ` · ${body.orderNumber}` : ""),
         created_at: createdAt,
       }));
 
-      // El monto abonado ingresa a la cuenta bancaria seleccionada si fue provista
+      // El monto abonado ingresa a la cuenta bancaria seleccionada o a caja general
       let depositAmount = paidAmountBrl;
       if (bankAccountData?.currency === "ARS") depositAmount = paidAmountArs;
       else if (bankAccountData?.currency === "USD") depositAmount = paidAmountUsd;
       else depositAmount = paidAmountBrl;
 
-      if (depositAmount > 0) {
-        if (bankAccountRef && bankAccountData) {
-          const prevAccBal = number(bankAccountData.balance, 0);
-          const nextAccBal = prevAccBal + depositAmount;
-          transaction.update(bankAccountRef, {
-            balance: nextAccBal,
-            updated_at: createdAt,
-          });
+      const isOnline = body.channel === "online";
+      const isCashPayment = String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo");
+      const effectiveCashAmount = saleCurrency === "ARS" ? paidAmountArs : (saleCurrency === "BRL" ? paidAmountBrl : paidAmountUsd);
 
-          transaction.set(doc(userCol("bankMovements", userId)), {
-            account_id: bankAccountId,
-            account_name: bankAccountName,
-            type: "ingreso",
-            category: "Venta",
-            amount: depositAmount,
-            currency: bankAccountData.currency || saleCurrency,
-            exchange_rate: saleCurrency === "BRL" ? rateArs : 1,
-            balance_before: prevAccBal,
-            balance_after: nextAccBal,
-            reference: receiptNo,
-            description: `Venta comprobante ${receiptNo} (${saleStatus === "pago_parcial" ? "Cobro parcial" : "Cobro total"} - ${saleCurrency === "BRL" ? `R$ ${paidAmountBrl.toFixed(2)}` : (saleCurrency === "USD" ? `US$ ${paidAmountUsd.toFixed(2)}` : `$${paidAmountArs}`)} - ${body.paymentMethod || "Efectivo"})`,
-            created_at: createdAt,
-          });
-        }
+      if (depositAmount > 0 && bankAccountRef && bankAccountData) {
+        const prevAccBal = number(bankAccountData.balance, 0);
+        const nextAccBal = prevAccBal + depositAmount;
+        transaction.update(bankAccountRef, {
+          balance: nextAccBal,
+          updated_at: createdAt,
+        });
 
-        // Registro de movimiento en caja si el cobro fue en efectivo (en moneda de la tienda)
-        const isCashPayment = String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo");
-        const effectiveCashAmount = saleCurrency === "ARS" ? paidAmountArs : (saleCurrency === "BRL" ? paidAmountBrl : paidAmountUsd);
-
-        if (isCashPayment && effectiveCashAmount > 0) {
-          transaction.set(doc(userCol("cashMovements", userId)), {
-            type: "ingreso",
-            category: "Venta",
-            amount: effectiveCashAmount,
-            currency: saleCurrency,
-            amount_currency: effectiveCashAmount,
-            shift_id: activeOpenShift ? activeOpenShift.id : null,
-            shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
-            description: `Venta en efectivo ${body.channel === "minorista" ? "minorista" : "mayorista"} comprobante ${receiptNo}`,
-            reference: receiptNo,
-            created_at: createdAt,
-          });
-        }
+        transaction.set(doc(userCol("bankMovements", userId)), {
+          account_id: bankAccountId,
+          account_name: bankAccountName,
+          type: "ingreso",
+          category: isOnline ? "Venta Online" : "Venta",
+          amount: depositAmount,
+          currency: bankAccountData.currency || saleCurrency,
+          exchange_rate: saleCurrency === "BRL" ? rateArs : 1,
+          balance_before: prevAccBal,
+          balance_after: nextAccBal,
+          reference: receiptNo,
+          sale_id: saleRef.id,
+          description: isOnline
+            ? `Venta online comprobante ${receiptNo}${body.orderNumber ? ` (${body.orderNumber})` : ""} · ${body.paymentMethod || "Transferencia"}`
+            : `Venta comprobante ${receiptNo} (${saleStatus === "pago_parcial" ? "Cobro parcial" : "Cobro total"} - ${saleCurrency === "BRL" ? `R$ ${paidAmountBrl.toFixed(2)}` : (saleCurrency === "USD" ? `US$ ${paidAmountUsd.toFixed(2)}` : `$${paidAmountArs}`)} - ${body.paymentMethod || "Efectivo"})`,
+          created_at: createdAt,
+        });
+      } else if (effectiveCashAmount > 0) {
+        transaction.set(doc(userCol("cashMovements", userId)), {
+          type: "ingreso",
+          category: isOnline ? "Venta Online" : "Venta",
+          amount: effectiveCashAmount,
+          currency: saleCurrency,
+          amount_currency: effectiveCashAmount,
+          shift_id: activeOpenShift ? activeOpenShift.id : null,
+          shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
+          description: isOnline
+            ? `Venta online comprobante ${receiptNo}${body.orderNumber ? ` (${body.orderNumber})` : ""} · ${body.paymentMethod || "Efectivo"}`
+            : `Venta en efectivo ${body.channel === "minorista" ? "minorista" : "mayorista"} comprobante ${receiptNo}`,
+          reference: receiptNo,
+          sale_id: saleRef.id,
+          created_at: createdAt,
+        });
       }
 
       // El saldo pendiente (deuda) se acumula en la cuenta corriente del cliente (si hay cliente seleccionado)
@@ -2121,9 +2261,6 @@ export async function runStoreAction(body: any, uid?: string) {
 
       transaction.update(settingsRef, { next_receipt_number: receiptNumber + 1, updated_at: createdAt });
 
-      const isCashPayment = String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo");
-      const effectiveCashAmount = saleCurrency === "ARS" ? paidAmountArs : (saleCurrency === "BRL" ? paidAmountBrl : paidAmountUsd);
-
       deltaResult = {
         _fastUpdate: true,
         createdSale: createdSaleData,
@@ -2141,6 +2278,9 @@ export async function runStoreAction(body: any, uid?: string) {
         paidAmountArs,
         paidAmount: effectiveCashAmount,
         isCashPayment,
+        isOnlinePayment: isOnline,
+        orderId: body.orderId || null,
+        orderNumber: body.orderNumber || null,
         totalArs,
         totalBrl,
         totalUsd,
@@ -2298,6 +2438,7 @@ export type StoreOrder = {
   createdAt: string;
   updatedAt?: string;
   convertedToSaleId?: string;
+  saleReceiptNo?: string;
 };
 
 function mapOrderDoc(docSnap: any): StoreOrder {
@@ -2319,7 +2460,8 @@ function mapOrderDoc(docSnap: any): StoreOrder {
     currency: data.currency || "BRL",
     createdAt: data.createdAt || data.created_at || now(),
     updatedAt: data.updatedAt || data.updated_at || undefined,
-    convertedToSaleId: data.convertedToSaleId || data.converted_to_sale_id || undefined,
+    convertedToSaleId: data.convertedToSaleId || data.converted_to_sale_id || data.sale_id || undefined,
+    saleReceiptNo: data.saleReceiptNo || data.sale_receipt_no || undefined,
   };
 }
 
@@ -2455,5 +2597,26 @@ export async function deleteStoreOrder(storeUid: string, orderId: string) {
   const database = requireFirebase();
   const orderDocRef = doc(database, "users", cleanUid, "orders", cleanOrderId);
   await deleteDoc(orderDocRef);
+}
+
+export async function confirmStoreOrderAsSale(
+  storeUid: string,
+  orderId: string,
+  options?: {
+    paymentMethod?: string;
+    bankAccountId?: string;
+    paidAmount?: number;
+    invoiceType?: string;
+    cashierName?: string;
+  }
+) {
+  return runStoreAction(
+    {
+      action: "confirm_store_order_as_sale",
+      orderId,
+      ...options,
+    },
+    storeUid
+  );
 }
 

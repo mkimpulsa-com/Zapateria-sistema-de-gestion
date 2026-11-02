@@ -409,20 +409,23 @@ export default function StoreApp({
           // 2. Insertar la nueva venta al principio
           const updatedSales = [nextData.createdSale, ...(prevData.sales||[])].slice(0, 50);
 
-          // 3. Movimiento de caja si hubo cobro en efectivo
+          // 3. Movimiento de caja si hubo cobro en efectivo o venta online general
           let updatedMovements = prevData.movements||[];
           const isCash = Boolean(nextData.isCashPayment);
+          const isOnline = Boolean(nextData.isOnlinePayment || nextData.createdSale?.channel === "online");
           const salePaid = Number(nextData.paidAmount || nextData.paidAmountArs || 0);
 
-          if(isCash && salePaid > 0){
+          if((isCash || (isOnline && !nextData.bankAccountId)) && salePaid > 0){
             const newCashMove = {
               id: `cm-${Date.now()}`,
               type: "ingreso",
-              category: "Venta",
+              category: isOnline ? "Venta Online" : "Venta",
               amount: salePaid,
               currency: nextData.createdSale.currency || "ARS",
               amount_currency: salePaid,
-              description: `Venta en efectivo ${nextData.createdSale.channel || "minorista"} · ${nextData.createdSale.receipt_no}`,
+              description: isOnline
+                ? `Venta online comprobante ${nextData.createdSale.receipt_no}${nextData.orderNumber ? ` (${nextData.orderNumber})` : ""}`
+                : `Venta en efectivo ${nextData.createdSale.channel || "minorista"} · ${nextData.createdSale.receipt_no}`,
               reference: nextData.createdSale.receipt_no,
               created_at: nextData.createdAt,
             };
@@ -610,6 +613,39 @@ export default function StoreApp({
 
     setSection("ventas");
     setToast(`Pedido ${order.orderNumber} cargado al Punto de Venta`);
+  };
+
+  const handleConfirmOrderSale = async (order: StoreOrder, options: { paymentMethod: string; bankAccountId?: string }) => {
+    try {
+      const res: any = await action(
+        {
+          action: "confirm_store_order_as_sale",
+          orderId: order.id,
+          paymentMethod: options.paymentMethod,
+          bankAccountId: options.bankAccountId,
+          cashierId: isCashier ? user?.uid : null,
+          cashierName: isCashier ? (staffProfile?.name || user?.email || "Cajera") : "Administrador",
+        },
+        `Venta online confirmada y stock descontado (Comprobante generado)`
+      );
+
+      if (res?.createdSale) {
+        setInvoiceSale(res.createdSale);
+      }
+    } catch (err: any) {
+      console.error("Error al confirmar venta online:", err);
+      setToast(err.message || "Error al procesar la venta online");
+      throw err;
+    }
+  };
+
+  const handleViewSaleByReceipt = (receiptOrId: string) => {
+    const sale = (data?.sales || []).find((s: any) => s.receipt_no === receiptOrId || s.id === receiptOrId || s.order_id === receiptOrId);
+    if (sale) {
+      setInvoiceSale(sale);
+    } else {
+      setToast(`Comprobante ${receiptOrId} no encontrado en registros recientes.`);
+    }
   };
 
   const scanProduct = (code = scan) => {
@@ -809,7 +845,7 @@ export default function StoreApp({
       <main className="app-main glass-grid min-h-[calc(100vh-176px)] p-4 sm:p-7 lg:p-9">
         {!isCashier && section==="resumen"&&<DashboardView data={data!} setSection={setSection} addVariant={addVariant} setModal={setModal}/>} 
         {section==="ventas"&&<SalesPOSConfigured data={data!} filtered={filtered} channel={channel} setChannel={handleChannelChange} cart={cart} setCart={setCart} addVariant={addVariant} scan={scan} setScan={setScan} scanProduct={scanProduct} setModal={setModal} discount={discount} setDiscount={setDiscount} discountPercent={discountPercent} setDiscountPercent={setDiscountPercent} additionalCharge={additionalCharge} setAdditionalCharge={setAdditionalCharge} additionalChargeDescription={additionalChargeDescription} setAdditionalChargeDescription={setAdditionalChargeDescription} payment={payment} setPayment={setPayment} customerId={customerId} setCustomerId={setCustomerId} bankAccountId={bankAccountId} setBankAccountId={setBankAccountId} cartTotal={cartTotal} closeSale={closeSale} busy={busy} onOpenShift={()=>setOpenShiftModal(true)} onCloseShift={()=>setCloseShiftModal(true)}/>}
-        {section==="pedidos"&&<OrdersView orders={orders} storeUid={uid} currency={data?.settings?.currency || "BRL"} products={data?.products || []} businessSettings={data?.settings || {}} onSelectOrderForSale={handleOrderToSale} setToast={setToast}/>}
+        {section==="pedidos"&&<OrdersView orders={orders} storeUid={uid} currency={data?.settings?.currency || "ARS"} products={data?.products || []} businessSettings={data?.settings || {}} bankAccounts={data?.bankAccounts || []} onSelectOrderForSale={handleOrderToSale} onConfirmOrderAsSale={handleConfirmOrderSale} onViewSaleInvoice={handleViewSaleByReceipt} setToast={setToast}/>}
         {!isCashier && section==="productos"&&<Products data={data!} filtered={filtered} setModal={setModal} onView={(p:Product)=>setViewingProduct(p)} onEdit={(p:Product)=>setEditingProduct(p)} onAdjust={(p:Product)=>setAdjustingProduct(p)} onDelete={(p:Product)=>setDeletingProduct(p)}/>} 
         {section==="inventario"&&<Inventory data={data!} filtered={filtered} isCashier={isCashier} onView={(p:Product)=>setViewingProduct(p)} onAddToCart={(p:Product,v:Variant)=>{addVariant(p,v);setSection("ventas");setToast(`${p.name} (Talle ${v.size}) agregado a la venta`);}} adjust={(v:Variant,p:Product)=>{setAdjustTarget({v,p});setModal("stock");}}/>}
         {section==="clientes"&&<CustomersView customers={data!.customers} sales={data!.sales} customerMoves={data!.customerMoves||[]} isCashier={isCashier} onNewCustomer={()=>setModal("customer")} onEditCustomer={(c:any)=>setEditingCustomer(c)} onAdjustDebt={(c:any)=>setAdjustingCustomer(c)} onViewDetail={(c:any)=>setViewingCustomer(c)} onDeleteCustomer={(c:any)=>setDeletingCustomer(c)}/>} 

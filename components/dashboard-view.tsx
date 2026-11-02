@@ -16,10 +16,12 @@ import {
 import {
   Archive,
   ArrowDownLeft,
+  ArrowRight,
   ArrowUpRight,
   Boxes,
   Building2,
   CircleDollarSign,
+  Globe,
   MessageCircle,
   Percent,
   Receipt,
@@ -97,6 +99,7 @@ const dateFull = (value: string) => {
 const CHANNEL_COLORS = {
   minorista: "var(--chart-2)",
   mayorista: "var(--chart-1)",
+  online: "#0284c7",
 };
 
 export type PeriodFilter = "dia" | "semanas" | "mes" | "historico";
@@ -208,9 +211,13 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
 
     const retailSales = filteredSales.filter((s: any) => s.channel === "minorista");
     const wholesaleSales = filteredSales.filter((s: any) => s.channel === "mayorista");
+    const onlineSales = filteredSales.filter((s: any) => s.channel === "online" || s.channel === "web");
 
     const retailRevenue = retailSales.reduce((acc: number, s: any) => acc + Number(s.total || 0), 0);
     const wholesaleRevenue = wholesaleSales.reduce((acc: number, s: any) => acc + Number(s.total || 0), 0);
+    const onlineRevenue = onlineSales.reduce((acc: number, s: any) => acc + Number(s.total || 0), 0);
+    const onlineCount = onlineSales.length;
+    const onlineAvgTicket = onlineCount > 0 ? onlineRevenue / onlineCount : 0;
 
     const totalPairsSold = filteredSales.reduce((sum: number, s: any) => {
       if (Array.isArray(s.items) && s.items.length > 0) {
@@ -235,6 +242,10 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
       wholesaleRevenue,
       retailCount: retailSales.length,
       wholesaleCount: wholesaleSales.length,
+      onlineRevenue,
+      onlineCount,
+      onlineAvgTicket,
+      onlineSales,
       totalPairsSold,
       customersWithDebt: totalCustomersWithDebt.length,
       totalDebtAmount,
@@ -250,10 +261,10 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
     if (period === "dia") {
       // 8 intervals throughout daytime: 08:00, 10:00, 12:00, 14:00, 16:00, 18:00, 20:00, 22:00
       const hours = ["08:00", "10:00", "12:00", "14:00", "16:00", "18:00", "20:00", "22:00"];
-      const map = new Map<string, { date: string; displayDate: string; minorista: number; mayorista: number; total: number; pares: number }>();
+      const map = new Map<string, { date: string; displayDate: string; minorista: number; mayorista: number; online: number; total: number; pares: number }>();
 
       hours.forEach((h) => {
-        map.set(h, { date: h, displayDate: h, minorista: 0, mayorista: 0, total: 0, pares: 0 });
+        map.set(h, { date: h, displayDate: h, minorista: 0, mayorista: 0, online: 0, total: 0, pares: 0 });
       });
 
       for (const sale of filteredSales) {
@@ -266,6 +277,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
         const tot = Number(sale.total || 0);
         entry.total += tot;
         if (sale.channel === "mayorista") entry.mayorista += tot;
+        else if (sale.channel === "online" || sale.channel === "web") entry.online += tot;
         else entry.minorista += tot;
         const pairs = Array.isArray(sale.items) && sale.items.length > 0
           ? sale.items.reduce((sum: number, it: any) => sum + Number(it.quantity || 1), 0)
@@ -288,9 +300,9 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
         days.push({ key, label });
       }
 
-      const map = new Map<string, { date: string; displayDate: string; minorista: number; mayorista: number; total: number; pares: number }>();
+      const map = new Map<string, { date: string; displayDate: string; minorista: number; mayorista: number; online: number; total: number; pares: number }>();
       days.forEach((d) => {
-        map.set(d.key, { date: d.key, displayDate: d.label, minorista: 0, mayorista: 0, total: 0, pares: 0 });
+        map.set(d.key, { date: d.key, displayDate: d.label, minorista: 0, mayorista: 0, online: 0, total: 0, pares: 0 });
       });
 
       for (const sale of filteredSales) {
@@ -301,6 +313,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
           const tot = Number(sale.total || 0);
           entry.total += tot;
           if (sale.channel === "mayorista") entry.mayorista += tot;
+          else if (sale.channel === "online" || sale.channel === "web") entry.online += tot;
           else entry.minorista += tot;
           const pairs = Array.isArray(sale.items) && sale.items.length > 0
             ? sale.items.reduce((sum: number, it: any) => sum + Number(it.quantity || 1), 0)
@@ -312,7 +325,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
     }
 
     if (period === "mes") {
-      const map = new Map<string, { date: string; displayDate: string; minorista: number; mayorista: number; total: number; pares: number }>();
+      const map = new Map<string, { date: string; displayDate: string; minorista: number; mayorista: number; online: number; total: number; pares: number }>();
       const now = new Date();
 
       for (let i = 29; i >= 0; i--) {
@@ -320,7 +333,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
         d.setDate(now.getDate() - i);
         const key = d.toISOString().slice(0, 10);
         const label = `${d.getDate()} ${new Intl.DateTimeFormat("es-AR", { month: "short" }).format(d)}`;
-        map.set(key, { date: key, displayDate: label, minorista: 0, mayorista: 0, total: 0, pares: 0 });
+        map.set(key, { date: key, displayDate: label, minorista: 0, mayorista: 0, online: 0, total: 0, pares: 0 });
       }
 
       for (const sale of filteredSales) {
@@ -331,6 +344,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
           const tot = Number(sale.total || 0);
           entry.total += tot;
           if (sale.channel === "mayorista") entry.mayorista += tot;
+          else if (sale.channel === "online" || sale.channel === "web") entry.online += tot;
           else entry.minorista += tot;
           const pairs = Array.isArray(sale.items) && sale.items.length > 0
             ? sale.items.reduce((sum: number, it: any) => sum + Number(it.quantity || 1), 0)
@@ -344,7 +358,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
     }
 
     // "historico"
-    const map = new Map<string, { date: string; displayDate: string; minorista: number; mayorista: number; total: number; pares: number }>();
+    const map = new Map<string, { date: string; displayDate: string; minorista: number; mayorista: number; online: number; total: number; pares: number }>();
     const sorted = [...filteredSales].sort((a: any, b: any) =>
       String(a.created_at || "").localeCompare(String(b.created_at || ""))
     );
@@ -357,12 +371,14 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
         displayDate: dateShort(dayKey),
         minorista: 0,
         mayorista: 0,
+        online: 0,
         total: 0,
         pares: 0,
       };
       const tot = Number(sale.total || 0);
       entry.total += tot;
       if (sale.channel === "mayorista") entry.mayorista += tot;
+      else if (sale.channel === "online" || sale.channel === "web") entry.online += tot;
       else entry.minorista += tot;
       const pairs = Array.isArray(sale.items) && sale.items.length > 0
         ? sale.items.reduce((sum: number, it: any) => sum + Number(it.quantity || 1), 0)
@@ -662,7 +678,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
       </div>
 
       {/* Indicadores principales */}
-      <div className="dashboard-metrics grid gap-4 sm:grid-cols-2 min-[1440px]:grid-cols-4">
+      <div className="dashboard-metrics grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {/* Total Sales */}
         <Card className="group relative overflow-hidden">
           <CardContent className="p-5 flex flex-col justify-between h-full gap-3">
@@ -681,13 +697,62 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/50">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Badge variant="secondary" className="font-semibold text-[11px] px-1.5 py-0">
-                  {periodStats.count} {periodStats.count === 1 ? "operación" : "operaciones"}
-                </Badge>
-                <span className="text-[11px]">· Prom. {money(periodStats.avgTicket)}</span>
+              <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1.5">
+                  <Badge variant="secondary" className="font-semibold text-[11px] px-1.5 py-0">
+                    {periodStats.count} {periodStats.count === 1 ? "operación" : "operaciones"}
+                  </Badge>
+                  <span className="text-[11px]">· Prom. {money(periodStats.avgTicket)}</span>
+                </div>
+                {(periodStats.onlineRevenue > 0 || periodStats.retailRevenue > 0 || periodStats.wholesaleRevenue > 0) && (
+                  <div className="text-[10px] text-muted-foreground/80 flex items-center gap-1.5">
+                    <span>Físico: <strong className="text-foreground font-semibold">{money(periodStats.retailRevenue + periodStats.wholesaleRevenue)}</strong></span>
+                    <span>·</span>
+                    <span>Online: <strong className="text-sky-600 dark:text-sky-400 font-semibold">{money(periodStats.onlineRevenue)}</strong></span>
+                  </div>
+                )}
               </div>
               <PeriodFilterButtons value={period} onChange={setPeriod} size="xs" />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Ventas Online (Tienda Web) */}
+        <Card className="group relative overflow-hidden border-sky-500/30 bg-gradient-to-br from-sky-500/[0.04] to-transparent">
+          <CardContent className="p-5 flex flex-col justify-between h-full gap-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-xs font-bold text-sky-700 dark:text-sky-300 uppercase tracking-wider">
+                    Ventas Online · {PERIOD_LABELS[period]}
+                  </p>
+                  <span className="inline-flex items-center rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-bold text-sky-700 dark:text-sky-300">
+                    Web
+                  </span>
+                </div>
+                <p className="mt-1.5 metric-value text-2xl sm:text-3xl font-semibold tracking-tight text-foreground">
+                  {money(periodStats.onlineRevenue)}
+                </p>
+              </div>
+              <span className="clay-pill-3d clay-pill-cyan size-12 shrink-0 bg-sky-500/15 text-sky-600 dark:text-sky-400">
+                <Globe className="size-6" strokeWidth={2.3} />
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/50">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Badge variant="outline" className="font-semibold text-[11px] px-1.5 py-0 border-sky-500/30 text-sky-700 dark:text-sky-300">
+                  {periodStats.onlineCount} {periodStats.onlineCount === 1 ? "pedido" : "pedidos"}
+                </Badge>
+                <span className="text-[11px]">· Prom. {money(periodStats.onlineAvgTicket)}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSection("pedidos")}
+                className="text-[11px] font-bold text-sky-600 dark:text-sky-400 hover:underline inline-flex items-center gap-0.5 cursor-pointer"
+              >
+                Ver pedidos <ArrowRight className="size-3" />
+              </button>
             </div>
           </CardContent>
         </Card>
