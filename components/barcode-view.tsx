@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import JsBarcode from "jsbarcode";
-import { cleanBarcodeScan, normalizeToValidEan13 } from "@/lib/barcode";
+import { cleanBarcodeScan, isValidEan13, normalizeToValidEan13 } from "@/lib/barcode";
 
 export interface BarcodeViewProps {
   value: string | number;
@@ -40,16 +40,17 @@ export function BarcodeView({
 
     if (format === "EAN13") {
       chosenFormat = "EAN13";
-      valueToRender = normalizeToValidEan13(raw);
+      valueToRender = isValidEan13(raw) ? raw : normalizeToValidEan13(raw);
     } else if (format === "CODE128") {
       chosenFormat = "CODE128";
       valueToRender = raw.replace(/[^\x20-\x7E]/g, "") || "000000";
     } else {
-      // AUTO detection: 12 o 13 dígitos numéricos -> EAN13
-      if (digitsOnly.length === 12 || digitsOnly.length === 13) {
+      // AUTO detection: usar EAN13 exclusivamente si es un EAN-13 oficial válido GS1 (13 dígitos)
+      if (/^\d{13}$/.test(raw) && isValidEan13(raw)) {
         chosenFormat = "EAN13";
-        valueToRender = normalizeToValidEan13(digitsOnly);
+        valueToRender = raw;
       } else {
+        // En cualquier otro caso (12 dígitos UPC, alfanumérico, código interno), CODE128 no muta ningún dígito
         chosenFormat = "CODE128";
         valueToRender = raw.replace(/[^\x20-\x7E]/g, "") || "000000";
       }

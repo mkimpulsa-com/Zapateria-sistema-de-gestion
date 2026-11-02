@@ -489,10 +489,10 @@ export async function runStoreAction(body: any, uid?: string) {
       throw new Error("El SKU ingresado ya está en uso en otro modelo.");
     }
 
-    // Normalizar o autogenerar código EAN-13 oficial GS1
+    // Respetar fielmente el código de barras ingresado o autogenerar código EAN-13 oficial GS1
     let barcode = "";
     if (rawBarcode) {
-      barcode = normalizeToValidEan13(rawBarcode);
+      barcode = rawBarcode;
     } else {
       const settingsSnap = await getDoc(userDoc("settings", "main", userId));
       const settingsData = settingsSnap.exists() ? (settingsSnap.data() as any) : {};
@@ -597,7 +597,7 @@ export async function runStoreAction(body: any, uid?: string) {
     const skuRaw = text(body.sku, current.sku);
     let barcodeRaw = text(body.barcode, current.barcode);
     if (barcodeRaw) {
-      barcodeRaw = normalizeToValidEan13(cleanBarcodeScan(barcodeRaw));
+      barcodeRaw = cleanBarcodeScan(barcodeRaw);
     }
     const allProducts = withId(await getDocs(userCol("products", userId)));
 

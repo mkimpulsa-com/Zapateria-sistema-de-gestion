@@ -90,12 +90,7 @@ export function normalizeToValidEan13(code: string | number | null | undefined):
     return `${digitsOnly}${check}`;
   }
 
-  if (digitsOnly.length === 13) {
-    const twelve = digitsOnly.slice(0, 12);
-    const check = calculateEan13CheckDigit(twelve);
-    return `${twelve}${check}`;
-  }
-
+  // Si ya tiene 13 dígitos o es otro formato, conservar fielmente sin alterar dígitos
   return clean;
 }
 
@@ -202,16 +197,18 @@ export function generateBarcodeSvg(
 
   if (options.format === "EAN13") {
     chosenFormat = "EAN13";
-    valueToEncode = normalizeToValidEan13(clean);
+    valueToEncode = isValidEan13(clean) ? clean : normalizeToValidEan13(clean);
   } else if (options.format === "CODE128") {
     chosenFormat = "CODE128";
     valueToEncode = clean.replace(/[^\x20-\x7E]/g, "") || "000000";
   } else {
-    // Modo AUTO: si tiene 12 o 13 dígitos numéricos, usar EAN13 oficial
-    if (digitsOnly.length === 12 || digitsOnly.length === 13) {
+    // Modo AUTO: usar EAN-13 únicamente si es un EAN-13 oficial válido por GS1 (13 dígitos)
+    if (/^\d{13}$/.test(clean) && isValidEan13(clean)) {
       chosenFormat = "EAN13";
-      valueToEncode = normalizeToValidEan13(digitsOnly);
+      valueToEncode = clean;
     } else {
+      // Para cualquier otro código (12 dígitos UPC, alfanumérico, código interno, etc.),
+      // CODE128 codifica el valor exacto sin mutar ni añadir dígitos
       chosenFormat = "CODE128";
       valueToEncode = clean.replace(/[^\x20-\x7E]/g, "") || "000000";
     }
