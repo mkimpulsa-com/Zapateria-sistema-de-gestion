@@ -16,6 +16,7 @@ import {
   Loader2,
   Receipt,
   ShoppingBag,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BarcodeView } from "@/components/barcode-view";
@@ -28,6 +29,7 @@ interface SaleInvoiceModalProps {
   settings?: any;
   products?: any[];
   onNewSale?: () => void;
+  onDeleteSale?: (sale: any) => void;
 }
 
 import { formatMoney } from "@/lib/currency";
@@ -90,6 +92,7 @@ export function SaleInvoiceModal({
   settings = {},
   products = [],
   onNewSale,
+  onDeleteSale,
 }: SaleInvoiceModalProps) {
   const printRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState<"pdf" | "image" | null>(null);
@@ -607,6 +610,18 @@ export function SaleInvoiceModal({
               <Printer className="size-3.5" />
               <span className="hidden xl:inline">Imprimir A4</span>
             </Button>
+
+            {onDeleteSale && (
+              <Button
+                size="sm"
+                onClick={() => onDeleteSale(sale)}
+                className="h-8 gap-1 rounded-lg border border-rose-500/30 bg-rose-950/60 text-rose-300 hover:bg-rose-900 hover:text-white text-xs font-semibold shadow-sm"
+                title="Anular y eliminar este comprobante de venta"
+              >
+                <Trash2 className="size-3.5 text-rose-400" />
+                <span className="hidden sm:inline">Anular Venta</span>
+              </Button>
+            )}
 
             {onNewSale && (
               <Button

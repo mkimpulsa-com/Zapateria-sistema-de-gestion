@@ -173,6 +173,7 @@ export default function StoreApp({
   const [closeShiftModal, setCloseShiftModal] = useState(false);
   const [viewingShift, setViewingShift] = useState<any | null>(null);
   const [deletingShift, setDeletingShift] = useState<any | null>(null);
+  const [deletingSale, setDeletingSale] = useState<any | null>(null);
   const [editingBankAccount,setEditingBankAccount]=useState<any|null>(null);
   const [transferModalOpen,setTransferModalOpen]=useState(false);
   const [bankAccountId,setBankAccountId]=useState("");
@@ -816,7 +817,7 @@ export default function StoreApp({
         {section==="caja"&&<Cash data={data!} isCashier={isCashier} setModal={setModal} onEdit={(m:any)=>setEditingCashMovement(m)} onDelete={(m:any)=>setDeletingCashMovement(m)} onViewReceipt={(m:any)=>setViewingCashMovement(m)} onOpenShift={()=>setOpenShiftModal(true)} onCloseShift={()=>setCloseShiftModal(true)} onViewShift={(s:any)=>setViewingShift(s)} onDeleteShift={(s:any)=>setDeletingShift(s)} />} 
         {!isCashier && section==="tienda"&&<WholesaleStoreAdmin data={data!} uid={uid} setSection={setSection} setToast={setToast}/>}
         {section==="catalogos"&&<CatalogConfigured data={data!} products={filtered}/>}
-        {!isCashier && section==="reportes"&&<Reports data={data!} onSelectSale={(s:any)=>setInvoiceSale(s)}/>} 
+        {!isCashier && section==="reportes"&&<Reports data={data!} onSelectSale={(s:any)=>setInvoiceSale(s)} onDeleteSale={(s:any)=>setDeletingSale(s)}/>} 
         {!isCashier && section==="configuracion"&&<SettingsCenter data={data!} onSave={action} busy={busy} dark={dark} setDark={handleSetDark} setToast={setToast} uid={uid} setModal={setModal} onEditBankAccount={(acc:any)=>setEditingBankAccount(acc)} onTransferModal={()=>setTransferModalOpen(true)}/>}
       </main>
 
@@ -955,6 +956,10 @@ export default function StoreApp({
       onNewSale={()=>{
         setInvoiceSale(null);
         setSection("ventas");
+      }}
+      onDeleteSale={(saleToDelete: any) => {
+        setInvoiceSale(null);
+        setDeletingSale(saleToDelete);
       }}
     />
     <AlertDialog open={Boolean(deletingCustomer)} onOpenChange={v=>!v&&setDeletingCustomer(null)}>
@@ -1139,6 +1144,31 @@ export default function StoreApp({
             }}
           >
             {busy ? "Eliminando…" : "Sí, eliminar movimiento"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    <AlertDialog open={Boolean(deletingSale)} onOpenChange={v => !v && setDeletingSale(null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Anular y eliminar venta {deletingSale?.receipt_no}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Vas a anular y eliminar el comprobante <strong>{deletingSale?.receipt_no}</strong> por <strong>{money(deletingSale?.total || 0)}</strong> emitido a <strong>{deletingSale?.customer_name || "Consumidor Final"}</strong>.
+            Esta acción restablecerá automáticamente el stock de los productos vendidos y quitará el importe de las estadísticas de ventas y del panel Resumen del negocio.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={busy}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={async () => {
+              if (!deletingSale) return;
+              await action({ action: "delete_sale", saleId: deletingSale.id }, "Venta anulada y stock restituido correctamente");
+              setDeletingSale(null);
+            }}
+          >
+            {busy ? "Eliminando…" : "Sí, anular venta"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -2841,7 +2871,7 @@ function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift
 
 function Catalog({data,products,price,setPrice}:any){return <div className="print-only-area"><div className="no-print"><SectionTitle eyebrow="Venta visual" title="Generador de catálogos" text="Elegí la lista de precios y compartí o imprimí los productos disponibles." action={<div className="flex gap-2"><Button variant="outline" onClick={()=>window.print()}><Printer/>Imprimir / PDF</Button></div>}/><div className="mb-6 flex items-center gap-2 rounded-2xl border bg-card p-2"><button onClick={()=>setPrice("retail")} className={`rounded-xl px-4 py-2 text-sm font-semibold ${price==="retail"?"bg-primary text-primary-foreground":""}`}>Precio minorista</button><button onClick={()=>setPrice("wholesale")} className={`rounded-xl px-4 py-2 text-sm font-semibold ${price==="wholesale"?"bg-primary text-primary-foreground":""}`}>Precio mayorista</button><Badge variant="outline" className="ml-auto">Solo productos con stock</Badge></div></div><div className="mb-7 hidden print:block"><h1 className="text-3xl font-bold">{data.settings?.business_name}</h1><p>{data.settings?.phone} · {data.settings?.address}</p><p className="mt-2 text-sm">Catálogo {price==="retail"?"minorista":"mayorista"}</p></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{products.filter((p:Product)=>p.total_stock>0).map((p:Product)=><Card key={p.id} className="print-card gap-3 overflow-hidden border-0 py-0 shadow-sm"><div className="flex h-28 items-center justify-center bg-gradient-to-br from-[#e8f0ff] to-[#fff0ec] text-[#0f2137]"><ShoppingBag className="size-14 opacity-70"/></div><CardContent className="px-5 pb-5"><div className="flex justify-between gap-3"><div><p className="text-lg font-bold">{p.name}</p><p className="text-xs text-muted-foreground">{p.brand} · {p.color}</p></div><p className="text-xl font-black text-primary">{money(price==="retail"?p.retail_price:p.wholesale_price)}</p></div><div className="my-4 flex flex-wrap gap-1.5">{p.variants.filter(v=>v.stock>0).map(v=><Badge key={v.id} variant="outline">{v.size}</Badge>)}</div><BarcodeLabel value={p.barcode}/></CardContent></Card>)}</div></div>}
 
-function Reports({ data, onSelectSale }: any) {
+function Reports({ data, onSelectSale, onDeleteSale }: any) {
   const [reportTab, setReportTab] = useState<"ventas" | "compras" | "posicion" | "comercial">("ventas");
   const [filterType, setFilterType] = useState<string>("todos");
   const [purchaseFilterType, setPurchaseFilterType] = useState<string>("todos");
@@ -3425,18 +3455,31 @@ function Reports({ data, onSelectSale }: any) {
                           {money(s.total)}
                         </TableCell>
                         <TableCell className="text-center">
-                          {onSelectSale && (
-                            <Button
-                              variant="outline"
-                              size="xs"
-                              onClick={() => onSelectSale(s)}
-                              className="h-7 gap-1 rounded-lg text-xs"
-                              title="Ver e imprimir comprobante oficial"
-                            >
-                              <FileText className="size-3 text-primary" />
-                              <span>Ver {s.computedLetter}</span>
-                            </Button>
-                          )}
+                          <div className="flex items-center justify-center gap-1.5">
+                            {onSelectSale && (
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                onClick={() => onSelectSale(s)}
+                                className="h-7 gap-1 rounded-lg text-xs"
+                                title="Ver e imprimir comprobante oficial"
+                              >
+                                <FileText className="size-3 text-primary" />
+                                <span>Ver {s.computedLetter}</span>
+                              </Button>
+                            )}
+                            {onDeleteSale && (
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                onClick={() => onDeleteSale(s)}
+                                className="h-7 size-7 p-0 rounded-lg text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 border-rose-200 dark:border-rose-900/50"
+                                title="Anular y eliminar esta venta"
+                              >
+                                <Trash2 className="size-3 text-rose-500" />
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))

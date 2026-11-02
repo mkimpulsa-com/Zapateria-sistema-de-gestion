@@ -178,20 +178,6 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
 
     if (period === "dia") {
       start.setHours(0, 0, 0, 0);
-      const todaySales = sales.filter((s: any) => s.created_at && new Date(s.created_at) >= start);
-
-      // Fallback: If no sales today, show last 24 hours so recent sales are visible
-      if (todaySales.length === 0) {
-        const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        const last24hSales = sales.filter((s: any) => s.created_at && new Date(s.created_at) >= last24h);
-        if (last24hSales.length > 0) {
-          const matchedMovs = movements.filter((m: any) => m.created_at && new Date(m.created_at) >= last24h);
-          return { filteredSales: last24hSales, filteredMovements: matchedMovs };
-        }
-      }
-
-      const matchedMovs = movements.filter((m: any) => m.created_at && new Date(m.created_at) >= start);
-      return { filteredSales: todaySales, filteredMovements: matchedMovs };
     } else if (period === "semanas") {
       start.setDate(now.getDate() - 7);
       start.setHours(0, 0, 0, 0);
@@ -201,12 +187,14 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
     }
 
     const fSales = sales.filter((s: any) => {
-      if (!s.created_at) return true;
-      return new Date(s.created_at) >= start;
+      const dateVal = s.created_at || s.date;
+      if (!dateVal) return false;
+      return new Date(dateVal) >= start;
     });
     const fMovements = movements.filter((m: any) => {
-      if (!m.created_at) return true;
-      return new Date(m.created_at) >= start;
+      const dateVal = m.created_at || m.date;
+      if (!dateVal) return false;
+      return new Date(dateVal) >= start;
     });
 
     return { filteredSales: fSales, filteredMovements: fMovements };

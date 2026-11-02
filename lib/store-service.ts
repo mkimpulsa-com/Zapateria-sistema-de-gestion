@@ -1193,7 +1193,133 @@ export async function runStoreAction(body: any, uid?: string) {
   } else if (action === "delete_cash_movement") {
     const movementId = String(body.id || body.movementId || "");
     if (!movementId) throw new Error("Movimiento de caja no encontrado.");
-    await deleteDoc(userDoc("cashMovements", movementId, userId));
+    const moveRef = userDoc("cashMovements", movementId, userId);
+    const moveSnap = await getDoc(moveRef);
+    if (moveSnap.exists()) {
+      const moveData = moveSnap.data() as any;
+      // Si el movimiento proviene de una venta, anular y sincronizar la venta para que no siga figurando en el Resumen
+      const desc = String(moveData.description || "");
+      let receiptToFind = moveData.reference || "";
+      if (!receiptToFind) {
+        const match = desc.match(/(?:comprobante|recibo|ticket|factura)\s+([A-Z0-9-]+)/i);
+        if (match) receiptToFind = match[1];
+      }
+
+      if (moveData.category === "Venta" || desc.toLowerCase().includes("venta") || receiptToFind || moveData.sale_id) {
+        const salesSnap = await getDocs(query(userCol("sales", userId), orderBy("created_at", "desc"), limit(100)));
+        const linkedSale = withId(salesSnap).find((s: any) => 
+          (receiptToFind && s.receipt_no === receiptToFind) || 
+          (moveData.sale_id && s.id === moveData.sale_id) ||
+          (moveData.reference && s.receipt_no === moveData.reference)
+        );
+        if (linkedSale) {
+          // Revertir stock de productos vendidos
+          if (Array.isArray(linkedSale.items)) {
+            for (const it of linkedSale.items) {
+              const prodId = it.product_id || it.productId;
+              const varId = it.variant_id || it.variantId;
+              const qty = Number(it.quantity || 1);
+              if (prodId && qty > 0) {
+                const prodRef = userDoc("products", String(prodId), userId);
+                const pSnap = await getDoc(prodRef);
+                if (pSnap.exists()) {
+                  const pData = pSnap.data() as any;
+                  const updatedVariants = (pData.variants || []).map((v: any) => {
+                    if (String(v.id) === String(varId) || (!varId && String(v.size) === String(it.size))) {
+                      return { ...v, stock: Number(v.stock || 0) + qty };
+                    }
+                    return v;
+                  });
+                  await updateDoc(prodRef, { variants: updatedVariants });
+                }
+              }
+            }
+          }
+          await deleteDoc(userDoc("sales", linkedSale.id, userId));
+        }
+      }
+      await deleteDoc(moveRef);
+    }
+  } else if (action === "delete_sale") {
+    const saleId = String(body.saleId || body.id || "").trim();
+    if (!saleId) throw new Error("ID de venta no especificado.");
+    const saleRef = userDoc("sales", saleId, userId);
+    const saleSnap = await getDoc(saleRef);
+    if (!saleSnap.exists()) throw new Error("La venta no existe o ya fue eliminada.");
+    const saleData = saleSnap.data() as any;
+    const receiptNo = saleData.receipt_no || "";
+
+    // 1. Restablecer stock de productos vendidos
+    const restoreStock = body.restoreStock !== false;
+    if (restoreStock && Array.isArray(saleData.items) && saleData.items.length > 0) {
+      for (const it of saleData.items) {
+        const prodId = it.product_id || it.productId;
+        const varId = it.variant_id || it.variantId;
+        const qty = Number(it.quantity || 1);
+        if (prodId && qty > 0) {
+          const prodRef = userDoc("products", String(prodId), userId);
+          const pSnap = await getDoc(prodRef);
+          if (pSnap.exists()) {
+            const pData = pSnap.data() as any;
+            const updatedVariants = (pData.variants || []).map((v: any) => {
+              if (String(v.id) === String(varId) || (!varId && String(v.size) === String(it.size))) {
+                return { ...v, stock: Number(v.stock || 0) + qty };
+              }
+              return v;
+            });
+            await updateDoc(prodRef, { variants: updatedVariants });
+          }
+        }
+      }
+    }
+
+    // 2. Eliminar movimientos de caja y banco vinculados a esta venta
+    if (receiptNo) {
+      const movesSnap = await getDocs(query(userCol("cashMovements", userId), orderBy("created_at", "desc"), limit(100)));
+      const linkedMoves = withId(movesSnap).filter((m: any) => m.reference === receiptNo || m.sale_id === saleId);
+      for (const m of linkedMoves) {
+        await deleteDoc(userDoc("cashMovements", m.id, userId));
+      }
+
+      const bankMovesSnap = await getDocs(query(userCol("bankMovements", userId), orderBy("created_at", "desc"), limit(100)));
+      const linkedBankMoves = withId(bankMovesSnap).filter((m: any) => m.reference === receiptNo);
+      for (const bm of linkedBankMoves) {
+        if (bm.account_id && bm.amount) {
+          const bRef = userDoc("bankAccounts", bm.account_id, userId);
+          const bSnap = await getDoc(bRef);
+          if (bSnap.exists()) {
+            await updateDoc(bRef, { balance: Math.max(0, Number(bSnap.data().balance || 0) - Number(bm.amount)) });
+          }
+        }
+        await deleteDoc(userDoc("bankMovements", bm.id, userId));
+      }
+    }
+
+    // 3. Revertir saldo en cuenta corriente si el cliente acumuló deuda
+    const debtAmount = Number(saleData.pending_amount_ars !== undefined ? saleData.pending_amount_ars : (saleData.debt_amount || saleData.pending_amount || 0));
+    if (saleData.customer_id && debtAmount > 0) {
+      const cRef = userDoc("customers", String(saleData.customer_id), userId);
+      const cSnap = await getDoc(cRef);
+      if (cSnap.exists()) {
+        const cData = cSnap.data() as any;
+        const newBal = Math.max(0, Number(cData.balance || 0) - debtAmount);
+        await updateDoc(cRef, { balance: newBal, updated_at: now() });
+        await addDoc(userCol("customerMovements", userId), {
+          customer_id: saleData.customer_id,
+          customer_name: saleData.customer_name || cData.name,
+          type: "pago",
+          amount: debtAmount,
+          balance_before: Number(cData.balance || 0),
+          balance_after: newBal,
+          payment_method: "Anulación venta",
+          note: `Anulación de comprobante ${receiptNo}`,
+          created_at: now(),
+        });
+      }
+    }
+
+    // 4. Eliminar el documento de la venta
+    await deleteDoc(saleRef);
   } else if (action === "open_cash_shift") {
     // Verificar si ya existe un turno abierto
     const existingOpenSnap = await getDocs(query(userCol("cashShifts", userId), orderBy("opened_at", "desc"), limit(10)));
