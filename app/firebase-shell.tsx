@@ -42,19 +42,16 @@ export default function FirebaseShell() {
   const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [isPublicStore, setIsPublicStore] = useState(false);
+  const [isPublicStore, setIsPublicStore] = useState(() => {
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      return sp.has("store") || sp.has("tienda") || sp.has("catalogo");
+    }
+    return false;
+  });
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [resetSuccess, setResetSuccess] = useState(false);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const sp = new URLSearchParams(window.location.search);
-      if (sp.has("store") || sp.has("tienda") || sp.has("catalogo")) {
-        setIsPublicStore(true);
-      }
-    }
-  }, []);
 
   useEffect(() => {
     if (!auth) {

@@ -1755,8 +1755,8 @@ export async function runStoreAction(body: any, uid?: string) {
       const saleRef = doc(userCol("sales", userId));
 
       // Cálculos de IVA por cada ítem y acumulación
-      let totalNetAmount = taxableBase;
-      let totalVatAmount = calculatedVatAmount;
+      const totalNetAmount = taxableBase;
+      const totalVatAmount = calculatedVatAmount;
       let vatAmount21 = 0;
       let vatAmount105 = 0;
       let vatAmount27 = 0;

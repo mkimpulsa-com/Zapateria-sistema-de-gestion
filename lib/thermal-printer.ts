@@ -1,5 +1,4 @@
 import JsBarcode from "jsbarcode";
-import { formatMoney } from "@/lib/currency";
 
 export interface ThermalSalePrintData {
   sale: any;
@@ -772,6 +771,7 @@ function executeThermalPrint(html: string, title: string) {
 
     const iframe = document.createElement("iframe");
     iframe.id = "thermal-print-frame";
+    iframe.title = title || "Ticket Termico";
     iframe.setAttribute(
       "style",
       "position:fixed;top:-9999px;left:-9999px;width:80mm;height:400px;border:0;opacity:0;pointer-events:none;"
