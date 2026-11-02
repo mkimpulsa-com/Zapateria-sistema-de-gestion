@@ -727,10 +727,8 @@ export async function runStoreAction(body: any, uid?: string) {
       }
       usedSkus.add(sku.toLowerCase());
 
-      // Resolver EAN-13 único
-      let barcode = rawBarcode
-        ? normalizeToValidEan13(rawBarcode)
-        : matched?.barcode || "";
+      // Resolver código de barras único (si el archivo o el producto trae un código de barras explícito, se respeta fielmente)
+      let barcode = rawBarcode || matched?.barcode || "";
       if (!barcode) {
         do {
           barcode = generateValidEan13(prefix);

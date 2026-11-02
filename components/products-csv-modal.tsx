@@ -22,6 +22,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { formatMoney } from "@/lib/currency";
+import { isBarcodeMatch } from "@/lib/barcode";
 
 export interface ParsedCsvProduct {
   sku: string;
@@ -258,6 +259,54 @@ function parseFlexibleNumber(val: string | undefined): number {
 }
 
 /**
+ * Limpia y preserva el código de barras exacto desde el archivo CSV / Excel.
+ * - Elimina comillas envolventes y caracteres de control.
+ * - Restaura notación científica si Excel convirtió un número largo (ej. 7.45308E+12).
+ * - Elimina decimales superfluos añadidos por Excel (ej. 7798184680424.0).
+ * - Conserva estrictamente ceros iniciales (ej. 000000057991).
+ */
+function parseBarcodeCell(val: string | undefined): string {
+  if (!val) return "";
+  let clean = String(val).trim();
+  clean = clean.replace(/^["']|["']$/g, "").trim();
+  if (!clean) return "";
+
+  // Quitar caracteres de control ASCII y prefijos de lectora AIM
+  clean = clean.replace(/^\][A-Za-z0-9]{2,3}/, "");
+  clean = clean.replace(/[\r\n\t\f\v]/g, "");
+  clean = clean.replace(/[\x00-\x1F\x7F-\x9F]/g, "");
+
+  // Si Excel lo formateó en notación científica (ej. 7.45307724988E+12 o 7,45307724988E+12)
+  if (/^[0-9]+[.,][0-9]+e\+[0-9]+$/i.test(clean)) {
+    const normalized = clean.replace(",", ".");
+    const num = Number(normalized);
+    if (Number.isFinite(num)) {
+      clean = BigInt(Math.round(num)).toString();
+    }
+  }
+
+  // Si Excel le agregó .0 o .00 al final
+  if (/^[0-9]+\.0+$/.test(clean)) {
+    clean = clean.split(".")[0];
+  }
+
+  return clean.trim();
+}
+
+/**
+ * Limpia el SKU preservando formato de texto y quitando decimales accidentales de Excel.
+ */
+function parseSkuCell(val: string | undefined): string {
+  if (!val) return "";
+  let clean = String(val).trim();
+  clean = clean.replace(/^["']|["']$/g, "").trim();
+  if (/^[0-9]+\.0+$/.test(clean)) {
+    clean = clean.split(".")[0];
+  }
+  return clean.trim();
+}
+
+/**
  * Parsea cadena de variantes como "35:2 | 36:4 | 37:1" o "35:2, 36:4"
  */
 function parseVariantsField(
@@ -364,30 +413,96 @@ export function ProductsCsvModal({
         .replace(/[^a-z0-9]/g, "")
     );
 
-    const findColIndex = (candidates: string[]): number => {
+    const findColIndex = (
+      candidates: string[],
+      excludeSubstrings: string[] = []
+    ): number => {
       for (const cand of candidates) {
-        const idx = rawHeaders.findIndex((h) => h === cand || h.includes(cand));
+        const idx = rawHeaders.findIndex((h) => {
+          if (excludeSubstrings.some((ex) => h.includes(ex))) return false;
+          return h === cand || h.includes(cand);
+        });
         if (idx !== -1) return idx;
       }
       return -1;
     };
 
-    const idxName = findColIndex(["nombre", "producto", "articulo", "modelo", "name", "descripcion"]);
-    const idxSku = findColIndex(["sku", "codigo", "codigointerno", "code"]);
-    const idxBarcode = findColIndex(["codigobarras", "barcode", "ean", "ean13"]);
-    const idxBrand = findColIndex(["marca", "fabricante", "brand"]);
-    const idxCategory = findColIndex(["categoria", "rubro", "category"]);
-    const idxColor = findColIndex(["color", "presentacion"]);
-    const idxLocation = findColIndex(["ubicacion", "estante", "deposito", "location"]);
+    const idxName = findColIndex([
+      "nombre",
+      "producto",
+      "articulo",
+      "item",
+      "modelo",
+      "name",
+      "descripcion",
+      "detalle",
+      "titulo",
+    ]);
+
+    // Candidatos para SKU (excluyendo cualquier columna que sea código de barras)
+    const idxSku = findColIndex(
+      ["sku", "codigointerno", "codarticulo", "codproducto", "referencia", "ref", "code", "codigo"],
+      ["barra", "barcode", "ean", "gtin", "upc"]
+    );
+
+    // Candidatos exhaustivos para Código de Barras (EAN-13, EAN-8, UPC, etc.)
+    const idxBarcode = findColIndex([
+      "codigodebarras",
+      "codigodebarra",
+      "codigosdebarras",
+      "codigosdebarra",
+      "codigobarras",
+      "codigobarra",
+      "codigosbarras",
+      "codbarras",
+      "codbarra",
+      "coddebarras",
+      "coddebarra",
+      "cbarras",
+      "cbarra",
+      "barras",
+      "barra",
+      "barcode",
+      "barcodes",
+      "codebar",
+      "ean13",
+      "ean8",
+      "ean",
+      "gtin",
+      "upca",
+      "upc",
+    ]);
+
+    const idxBrand = findColIndex(["marca", "fabricante", "brand", "proveedor"]);
+    const idxCategory = findColIndex(["categoria", "rubro", "seccion", "familia", "linea", "category"]);
+    const idxColor = findColIndex(["color", "presentacion", "tono", "diseño", "diseno"]);
+    const idxLocation = findColIndex(["ubicacion", "estante", "deposito", "almacen", "location"]);
     const idxGender = findColIndex(["genero", "publico", "gender"]);
-    const idxCost = findColIndex(["costo", "costocompra", "cost"]);
-    const idxRetail = findColIndex(["preciominorista", "minorista", "pvp", "pvpsugerido", "retail", "precio"]);
-    const idxWholesale = findColIndex(["preciomayorista", "mayorista", "wholesale"]);
-    const idxVat = findColIndex(["iva", "alicuotaiva", "vat"]);
-    const idxMinStock = findColIndex(["stockminimo", "minstock", "alertastock"]);
-    const idxStock = findColIndex(["stocktotal", "stock", "cantidad", "unidades", "existencia"]);
-    const idxVariants = findColIndex(["variantestalles", "variantes", "talles", "curva"]);
-    const idxImage = findColIndex(["imagenurl", "imagen", "foto", "imageurl"]);
+    const idxCost = findColIndex(["costo", "preciocosto", "costocompra", "cost", "compra", "pcosto"]);
+    const idxRetail = findColIndex([
+      "preciominorista",
+      "minorista",
+      "precioventa",
+      "pventa",
+      "pvp",
+      "pvpsugerido",
+      "retail",
+      "precio",
+      "venta",
+    ]);
+    const idxWholesale = findColIndex([
+      "preciomayorista",
+      "mayorista",
+      "pmayorista",
+      "wholesale",
+      "pormayor",
+      "por_mayor",
+    ]);
+    const idxVat = findColIndex(["iva", "alicuotaiva", "vat", "tax"]);
+    const idxMinStock = findColIndex(["stockminimo", "minstock", "alertastock", "stockmin"]);
+    const idxStock = findColIndex(["stocktotal", "stock", "cantidad", "cant", "unidades", "existencia", "qty"]);
+    const idxVariants = findColIndex(["variantestalles", "variantes", "talles", "talle", "curva", "sizes"]);
+    const idxImage = findColIndex(["imagenurl", "imagen", "foto", "imageurl", "fotourl", "image"]);
 
     if (idxName === -1) {
       setParseError(
@@ -404,8 +519,8 @@ export function ProductsCsvModal({
       const name = (cols[idxName] || "").trim();
       if (!name) continue;
 
-      const sku = idxSku !== -1 ? (cols[idxSku] || "").trim() : "";
-      const barcode = idxBarcode !== -1 ? (cols[idxBarcode] || "").trim() : "";
+      const sku = idxSku !== -1 ? parseSkuCell(cols[idxSku]) : "";
+      const barcode = idxBarcode !== -1 ? parseBarcodeCell(cols[idxBarcode]) : "";
       const brand = idxBrand !== -1 ? (cols[idxBrand] || "").trim() : "";
       const category =
         idxCategory !== -1 && (cols[idxCategory] || "").trim()
@@ -442,7 +557,7 @@ export function ProductsCsvModal({
       const existsInCatalog = existingProducts.some(
         (p: any) =>
           (sku && String(p.sku || "").toLowerCase() === sku.toLowerCase()) ||
-          (barcode && String(p.barcode || "") === barcode)
+          (barcode && isBarcodeMatch(p.barcode, barcode))
       );
 
       items.push({
