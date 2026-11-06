@@ -837,7 +837,7 @@ export function SaleInvoiceModal({
               <div className="text-center text-[10px] text-slate-600 space-y-0.5 leading-tight">
                 <p className="font-bold text-slate-900 text-[11px]">¡GRACIAS POR TU COMPRA!</p>
                 <p>Conservá este comprobante para cambios</p>
-                <p>dentro de los 30 días de realizada la compra.</p>
+                <p>dentro de los 7 días de realizada la compra.</p>
               </div>
 
               {/* Código de barra */}
@@ -1156,7 +1156,7 @@ export function SaleInvoiceModal({
                 )}
                 <p className="text-[10px] text-slate-500 pt-1 border-t border-slate-200 leading-tight">
                   La entrega de la mercadería se realiza en perfecto estado de conservación y embalaje.
-                  Garantía de cambio válida por 30 días corridos presentando este comprobante.
+                  Garantía de cambio válida por 7 días corridos presentando este comprobante.
                 </p>
               </div>
 

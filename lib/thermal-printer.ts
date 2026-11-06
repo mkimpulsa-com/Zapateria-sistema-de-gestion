@@ -494,7 +494,7 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
   <!-- Mensaje de Despedida Discreto -->
   <div class="footer-block">
     <div class="footer-highlight">GRACIAS POR SU COMPRA</div>
-    <div>Cambios dentro de los 30 dias</div>
+    <div>Cambios dentro de los 7 dias</div>
     <div>presentando este comprobante.</div>
   </div>
 
