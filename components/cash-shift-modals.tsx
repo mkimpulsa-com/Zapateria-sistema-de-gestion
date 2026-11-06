@@ -508,37 +508,36 @@ export function CloseCashShiftModal({
   defaultCashierName = "Administrador",
   onSubmit,
 }: CloseCashShiftModalProps) {
-  if (!activeShift) return null;
+  const shift = activeShift || {};
+  const rateArs = Number(shift.exchange_rate_ars || settings?.exchange_rate_ars || settings?.exchange_rate_brl) || 250;
+  const rateUsd = Number(shift.exchange_rate_usd || settings?.exchange_rate_usd) || 5.70;
 
-  const rateArs = Number(activeShift.exchange_rate_ars || settings?.exchange_rate_ars || settings?.exchange_rate_brl) || 250;
-  const rateUsd = Number(activeShift.exchange_rate_usd || settings?.exchange_rate_usd) || 5.70;
+  const initialCash = Number(shift.initial_cash || 0);
+  const initialCashArs = Number(shift.initial_cash_ars !== undefined ? shift.initial_cash_ars : initialCash);
+  const initialCashBrl = Number(shift.initial_cash_brl || 0);
+  const initialCashUsd = Number(shift.initial_cash_usd || 0);
 
-  const initialCash = Number(activeShift.initial_cash || 0);
-  const initialCashArs = Number(activeShift.initial_cash_ars !== undefined ? activeShift.initial_cash_ars : initialCash);
-  const initialCashBrl = Number(activeShift.initial_cash_brl || 0);
-  const initialCashUsd = Number(activeShift.initial_cash_usd || 0);
+  const cashSales = Number(shift.cash_sales || 0);
+  const cashSalesArs = Number(shift.cash_sales_ars !== undefined ? shift.cash_sales_ars : cashSales);
+  const cashSalesBrl = Number(shift.cash_sales_brl || 0);
+  const cashSalesUsd = Number(shift.cash_sales_usd || 0);
 
-  const cashSales = Number(activeShift.cash_sales || 0);
-  const cashSalesArs = Number(activeShift.cash_sales_ars !== undefined ? activeShift.cash_sales_ars : cashSales);
-  const cashSalesBrl = Number(activeShift.cash_sales_brl || 0);
-  const cashSalesUsd = Number(activeShift.cash_sales_usd || 0);
+  const otherSales = Number(shift.other_sales || 0);
+  const totalSales = Number(shift.total_sales || (cashSales + otherSales));
+  const salesCount = Number(shift.sales_count || 0);
+  const cashIncomes = Number(shift.cash_incomes || 0);
+  const cashExpenses = Number(shift.cash_expenses || 0);
 
-  const otherSales = Number(activeShift.other_sales || 0);
-  const totalSales = Number(activeShift.total_sales || (cashSales + otherSales));
-  const salesCount = Number(activeShift.sales_count || 0);
-  const cashIncomes = Number(activeShift.cash_incomes || 0);
-  const cashExpenses = Number(activeShift.cash_expenses || 0);
-
-  const expectedCash = Number(activeShift.expected_cash !== undefined ? activeShift.expected_cash : (initialCash + cashSales + cashIncomes - cashExpenses));
-  const expectedCashArs = Number(activeShift.expected_cash_ars !== undefined ? activeShift.expected_cash_ars : (initialCashArs + cashSalesArs + cashIncomes - cashExpenses));
-  const expectedCashBrl = Number(activeShift.expected_cash_brl !== undefined ? activeShift.expected_cash_brl : (initialCashBrl + cashSalesBrl));
-  const expectedCashUsd = Number(activeShift.expected_cash_usd !== undefined ? activeShift.expected_cash_usd : (initialCashUsd + cashSalesUsd));
+  const expectedCash = Number(shift.expected_cash !== undefined ? shift.expected_cash : (initialCash + cashSales + cashIncomes - cashExpenses));
+  const expectedCashArs = Number(shift.expected_cash_ars !== undefined ? shift.expected_cash_ars : (initialCashArs + cashSalesArs + cashIncomes - cashExpenses));
+  const expectedCashBrl = Number(shift.expected_cash_brl !== undefined ? shift.expected_cash_brl : (initialCashBrl + cashSalesBrl));
+  const expectedCashUsd = Number(shift.expected_cash_usd !== undefined ? shift.expected_cash_usd : (initialCashUsd + cashSalesUsd));
 
   const hasMultiCurrency = initialCashBrl > 0 || initialCashUsd > 0 || cashSalesBrl > 0 || cashSalesUsd > 0;
 
-  const [actualCashArs, setActualCashArs] = useState<number>(expectedCashArs);
-  const [actualCashBrl, setActualCashBrl] = useState<number>(expectedCashBrl);
-  const [actualCashUsd, setActualCashUsd] = useState<number>(expectedCashUsd);
+  const [actualCashArs, setActualCashArs] = useState<number>(0);
+  const [actualCashBrl, setActualCashBrl] = useState<number>(0);
+  const [actualCashUsd, setActualCashUsd] = useState<number>(0);
 
   const [withdrawnCashArs, setWithdrawnCashArs] = useState<number>(0);
   const [withdrawnCashBrl, setWithdrawnCashBrl] = useState<number>(0);
@@ -555,7 +554,7 @@ export function CloseCashShiftModal({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (open) {
+    if (open && activeShift) {
       setActualCashArs(expectedCashArs);
       setActualCashBrl(expectedCashBrl);
       setActualCashUsd(expectedCashUsd);
@@ -568,7 +567,7 @@ export function CloseCashShiftModal({
       setCountsBrl({});
       setCountsUsd({});
     }
-  }, [open, expectedCashArs, expectedCashBrl, expectedCashUsd]);
+  }, [open, activeShift, expectedCashArs, expectedCashBrl, expectedCashUsd]);
 
   // Consolidación en ARS
   const actualCashTotal = Math.round(actualCashArs + (actualCashBrl * rateArs) + (actualCashUsd * rateUsd * rateArs));
@@ -667,6 +666,8 @@ export function CloseCashShiftModal({
       setBusy(false);
     }
   };
+
+  if (!activeShift) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

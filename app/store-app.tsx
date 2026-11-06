@@ -1176,16 +1176,18 @@ export default function StoreApp({
       defaultCashierName={data?.staff?.find((s: any) => s.uid === uid)?.name || "Administrador"}
       settings={data?.settings}
     />
-    <CloseCashShiftModal
-      open={closeShiftModal}
-      onOpenChange={setCloseShiftModal}
-      activeShift={data?.activeShift}
-      settings={data?.settings}
-      defaultCashierName={data?.staff?.find((s: any) => s.uid === uid)?.name || "Administrador"}
-      onSubmit={async (formData) => {
-        return await action({ action: "close_cash_shift", ...formData }, "Turno de caja cerrado con éxito");
-      }}
-    />
+    {data?.activeShift && (
+      <CloseCashShiftModal
+        open={closeShiftModal}
+        onOpenChange={setCloseShiftModal}
+        activeShift={data.activeShift}
+        settings={data?.settings}
+        defaultCashierName={data?.staff?.find((s: any) => s.uid === uid)?.name || "Administrador"}
+        onSubmit={async (formData) => {
+          return await action({ action: "close_cash_shift", ...formData }, "Turno de caja cerrado con éxito");
+        }}
+      />
+    )}
     <CashShiftDetailModal
       open={Boolean(viewingShift)}
       onOpenChange={(v) => !v && setViewingShift(null)}
