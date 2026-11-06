@@ -138,8 +138,6 @@ export function SaleInvoiceModal({
 
   const items: any[] = Array.isArray(sale.items) ? sale.items : [];
   const totalPairs = items.reduce((sum, it) => sum + Number(it.quantity || 1), 0);
-  const subtotal = Number(sale.subtotal || sale.total || 0);
-  const discount = Number(sale.discount || 0);
   const rawTotal = Number(sale.total || 0);
   const paymentMethod = sale.payment_method || "Efectivo";
   const channel = (sale.channel || "mayorista").toUpperCase();
@@ -165,6 +163,25 @@ export function SaleInvoiceModal({
     : isUsd ? rawTotal : Math.round((totalBrl / usdRate) * 100) / 100;
 
   const total = isBrl ? totalBrl : isUsd ? totalUsd : totalArs;
+
+  // Subtotal, Descuento y Cargo Adicional resueltos en la moneda activa del comprobante
+  const subtotal = isBrl
+    ? (sale.subtotal_brl !== undefined ? Number(sale.subtotal_brl) : (sale.subtotal && Number(sale.subtotal) > totalBrl * 2 ? Math.round((Number(sale.subtotal) / brlRate) * 100) / 100 : Number(sale.subtotal || totalBrl)))
+    : isUsd
+    ? (sale.subtotal_usd !== undefined ? Number(sale.subtotal_usd) : (sale.subtotal && Number(sale.subtotal) > totalUsd * 2 ? Math.round((Number(sale.subtotal) / (brlRate * usdRate)) * 100) / 100 : Number(sale.subtotal || totalUsd)))
+    : Number(sale.subtotal_ars || sale.subtotal || totalArs);
+
+  const discount = isBrl
+    ? (sale.discount_brl !== undefined ? Number(sale.discount_brl) : (sale.discount && Number(sale.discount) > totalBrl * 2 ? Math.round((Number(sale.discount) / brlRate) * 100) / 100 : Number(sale.discount || 0)))
+    : isUsd
+    ? (sale.discount_usd !== undefined ? Number(sale.discount_usd) : (sale.discount && Number(sale.discount) > totalUsd * 2 ? Math.round((Number(sale.discount) / (brlRate * usdRate)) * 100) / 100 : Number(sale.discount || 0)))
+    : Number(sale.discount_ars || sale.discount || 0);
+
+  const additionalCharge = isBrl
+    ? (sale.additional_charge_brl !== undefined ? Number(sale.additional_charge_brl) : (sale.additional_charge && Number(sale.additional_charge) > totalBrl * 2 ? Math.round((Number(sale.additional_charge) / brlRate) * 100) / 100 : Number(sale.additional_charge || 0)))
+    : isUsd
+    ? (sale.additional_charge_usd !== undefined ? Number(sale.additional_charge_usd) : (sale.additional_charge && Number(sale.additional_charge) > totalUsd * 2 ? Math.round((Number(sale.additional_charge) / (brlRate * usdRate)) * 100) / 100 : Number(sale.additional_charge || 0)))
+    : Number(sale.additional_charge_ars || sale.additional_charge || 0);
 
   // Montos abonados
   const paidBrl = sale.paid_amount_brl !== undefined
@@ -365,8 +382,8 @@ export function SaleInvoiceModal({
         (discount > 0
           ? `Subtotal: ${formatMoney(subtotal, curr)}\nDescuento${sale.discount_percent ? ` (${sale.discount_percent}%)` : ""}: -${formatMoney(discount, curr)}\n`
           : "") +
-        (Number(sale.additional_charge || 0) > 0
-          ? `Cargo Adicional${sale.additional_charge_description ? ` (${sale.additional_charge_description})` : ""}: +${formatMoney(Number(sale.additional_charge), curr)}\n`
+        (additionalCharge > 0
+          ? `Cargo Adicional${sale.additional_charge_description ? ` (${sale.additional_charge_description})` : ""}: +${formatMoney(additionalCharge, curr)}\n`
           : "") +
         `*TOTAL DE LA VENTA:* ${formatMoney(total, curr)}\n` +
         (isBrl
@@ -748,10 +765,10 @@ export function SaleInvoiceModal({
                     </div>
                   </>
                 )}
-                {Number(sale.additional_charge || 0) > 0 && (
+                {additionalCharge > 0 && (
                   <div className="flex justify-between text-[11px] text-blue-700">
                     <span>Cargo adicional:</span>
-                    <span>+{formatMoney(Number(sale.additional_charge), curr)}</span>
+                    <span>+{formatMoney(additionalCharge, curr)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-base font-black border-y border-slate-900 py-2 my-2 text-slate-900">
@@ -1146,7 +1163,7 @@ export function SaleInvoiceModal({
                   ) : (
                     <div className="flex justify-between text-slate-600">
                       <span>Subtotal mercadería</span>
-                      <span className="font-mono font-semibold">{money(subtotal)}</span>
+                      <span className="font-mono font-semibold">{formatMoney(subtotal, curr)}</span>
                     </div>
                   )}
                   {discount > 0 && (
@@ -1154,7 +1171,7 @@ export function SaleInvoiceModal({
                       <span>
                         Descuento {sale.discount_percent ? `(${sale.discount_percent}%)` : ""}
                       </span>
-                      <span className="font-mono">- {money(discount)}</span>
+                      <span className="font-mono">- {formatMoney(discount, curr)}</span>
                     </div>
                   )}
                   {Number(sale.vat_amount || sale.vat_charge || 0) > 0 && (
@@ -1163,12 +1180,12 @@ export function SaleInvoiceModal({
                       <span className="font-mono shrink-0">+ {formatMoney(Number(sale.vat_amount || sale.vat_charge), curr)}</span>
                     </div>
                   )}
-                  {Number(sale.additional_charge || 0) > 0 && (
+                  {additionalCharge > 0 && (
                     <div className="flex justify-between text-blue-700 font-semibold">
                       <span className="truncate pr-2">
                         Cargo Adicional {sale.additional_charge_description ? `(${sale.additional_charge_description})` : ""}
                       </span>
-                      <span className="font-mono shrink-0">+ {money(Number(sale.additional_charge))}</span>
+                      <span className="font-mono shrink-0">+ {formatMoney(additionalCharge, curr)}</span>
                     </div>
                   )}
                   <div className="flex justify-between font-bold border-t border-slate-200 pt-1 text-slate-900">

@@ -4102,6 +4102,41 @@ function SalesPOSConfigured({
     }
   }, [data.settings?.currency]);
 
+  const currencySymbol = CURRENCIES[saleCurrency]?.symbol || (saleCurrency === "BRL" ? "R$" : saleCurrency === "USD" ? "US$" : "$");
+
+  const toActiveCurrency = (amt: number) => {
+    return convertAmount({
+      amount: amt,
+      from: baseCurrency,
+      to: saleCurrency,
+      rates: { exchange_rate_ars: rateArs, exchange_rate_usd: rateUsd },
+    });
+  };
+
+  const toBaseCurrency = (amt: number) => {
+    return convertAmount({
+      amount: amt,
+      from: saleCurrency,
+      to: baseCurrency,
+      rates: { exchange_rate_ars: rateArs, exchange_rate_usd: rateUsd },
+    });
+  };
+
+  const activeDiscount = toActiveCurrency(discount);
+  const activeMaxDiscount = toActiveCurrency(maxDiscount);
+  const activeSubtotal = toActiveCurrency(subtotal);
+  const activeChargeAmount = toActiveCurrency(chargeAmount);
+
+  const handleActiveDiscountAmountChange = (amtInActive: number) => {
+    const amtInBase = toBaseCurrency(amtInActive);
+    handleAmountChange(amtInBase);
+  };
+
+  const handleActiveChargeChange = (amtInActive: number) => {
+    const amtInBase = toBaseCurrency(amtInActive);
+    setAdditionalCharge(Math.max(0, amtInBase));
+  };
+
   // Totales según si la base del negocio es ARS o BRL
   const displayTotalArs = baseCurrency === "ARS" ? displayTotal : Math.round(displayTotal * rateArs);
   const displayTotalBrl = baseCurrency === "ARS" ? Math.round((displayTotal / rateArs) * 100) / 100 : displayTotal;
@@ -4633,7 +4668,7 @@ function SalesPOSConfigured({
                                   {parent?.barcode ? ` · Código: ${parent.barcode}` : ""}
                                 </p>
                                 <p className="text-xs font-semibold text-primary mt-1">
-                                  {money(item.unitPrice)} c/u
+                                  {formatCurr(toActiveCurrency(item.unitPrice))} c/u
                                   <span className="ml-2 text-[11px] font-normal text-muted-foreground">
                                     (Stock disponible: {remainingStock} unidades)
                                   </span>
@@ -4686,7 +4721,7 @@ function SalesPOSConfigured({
 
                               <div className="text-right min-w-[90px]">
                                 <p className="text-[11px] text-muted-foreground">Subtotal</p>
-                                <p className="text-base font-black text-foreground">{money(itemTotal)}</p>
+                                <p className="text-base font-black text-foreground">{formatCurr(toActiveCurrency(itemTotal))}</p>
                               </div>
 
                               <button
@@ -4793,13 +4828,13 @@ function SalesPOSConfigured({
                   <span className="truncate font-medium max-w-[190px]">
                     {item.name} <strong className="text-primary">T.{item.size}</strong> × {item.quantity}
                   </span>
-                  <span className="font-mono font-bold shrink-0">{money(item.unitPrice * item.quantity)}</span>
+                  <span className="font-mono font-bold shrink-0">{formatCurr(toActiveCurrency(item.unitPrice * item.quantity))}</span>
                 </div>
               ))}
             </div>
           )}
 
-        {/* Descuento por % y margen en $ */}
+        {/* Descuento por % y margen en $ / R$ / US$ */}
         <div className="rounded-xl border border-border/80 bg-muted/20 p-3 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
@@ -4808,7 +4843,7 @@ function SalesPOSConfigured({
             </span>
             {discount > 0 && (
               <span className="text-xs font-bold text-emerald-600 font-mono">
-                − {money(discount)} {discountPercent > 0 ? `(${Number(discountPercent).toFixed(1)}%)` : ""}
+                − {formatCurr(activeDiscount)} {discountPercent > 0 ? `(${Number(discountPercent).toFixed(1)}%)` : ""}
               </span>
             )}
           </div>
@@ -4830,17 +4865,18 @@ function SalesPOSConfigured({
               </div>
             </label>
             <label className="text-[11px] font-semibold text-muted-foreground block">
-              Margen / Monto ($)
+              Margen / Monto ({currencySymbol})
               <div className="relative mt-1">
-                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">$</span>
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">{currencySymbol}</span>
                 <Input
                   type="number"
                   min={0}
-                  max={maxDiscountPercent > 0 ? maxDiscount : subtotal}
-                  value={discount || ""}
-                  onChange={e => handleAmountChange(Number(e.target.value) || 0)}
+                  max={maxDiscountPercent > 0 ? activeMaxDiscount : activeSubtotal}
+                  step="any"
+                  value={activeDiscount ? activeDiscount : ""}
+                  onChange={e => handleActiveDiscountAmountChange(Number(e.target.value) || 0)}
                   placeholder="0"
-                  className="pl-6 h-9 text-xs font-semibold"
+                  className="pl-9 h-9 text-xs font-semibold"
                 />
               </div>
             </label>
@@ -4880,24 +4916,25 @@ function SalesPOSConfigured({
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
               <Plus className="size-3.5 text-primary" />
-              Cargo adicional
+              Cargo adicional ({currencySymbol})
             </span>
-            {chargeAmount > 0 && (
+            {activeChargeAmount > 0 && (
               <span className="text-xs font-bold text-blue-600 font-mono">
-                + {money(chargeAmount)}
+                + {formatCurr(activeChargeAmount)}
               </span>
             )}
           </div>
-          <div className="grid grid-cols-[115px_1fr] gap-2">
+          <div className="grid grid-cols-[125px_1fr] gap-2">
             <div className="relative">
-              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">$</span>
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">{currencySymbol}</span>
               <Input
                 type="number"
                 min={0}
-                value={additionalCharge || ""}
-                onChange={e => setAdditionalCharge(Math.max(0, Number(e.target.value) || 0))}
+                step="any"
+                value={activeChargeAmount ? activeChargeAmount : ""}
+                onChange={e => handleActiveChargeChange(Number(e.target.value) || 0)}
                 placeholder="0"
-                className="pl-6 h-9 text-xs font-bold"
+                className="pl-9 h-9 text-xs font-bold"
               />
             </div>
             <Input
@@ -5139,14 +5176,14 @@ function SalesPOSConfigured({
         <div className="border-t pt-4 space-y-1.5 text-xs sm:text-sm">
           <div className="flex justify-between text-muted-foreground">
             <span>Subtotal mercadería</span>
-            <span className="font-mono">{money(subtotal)}</span>
+            <span className="font-mono">{formatCurr(activeSubtotal)}</span>
           </div>
           {discount > 0 && (
             <div className="flex justify-between text-emerald-600 font-semibold">
               <span>
                 Descuento {discountPercent > 0 ? `(${Number(discountPercent).toFixed(1)}%)` : ""}
               </span>
-              <span className="font-mono">− {money(discount)}</span>
+              <span className="font-mono">− {formatCurr(activeDiscount)}</span>
             </div>
           )}
           {chargeAmount > 0 && (
@@ -5154,7 +5191,7 @@ function SalesPOSConfigured({
               <span className="truncate pr-2">
                 Cargo Adicional {additionalChargeDescription ? `(${additionalChargeDescription})` : ""}
               </span>
-              <span className="font-mono shrink-0">+ {money(chargeAmount)}</span>
+              <span className="font-mono shrink-0">+ {formatCurr(activeChargeAmount)}</span>
             </div>
           )}
           {applyVat && vatCharge > 0 && (

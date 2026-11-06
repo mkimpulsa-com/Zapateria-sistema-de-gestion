@@ -1971,16 +1971,49 @@ export async function runStoreAction(body: any, uid?: string) {
       let totalArs = 0;
       let totalBrl = 0;
       let totalUsd = 0;
+      let subtotalArs = 0;
+      let subtotalBrl = 0;
+      let subtotalUsd = 0;
+      let discountArs = 0;
+      let discountBrl = 0;
+      let discountUsd = 0;
+      let additionalChargeArs = 0;
+      let additionalChargeBrl = 0;
+      let additionalChargeUsd = 0;
 
       if (baseCurrency === "BRL") {
         totalBrl = total;
         totalArs = Math.round(total * rateArs);
         totalUsd = Math.round((total / rateUsd) * 100) / 100;
+
+        subtotalBrl = subtotal;
+        subtotalArs = Math.round(subtotal * rateArs);
+        subtotalUsd = Math.round((subtotal / rateUsd) * 100) / 100;
+
+        discountBrl = discount;
+        discountArs = Math.round(discount * rateArs);
+        discountUsd = Math.round((discount / rateUsd) * 100) / 100;
+
+        additionalChargeBrl = additionalCharge;
+        additionalChargeArs = Math.round(additionalCharge * rateArs);
+        additionalChargeUsd = Math.round((additionalCharge / rateUsd) * 100) / 100;
       } else {
         // Base es ARS (predeterminada)
         totalArs = total;
         totalBrl = Math.round((total / rateArs) * 100) / 100;
         totalUsd = Math.round((totalBrl / rateUsd) * 100) / 100;
+
+        subtotalArs = subtotal;
+        subtotalBrl = Math.round((subtotal / rateArs) * 100) / 100;
+        subtotalUsd = Math.round((subtotalBrl / rateUsd) * 100) / 100;
+
+        discountArs = discount;
+        discountBrl = Math.round((discount / rateArs) * 100) / 100;
+        discountUsd = Math.round((discountBrl / rateUsd) * 100) / 100;
+
+        additionalChargeArs = additionalCharge;
+        additionalChargeBrl = Math.round((additionalCharge / rateArs) * 100) / 100;
+        additionalChargeUsd = Math.round((additionalChargeBrl / rateUsd) * 100) / 100;
       }
 
       let paidAmountBrl = 0;
@@ -2118,10 +2151,19 @@ export async function runStoreAction(body: any, uid?: string) {
         apply_vat: applyVat,
         vat_rate: applyVat ? selectedVatRate : 0,
         vat_charge: calculatedVatAmount,
-        subtotal,
-        discount,
+        subtotal: saleCurrency === "ARS" ? subtotalArs : (saleCurrency === "USD" ? subtotalUsd : subtotalBrl),
+        subtotal_ars: subtotalArs,
+        subtotal_brl: subtotalBrl,
+        subtotal_usd: subtotalUsd,
+        discount: saleCurrency === "ARS" ? discountArs : (saleCurrency === "USD" ? discountUsd : discountBrl),
+        discount_ars: discountArs,
+        discount_brl: discountBrl,
+        discount_usd: discountUsd,
         discount_percent: Math.round(discountPercent * 100) / 100,
-        additional_charge: additionalCharge,
+        additional_charge: saleCurrency === "ARS" ? additionalChargeArs : (saleCurrency === "USD" ? additionalChargeUsd : additionalChargeBrl),
+        additional_charge_ars: additionalChargeArs,
+        additional_charge_brl: additionalChargeBrl,
+        additional_charge_usd: additionalChargeUsd,
         additional_charge_description: additionalChargeDescription,
         currency: saleCurrency,
         exchange_rate: rateArs,

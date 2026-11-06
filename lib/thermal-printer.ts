@@ -128,8 +128,8 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
   const items: any[] = Array.isArray(sale.items) ? sale.items : [];
   const totalUnits = items.reduce((acc, it) => acc + Number(it.quantity || 1), 0);
   const itemsSum = items.reduce((sum, it) => sum + Number(it.total || (Number(it.quantity || 1) * Number(it.unit_price || 0))), 0);
-  const discount = Number(sale.discount || 0);
-  const additionalCharge = Number(sale.additional_charge || 0);
+  const brlRate = Number(sale.exchange_rate_ars || sale.exchange_rate) || 250;
+  const usdRate = Number(sale.exchange_rate_usd) || 5.70;
 
   // Resolver total real según la moneda de la venta y asegurar compatibilidad con ventas existentes
   let total = Number(sale.total || 0);
@@ -140,11 +140,26 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
   } else if (curr === "BRL" && sale.total_brl !== undefined) {
     total = Number(sale.total_brl);
   } else if (curr === "ARS" && itemsSum > 0 && total > 0 && itemsSum >= total * 5) {
-    // Si el total histórico guardado correspondía a BRL/USD por el template original
-    total = Math.max(0, itemsSum - discount + additionalCharge);
+    total = Math.max(0, itemsSum - Number(sale.discount || 0) + Number(sale.additional_charge || 0));
   }
 
-  const subtotal = Number(sale.subtotal !== undefined && sale.subtotal >= total ? sale.subtotal : (itemsSum > 0 ? itemsSum : total));
+  const discount = curr === "BRL"
+    ? (sale.discount_brl !== undefined ? Number(sale.discount_brl) : (sale.discount && Number(sale.discount) > total * 2 ? Math.round((Number(sale.discount) / brlRate) * 100) / 100 : Number(sale.discount || 0)))
+    : curr === "USD"
+    ? (sale.discount_usd !== undefined ? Number(sale.discount_usd) : (sale.discount && Number(sale.discount) > total * 2 ? Math.round((Number(sale.discount) / (brlRate * usdRate)) * 100) / 100 : Number(sale.discount || 0)))
+    : Number(sale.discount_ars || sale.discount || 0);
+
+  const additionalCharge = curr === "BRL"
+    ? (sale.additional_charge_brl !== undefined ? Number(sale.additional_charge_brl) : (sale.additional_charge && Number(sale.additional_charge) > total * 2 ? Math.round((Number(sale.additional_charge) / brlRate) * 100) / 100 : Number(sale.additional_charge || 0)))
+    : curr === "USD"
+    ? (sale.additional_charge_usd !== undefined ? Number(sale.additional_charge_usd) : (sale.additional_charge && Number(sale.additional_charge) > total * 2 ? Math.round((Number(sale.additional_charge) / (brlRate * usdRate)) * 100) / 100 : Number(sale.additional_charge || 0)))
+    : Number(sale.additional_charge_ars || sale.additional_charge || 0);
+
+  const subtotal = curr === "BRL"
+    ? (sale.subtotal_brl !== undefined ? Number(sale.subtotal_brl) : (sale.subtotal && Number(sale.subtotal) > total * 2 ? Math.round((Number(sale.subtotal) / brlRate) * 100) / 100 : (itemsSum > 0 ? itemsSum : total)))
+    : curr === "USD"
+    ? (sale.subtotal_usd !== undefined ? Number(sale.subtotal_usd) : (sale.subtotal && Number(sale.subtotal) > total * 2 ? Math.round((Number(sale.subtotal) / (brlRate * usdRate)) * 100) / 100 : (itemsSum > 0 ? itemsSum : total)))
+    : Number(sale.subtotal_ars || sale.subtotal || total);
 
   let paidAmount = Number(sale.paid_amount !== undefined ? sale.paid_amount : total);
   if (curr === "ARS" && sale.paid_amount_ars !== undefined) {
