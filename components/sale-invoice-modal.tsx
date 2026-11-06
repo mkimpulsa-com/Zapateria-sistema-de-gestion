@@ -148,6 +148,7 @@ export function SaleInvoiceModal({
   const isArs = curr === "ARS";
   const brlRate = Number(sale.exchange_rate_ars || sale.exchange_rate) || 250;
   const usdRate = Number(sale.exchange_rate_usd) || 5.70;
+  const formatCurr = (val: number) => formatMoney(val, curr);
 
   // Totales en las 3 monedas
   const totalBrl = sale.total_brl !== undefined
@@ -203,12 +204,44 @@ export function SaleInvoiceModal({
   const debtUsd = Math.max(0, Math.round((totalUsd - paidUsd) * 100) / 100);
   const debtCur = isBrl ? debtBrl : isUsd ? debtUsd : debtArs;
 
+  // Resolución multi-moneda de los ítems de la venta
+  const resolveItem = (item: any) => {
+    const qty = Number(item.quantity || 1);
+    const rawUnitPrice = Number(item.unit_price || 0);
+    const rawTotal = Number(item.total || (qty * rawUnitPrice));
+
+    if (isBrl) {
+      const itemTotal = item.total_brl !== undefined
+        ? Number(item.total_brl)
+        : (rawTotal > 0 && brlRate > 0 ? Math.round((rawTotal / brlRate) * 100) / 100 : rawTotal);
+      const unitPrice = item.unit_price_brl !== undefined
+        ? Number(item.unit_price_brl)
+        : (rawUnitPrice > 0 && brlRate > 0 ? Math.round((rawUnitPrice / brlRate) * 100) / 100 : (qty > 0 ? Math.round((itemTotal / qty) * 100) / 100 : rawUnitPrice));
+      return { qty, unitPrice, itemTotal };
+    }
+
+    if (isUsd) {
+      const itemTotal = item.total_usd !== undefined
+        ? Number(item.total_usd)
+        : (rawTotal > 0 && brlRate > 0 && usdRate > 0 ? Math.round((rawTotal / (brlRate * usdRate)) * 100) / 100 : rawTotal);
+      const unitPrice = item.unit_price_usd !== undefined
+        ? Number(item.unit_price_usd)
+        : (rawUnitPrice > 0 && brlRate > 0 && usdRate > 0 ? Math.round((rawUnitPrice / (brlRate * usdRate)) * 100) / 100 : (qty > 0 ? Math.round((itemTotal / qty) * 100) / 100 : rawUnitPrice));
+      return { qty, unitPrice, itemTotal };
+    }
+
+    // ARS
+    const itemTotal = item.total_ars !== undefined ? Number(item.total_ars) : rawTotal;
+    const unitPrice = item.unit_price_ars !== undefined ? Number(item.unit_price_ars) : rawUnitPrice;
+    return { qty, unitPrice, itemTotal };
+  };
+
   // Fiscal & IVA amounts (discriminación fiscal)
   const netAmount = Number(sale.net_amount !== undefined ? sale.net_amount : (
     items.reduce((sum, it) => {
       const rate = Number(it.vat_rate !== undefined ? it.vat_rate : (it.vatRate !== undefined ? it.vatRate : 21));
-      const gross = Number(it.total || (Number(it.quantity || 1) * Number(it.unit_price || 0)));
-      return sum + (gross / (1 + rate / 100));
+      const { itemTotal } = resolveItem(it);
+      return sum + (itemTotal / (1 + rate / 100));
     }, 0)
   ));
   const vatAmount = Number(sale.vat_amount !== undefined ? sale.vat_amount : Math.max(0, subtotal - netAmount));
@@ -356,8 +389,10 @@ export function SaleInvoiceModal({
     const rawPhone = String(sale.customer_phone || "").replace(/[^0-9]/g, "");
     const itemsText = items
       .map(
-        (it) =>
-          `• ${it.quantity}x ${it.name} (Talle ${it.size}) - ${money(it.total || it.unit_price * it.quantity)}`
+        (it) => {
+          const { qty, itemTotal } = resolveItem(it);
+          return `• ${qty}x ${it.name}${it.size ? ` (Talle ${it.size})` : ""} - ${formatCurr(itemTotal)}`;
+        }
       )
       .join("\n");
 
@@ -719,9 +754,7 @@ export function SaleInvoiceModal({
               {/* Lista de Ítems */}
               <div className="divide-y divide-slate-100 py-1">
                 {items.map((item: any, idx: number) => {
-                  const qty = Number(item.quantity || 1);
-                  const unitPrice = Number(item.unit_price || 0);
-                  const itemTotal = Number(item.total || (qty * unitPrice));
+                  const { qty, unitPrice, itemTotal } = resolveItem(item);
                   const extra = [
                     item.size && !["Único", "Unico", "General", "Estándar"].includes(item.size) ? `Talle: ${item.size}` : null,
                     item.sku ? `Cód: ${item.sku}` : null,
@@ -1034,9 +1067,8 @@ export function SaleInvoiceModal({
                     </tr>
                   ) : (
                     items.map((item, idx) => {
+                      const { qty, unitPrice: unitGross, itemTotal: grossTotal } = resolveItem(item);
                       const rate = Number(item.vat_rate !== undefined ? item.vat_rate : (item.vatRate !== undefined ? item.vatRate : 21));
-                      const grossTotal = Number(item.total || (Number(item.quantity || 1) * Number(item.unit_price || 0)));
-                      const unitGross = Number(item.unit_price || 0);
                       const unitNet = unitGross / (1 + rate / 100);
                       const itemNetTotal = grossTotal / (1 + rate / 100);
 
@@ -1050,7 +1082,7 @@ export function SaleInvoiceModal({
                       return (
                         <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
                           <td className="py-2 px-2 text-center font-bold text-slate-900 border-r border-slate-200">
-                            {item.quantity}
+                            {qty}
                           </td>
                           <td className="py-2 px-2 text-center border-r border-slate-200 w-12 align-middle">
                             {itemImg ? (
@@ -1089,10 +1121,10 @@ export function SaleInvoiceModal({
                             )}
                           </td>
                           <td className="py-2 px-3 text-right font-mono text-slate-700 border-r border-slate-200">
-                            {money(isInvoiceA ? unitNet : unitGross)}
+                            {formatCurr(isInvoiceA ? unitNet : unitGross)}
                           </td>
                           <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
-                            {money(isInvoiceA ? itemNetTotal : grossTotal)}
+                            {formatCurr(isInvoiceA ? itemNetTotal : grossTotal)}
                           </td>
                         </tr>
                       );

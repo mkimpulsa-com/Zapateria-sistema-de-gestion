@@ -2254,6 +2254,14 @@ export async function runStoreAction(body: any, uid?: string) {
         const netUnitPrice = item.unitPrice;
         const netTotal = itemGrossTotal;
 
+        const totalArs = itemGrossTotal + itemVat;
+        const totalBrl = Math.round((totalArs / rateArs) * 100) / 100;
+        const totalUsd = Math.round((totalBrl / rateUsd) * 100) / 100;
+
+        const unitPriceArs = item.unitPrice;
+        const unitPriceBrl = Math.round((unitPriceArs / rateArs) * 100) / 100;
+        const unitPriceUsd = Math.round((unitPriceBrl / rateUsd) * 100) / 100;
+
         return {
           product_id: item.product.id,
           variant_id: item.variant.id,
@@ -2263,7 +2271,13 @@ export async function runStoreAction(body: any, uid?: string) {
           size: item.variant.size,
           quantity: item.quantity,
           unit_price: item.unitPrice,
-          total: itemGrossTotal + itemVat,
+          total: totalArs,
+          unit_price_ars: unitPriceArs,
+          unit_price_brl: unitPriceBrl,
+          unit_price_usd: unitPriceUsd,
+          total_ars: totalArs,
+          total_brl: totalBrl,
+          total_usd: totalUsd,
           vat_rate: itemVatRate,
           net_unit_price: netUnitPrice,
           net_total: netTotal,

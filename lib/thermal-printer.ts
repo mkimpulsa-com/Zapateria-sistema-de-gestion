@@ -126,10 +126,44 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
 
   const curr = (sale.currency || settings.currency || "ARS") as "ARS" | "BRL" | "USD";
   const items: any[] = Array.isArray(sale.items) ? sale.items : [];
-  const totalUnits = items.reduce((acc, it) => acc + Number(it.quantity || 1), 0);
-  const itemsSum = items.reduce((sum, it) => sum + Number(it.total || (Number(it.quantity || 1) * Number(it.unit_price || 0))), 0);
   const brlRate = Number(sale.exchange_rate_ars || sale.exchange_rate) || 250;
   const usdRate = Number(sale.exchange_rate_usd) || 5.70;
+
+  const resolvedItems = items.map((item) => {
+    const qty = Number(item.quantity || 1);
+    const rawUnitPrice = Number(item.unit_price || 0);
+    const rawTotal = Number(item.total || (qty * rawUnitPrice));
+    let itemTotal = rawTotal;
+    let unitPrice = rawUnitPrice;
+
+    if (curr === "BRL") {
+      itemTotal = item.total_brl !== undefined
+        ? Number(item.total_brl)
+        : (rawTotal > 0 && brlRate > 0 ? Math.round((rawTotal / brlRate) * 100) / 100 : rawTotal);
+      unitPrice = item.unit_price_brl !== undefined
+        ? Number(item.unit_price_brl)
+        : (rawUnitPrice > 0 && brlRate > 0 ? Math.round((rawUnitPrice / brlRate) * 100) / 100 : (qty > 0 ? Math.round((itemTotal / qty) * 100) / 100 : rawUnitPrice));
+    } else if (curr === "USD") {
+      itemTotal = item.total_usd !== undefined
+        ? Number(item.total_usd)
+        : (rawTotal > 0 && brlRate > 0 && usdRate > 0 ? Math.round((rawTotal / (brlRate * usdRate)) * 100) / 100 : rawTotal);
+      unitPrice = item.unit_price_usd !== undefined
+        ? Number(item.unit_price_usd)
+        : (rawUnitPrice > 0 && brlRate > 0 && usdRate > 0 ? Math.round((rawUnitPrice / (brlRate * usdRate)) * 100) / 100 : (qty > 0 ? Math.round((itemTotal / qty) * 100) / 100 : rawUnitPrice));
+    } else {
+      itemTotal = item.total_ars !== undefined ? Number(item.total_ars) : rawTotal;
+      unitPrice = item.unit_price_ars !== undefined ? Number(item.unit_price_ars) : rawUnitPrice;
+    }
+
+    return {
+      ...item,
+      qty,
+      unitPrice,
+      itemTotal,
+    };
+  });
+  const totalUnits = resolvedItems.reduce((acc, it) => acc + it.qty, 0);
+  const itemsSum = resolvedItems.reduce((sum, it) => sum + it.itemTotal, 0);
 
   // Resolver total real según la moneda de la venta y asegurar compatibilidad con ventas existentes
   let total = Number(sale.total || 0);
@@ -371,10 +405,10 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
     <span class="col-tot">TOTAL</span>
   </div>
 
-  ${items.map((item) => {
-    const qty = Number(item.quantity || 1);
-    const unitPrice = Number(item.unit_price || 0);
-    const itemTotal = Number(item.total || (qty * unitPrice));
+  ${resolvedItems.map((item) => {
+    const qty = item.qty;
+    const unitPrice = item.unitPrice;
+    const itemTotal = item.itemTotal;
     const name = cleanThermalText(item.name || "Articulo");
     const size = cleanThermalText(item.size || "");
     const sku = cleanThermalText(item.sku || "");
