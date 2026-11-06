@@ -326,14 +326,27 @@ export async function loadStore(uid?: string) {
       String(s.created_at) >= shiftOpenedAt
     );
     
-    // Ventas en efectivo vs otros medios (en moneda de la venta o ARS)
+    // Ventas en efectivo vs otros medios (en moneda de la venta y consolidado en ARS)
     let cashSales = 0;
     let otherSales = 0;
+    let cashSalesArs = 0;
+    let cashSalesBrl = 0;
+    let cashSalesUsd = 0;
+
     shiftSales.forEach((s: any) => {
       const amount = Number(s.paid_amount_ars !== undefined ? s.paid_amount_ars : (s.paid_amount || s.total || 0));
       const method = String(s.payment_method || "").toLowerCase();
+      const saleCur = String(s.currency || "ARS").toUpperCase();
+
       if (method.includes("efectivo")) {
         cashSales += amount;
+        if (saleCur === "BRL") {
+          cashSalesBrl += Number(s.paid_amount_brl !== undefined ? s.paid_amount_brl : (s.paid_amount || 0));
+        } else if (saleCur === "USD") {
+          cashSalesUsd += Number(s.paid_amount_usd !== undefined ? s.paid_amount_usd : (s.paid_amount || 0));
+        } else {
+          cashSalesArs += Number(s.paid_amount_ars !== undefined ? s.paid_amount_ars : amount);
+        }
       } else {
         otherSales += amount;
       }
@@ -350,7 +363,14 @@ export async function loadStore(uid?: string) {
     const cashIncomes = shiftCashMoves.filter((m: any) => m.type === "ingreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
     const cashExpenses = shiftCashMoves.filter((m: any) => m.type === "egreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
     const initialCash = Number(activeShift.initial_cash || 0);
+    const initialCashArs = Number(activeShift.initial_cash_ars !== undefined ? activeShift.initial_cash_ars : initialCash);
+    const initialCashBrl = Number(activeShift.initial_cash_brl || 0);
+    const initialCashUsd = Number(activeShift.initial_cash_usd || 0);
+
     const expectedCash = initialCash + cashSales + cashIncomes - cashExpenses;
+    const expectedCashArs = initialCashArs + cashSalesArs;
+    const expectedCashBrl = initialCashBrl + cashSalesBrl;
+    const expectedCashUsd = initialCashUsd + cashSalesUsd;
 
     activeShift.cash_sales = cashSales;
     activeShift.other_sales = otherSales;
@@ -359,6 +379,16 @@ export async function loadStore(uid?: string) {
     activeShift.cash_incomes = cashIncomes;
     activeShift.cash_expenses = cashExpenses;
     activeShift.expected_cash = expectedCash;
+
+    activeShift.cash_sales_ars = cashSalesArs;
+    activeShift.cash_sales_brl = cashSalesBrl;
+    activeShift.cash_sales_usd = cashSalesUsd;
+    activeShift.initial_cash_ars = initialCashArs;
+    activeShift.initial_cash_brl = initialCashBrl;
+    activeShift.initial_cash_usd = initialCashUsd;
+    activeShift.expected_cash_ars = expectedCashArs;
+    activeShift.expected_cash_brl = expectedCashBrl;
+    activeShift.expected_cash_usd = expectedCashUsd;
   }
 
   let categories = withId(categoriesSnap);
@@ -1373,7 +1403,18 @@ export async function runStoreAction(body: any, uid?: string) {
     const lastNumber = allShifts.reduce((max: number, s: any) => Math.max(max, Number(s.shift_number || 0)), 0);
     const nextNumber = lastNumber + 1;
 
-    const initialCash = Math.max(0, number(body.initialCash !== undefined ? body.initialCash : body.initial_cash, 0));
+    const settingsSnap = await getDoc(userSettingsDoc(userId));
+    const currentSettings = settingsSnap.data() || {};
+    const rateArs = Math.max(0.0001, Number(body.exchangeRateArs || body.exchange_rate_ars || currentSettings.exchange_rate_ars || currentSettings.exchange_rate_brl || 250));
+    const rateUsd = Math.max(0.0001, Number(body.exchangeRateUsd || body.exchange_rate_usd || currentSettings.exchange_rate_usd || 5.70));
+
+    const initialCashArs = Math.max(0, Number(body.initialCashArs !== undefined ? body.initialCashArs : body.initial_cash_ars) || 0);
+    const initialCashBrl = Math.max(0, Number(body.initialCashBrl !== undefined ? body.initialCashBrl : body.initial_cash_brl) || 0);
+    const initialCashUsd = Math.max(0, Number(body.initialCashUsd !== undefined ? body.initialCashUsd : body.initial_cash_usd) || 0);
+
+    const calculatedTotalArs = initialCashArs + Math.round(initialCashBrl * rateArs) + Math.round(initialCashUsd * rateUsd * rateArs);
+    const initialCash = body.initialCash !== undefined ? Number(body.initialCash) : (body.initial_cash !== undefined ? Number(body.initial_cash) : calculatedTotalArs);
+
     const cashierName = text(body.cashierName || body.cashier_name, "Administrador");
     const cashierId = body.cashierId ? String(body.cashierId) : null;
     const openingNotes = text(body.openingNotes || body.opening_notes, "");
@@ -1386,17 +1427,58 @@ export async function runStoreAction(body: any, uid?: string) {
       opened_by_id: cashierId,
       opened_by_name: cashierName,
       initial_cash: initialCash,
+      initial_cash_ars: initialCashArs,
+      initial_cash_brl: initialCashBrl,
+      initial_cash_usd: initialCashUsd,
+      exchange_rate_ars: rateArs,
+      exchange_rate_usd: rateUsd,
       opening_notes: openingNotes,
       created_at: time,
       updated_at: time,
     });
 
-    // Registrar en cashMovements el fondo inicial si es mayor a cero
-    if (initialCash > 0) {
+    // Registrar en cashMovements los fondos iniciales discriminados por moneda
+    if (initialCashArs > 0) {
+      await addDoc(userCol("cashMovements", userId), {
+        type: "ingreso",
+        category: "Apertura de Caja",
+        amount: initialCashArs,
+        currency: "ARS",
+        description: `Fondo inicial en efectivo ($ ARS) · Turno #${nextNumber}`,
+        reference: `APERTURA-#${nextNumber}`,
+        created_at: time,
+      });
+    }
+    if (initialCashBrl > 0) {
+      await addDoc(userCol("cashMovements", userId), {
+        type: "ingreso",
+        category: "Apertura de Caja",
+        amount: Math.round(initialCashBrl * rateArs),
+        amount_brl: initialCashBrl,
+        currency: "BRL",
+        description: `Fondo inicial en efectivo (R$ ${initialCashBrl.toFixed(2)} BRL) · Turno #${nextNumber}`,
+        reference: `APERTURA-#${nextNumber}`,
+        created_at: time,
+      });
+    }
+    if (initialCashUsd > 0) {
+      await addDoc(userCol("cashMovements", userId), {
+        type: "ingreso",
+        category: "Apertura de Caja",
+        amount: Math.round(initialCashUsd * rateUsd * rateArs),
+        amount_usd: initialCashUsd,
+        currency: "USD",
+        description: `Fondo inicial en efectivo (US$ ${initialCashUsd.toFixed(2)} USD) · Turno #${nextNumber}`,
+        reference: `APERTURA-#${nextNumber}`,
+        created_at: time,
+      });
+    }
+    if (initialCash > 0 && initialCashArs === 0 && initialCashBrl === 0 && initialCashUsd === 0) {
       await addDoc(userCol("cashMovements", userId), {
         type: "ingreso",
         category: "Apertura de Caja",
         amount: initialCash,
+        currency: "ARS",
         description: `Fondo inicial de cambio · Turno #${nextNumber}`,
         reference: `APERTURA-#${nextNumber}`,
         created_at: time,
@@ -1429,11 +1511,24 @@ export async function runStoreAction(body: any, uid?: string) {
 
     let cashSales = 0;
     let otherSales = 0;
+    let cashSalesArs = 0;
+    let cashSalesBrl = 0;
+    let cashSalesUsd = 0;
+
     shiftSales.forEach((s: any) => {
       const amount = Number(s.paid_amount_ars !== undefined ? s.paid_amount_ars : (s.paid_amount || s.total || 0));
       const method = String(s.payment_method || "").toLowerCase();
+      const saleCur = String(s.currency || "ARS").toUpperCase();
+
       if (method.includes("efectivo")) {
         cashSales += amount;
+        if (saleCur === "BRL") {
+          cashSalesBrl += Number(s.paid_amount_brl !== undefined ? s.paid_amount_brl : (s.paid_amount || 0));
+        } else if (saleCur === "USD") {
+          cashSalesUsd += Number(s.paid_amount_usd !== undefined ? s.paid_amount_usd : (s.paid_amount || 0));
+        } else {
+          cashSalesArs += Number(s.paid_amount_ars !== undefined ? s.paid_amount_ars : amount);
+        }
       } else {
         otherSales += amount;
       }
@@ -1453,16 +1548,46 @@ export async function runStoreAction(body: any, uid?: string) {
     const cashExpenses = shiftMoves.filter((m: any) => m.type === "egreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
 
     const initialCash = Number(shiftData.initial_cash || 0);
-    const expectedCash = initialCash + cashSales + cashIncomes - cashExpenses;
+    const initialCashArs = Number(shiftData.initial_cash_ars !== undefined ? shiftData.initial_cash_ars : initialCash);
+    const initialCashBrl = Number(shiftData.initial_cash_brl || 0);
+    const initialCashUsd = Number(shiftData.initial_cash_usd || 0);
 
-    const actualCash = number(body.actualCash !== undefined ? body.actualCash : body.actual_cash, expectedCash);
+    const rateArs = Math.max(0.0001, Number(shiftData.exchange_rate_ars || 250));
+    const rateUsd = Math.max(0.0001, Number(shiftData.exchange_rate_usd || 5.70));
+
+    const expectedCash = initialCash + cashSales + cashIncomes - cashExpenses;
+    const expectedCashArs = initialCashArs + cashSalesArs;
+    const expectedCashBrl = initialCashBrl + cashSalesBrl;
+    const expectedCashUsd = initialCashUsd + cashSalesUsd;
+
+    const actualCashArs = body.actualCashArs !== undefined ? Number(body.actualCashArs) : undefined;
+    const actualCashBrl = body.actualCashBrl !== undefined ? Number(body.actualCashBrl) : undefined;
+    const actualCashUsd = body.actualCashUsd !== undefined ? Number(body.actualCashUsd) : undefined;
+
+    let actualCash = number(body.actualCash !== undefined ? body.actualCash : body.actual_cash, expectedCash);
+    if (actualCashArs !== undefined || actualCashBrl !== undefined || actualCashUsd !== undefined) {
+      const aArs = actualCashArs || 0;
+      const aBrl = actualCashBrl || 0;
+      const aUsd = actualCashUsd || 0;
+      actualCash = Math.round(aArs + (aBrl * rateArs) + (aUsd * rateUsd * rateArs));
+    }
+
     const difference = Math.round((actualCash - expectedCash) * 100) / 100;
     const withdrawnCash = Math.max(0, number(body.withdrawnCash !== undefined ? body.withdrawnCash : body.withdrawn_cash, 0));
     const retainedCash = Math.max(0, number(body.retainedCash !== undefined ? body.retainedCash : body.retained_cash, Math.max(0, actualCash - withdrawnCash)));
+
+    const retainedCashArs = body.retainedCashArs !== undefined ? Number(body.retainedCashArs) : undefined;
+    const retainedCashBrl = body.retainedCashBrl !== undefined ? Number(body.retainedCashBrl) : undefined;
+    const retainedCashUsd = body.retainedCashUsd !== undefined ? Number(body.retainedCashUsd) : undefined;
+
+    const withdrawnCashArs = body.withdrawnCashArs !== undefined ? Number(body.withdrawnCashArs) : undefined;
+    const withdrawnCashBrl = body.withdrawnCashBrl !== undefined ? Number(body.withdrawnCashBrl) : undefined;
+    const withdrawnCashUsd = body.withdrawnCashUsd !== undefined ? Number(body.withdrawnCashUsd) : undefined;
+
     const closingNotes = text(body.closingNotes || body.closing_notes, "");
     const cashierName = text(body.cashierName || body.cashier_name, "Administrador");
 
-    const closedData = {
+    const closedData: any = {
       status: "closed",
       closed_at: time,
       closed_by_name: cashierName,
@@ -1479,8 +1604,26 @@ export async function runStoreAction(body: any, uid?: string) {
       withdrawn_cash: withdrawnCash,
       retained_cash: retainedCash,
       closing_notes: closingNotes,
+      cash_sales_ars: cashSalesArs,
+      cash_sales_brl: cashSalesBrl,
+      cash_sales_usd: cashSalesUsd,
+      expected_cash_ars: expectedCashArs,
+      expected_cash_brl: expectedCashBrl,
+      expected_cash_usd: expectedCashUsd,
       updated_at: time,
     };
+
+    if (actualCashArs !== undefined) closedData.actual_cash_ars = actualCashArs;
+    if (actualCashBrl !== undefined) closedData.actual_cash_brl = actualCashBrl;
+    if (actualCashUsd !== undefined) closedData.actual_cash_usd = actualCashUsd;
+
+    if (retainedCashArs !== undefined) closedData.retained_cash_ars = retainedCashArs;
+    if (retainedCashBrl !== undefined) closedData.retained_cash_brl = retainedCashBrl;
+    if (retainedCashUsd !== undefined) closedData.retained_cash_usd = retainedCashUsd;
+
+    if (withdrawnCashArs !== undefined) closedData.withdrawn_cash_ars = withdrawnCashArs;
+    if (withdrawnCashBrl !== undefined) closedData.withdrawn_cash_brl = withdrawnCashBrl;
+    if (withdrawnCashUsd !== undefined) closedData.withdrawn_cash_usd = withdrawnCashUsd;
 
     await updateDoc(shiftDocRef, closedData);
 

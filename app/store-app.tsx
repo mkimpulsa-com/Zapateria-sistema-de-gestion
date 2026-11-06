@@ -1174,6 +1174,7 @@ export default function StoreApp({
       }}
       lastClosedShift={(data?.cashShifts || []).find((s: any) => s.status === "closed")}
       defaultCashierName={data?.staff?.find((s: any) => s.uid === uid)?.name || "Administrador"}
+      settings={data?.settings}
     />
     <CloseCashShiftModal
       open={closeShiftModal}
