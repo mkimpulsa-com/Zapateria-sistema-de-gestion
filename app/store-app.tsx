@@ -189,6 +189,7 @@ export default function StoreApp({
   const [newOrderAlert, setNewOrderAlert] = useState<StoreOrder | null>(null);
   const initialOrdersLoadedRef = useRef(false);
   const knownOrderIdsRef = useRef<Set<string>>(new Set());
+  const lastScanProcessedRef = useRef<{ code: string; time: number }>({ code: "", time: 0 });
 
   const [mounted, setMounted] = useState(false);
   const handleSetDark = (nextDark: boolean) => {
@@ -354,7 +355,7 @@ export default function StoreApp({
         return;
       }
 
-      // Detección automática de lector de código de barras USB (ignorar si está creando o editando producto)
+      // Detección automática de lector de código de barras USB / Bluetooth
       if (modal === "product" || Boolean(editingProduct)) {
         return;
       }
@@ -362,20 +363,23 @@ export default function StoreApp({
       const isInput = ["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName || "");
       const isScannerInput = (e.target as HTMLElement)?.id === "pos-scan-input";
 
-      if (e.key === "Enter") {
-        if (scanBuffer.length >= 8 && now - lastKeyTime < 250) {
+      // Si el lector envía Enter o Tab tras una ráfaga de caracteres
+      if (e.key === "Enter" || e.key === "Tab") {
+        if (scanBuffer.length >= 2 && now - lastKeyTime < 350) {
           const codeToScan = scanBuffer;
           scanBuffer = "";
           if (section !== "ventas") setSection("ventas");
           scanProduct(codeToScan);
           e.preventDefault();
+          e.stopPropagation();
           return;
         }
         scanBuffer = "";
       } else if (Boolean(e.key) && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
         if (!isInput || isScannerInput) {
           const elapsed = now - lastKeyTime;
-          if (elapsed > 70) {
+          // Permitir hasta 140ms de cadencia para lectores inalámbricos / Bluetooth
+          if (elapsed > 140) {
             scanBuffer = e.key;
           } else {
             scanBuffer += e.key;
@@ -547,7 +551,7 @@ export default function StoreApp({
       const max=allowNegative?9999:v.stock;
       return found?c.map(i=>i.variantId===v.id?{...i,quantity:Math.min(i.quantity+1,max),max,unitPrice:price}:i):[...c,{productId:p.id,variantId:v.id,name:p.name,size:v.size,quantity:1,unitPrice:price,max}];
     });
-    setToast(`${p.name} · talle ${v.size}`);
+    setToast(v.size && v.size !== "Único" && v.size !== "U" ? `✓ ${p.name} (${v.size})` : `✓ ${p.name} agregado`);
   };
 
   const handleChannelChange = (newChannel: "minorista" | "mayorista") => {
@@ -674,39 +678,81 @@ export default function StoreApp({
     setScan("");
     if (!value) return;
 
-    // 1. Coincidencia inteligente por código de barras (EAN-13, 12 vs 13 dígitos, UPC) o SKU
-    let p = data?.products.find(p => isBarcodeMatch(p.barcode, value) || p.sku.toLowerCase() === value.toLowerCase());
+    const now = Date.now();
+    // Prevenir doble disparo si tanto el buffer global como el onKeyDown procesan el mismo Enter
+    if (value === lastScanProcessedRef.current.code && now - lastScanProcessedRef.current.time < 350) {
+      return;
+    }
+    lastScanProcessedRef.current = { code: value, time: now };
+
+    const valueLower = value.toLowerCase();
+
+    // 1. Coincidencia inteligente por código de barras (EAN-13, 12 vs 13 dígitos, UPC, variantes) o SKU
+    let matchedVariant: any = null;
+    let p = data?.products.find(p => {
+      if (isBarcodeMatch(p.barcode, value)) return true;
+      if (String(p.sku || "").trim().toLowerCase() === valueLower) return true;
+      if (Array.isArray(p.variants)) {
+        const vMatch = p.variants.find((v: any) => isBarcodeMatch(v.barcode, value));
+        if (vMatch) {
+          matchedVariant = vMatch;
+          return true;
+        }
+      }
+      return false;
+    });
+
     if (!p) {
+      // Coincidencia flexible si el término es unívoco
       const matches = (data?.products || []).filter(item =>
         isBarcodeMatch(item.barcode, value) ||
-        [item.name, item.sku, item.barcode, item.brand].join(" ").toLowerCase().includes(value.toLowerCase())
+        String(item.sku || "").trim().toLowerCase() === valueLower ||
+        [item.name, item.sku, item.barcode, item.brand, item.category].join(" ").toLowerCase().includes(valueLower)
       );
       if (matches.length === 1) {
         p = matches[0];
       }
     }
-    const v = p?.variants.find(v => v.stock > 0) || (data?.settings?.allow_negative_stock ? p?.variants[0] : undefined);
-    if (p && v) {
-      addVariant(p, v);
-      if (data?.settings?.scan_sound) {
-        try {
-          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          const ctx = new AudioContextClass();
-          const oscillator = ctx.createOscillator();
-          const gain = ctx.createGain();
-          oscillator.frequency.value = 880;
-          gain.gain.value = 0.055;
-          oscillator.connect(gain);
-          gain.connect(ctx.destination);
-          oscillator.start();
-          oscillator.stop(ctx.currentTime + 0.09);
-        } catch {}
+
+    if (p) {
+      const allowNegative = Boolean(data?.settings?.allow_negative_stock);
+      const v =
+        matchedVariant ||
+        p.variants.find(v => v.stock > 0) ||
+        (allowNegative ? p.variants[0] : (p.variants.length === 1 ? p.variants[0] : p.variants.find(v => v.stock > 0)));
+
+      if (v) {
+        if (v.stock <= 0 && !allowNegative) {
+          setToast(`El producto "${p.name}" figura con stock 0 (podés habilitar ventas sin stock en Configuración)`);
+          return;
+        }
+        addVariant(p, v);
+        if (data?.settings?.scan_sound) {
+          try {
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            const ctx = new AudioContextClass();
+            const oscillator = ctx.createOscillator();
+            const gain = ctx.createGain();
+            oscillator.frequency.value = 880;
+            gain.gain.value = 0.055;
+            oscillator.connect(gain);
+            gain.connect(ctx.destination);
+            oscillator.start();
+            oscillator.stop(ctx.currentTime + 0.09);
+          } catch {}
+        }
+      } else {
+        setToast(`El producto "${p.name}" no tiene variantes con stock disponible`);
       }
-    } else if (p && !v) {
-      setToast(`El producto "${p.name}" no tiene variantes con stock disponible`);
     } else {
-      setToast(`Código "${value}" no encontrado`);
+      setToast(`Código "${value}" no encontrado en el catálogo`);
     }
+
+    // Re-enfocar el input del mostrador para escaneo continuo ultra rápido
+    setTimeout(() => {
+      const input = document.getElementById("pos-scan-input") as HTMLInputElement;
+      input?.focus();
+    }, 40);
   };
   const closeSale=async(paidAmountOverride?:number, options?: { discount?: number; discountPercent?: number; additionalCharge?: number; additionalChargeDescription?: string; currency?: "BRL" | "ARS" | "USD" | string; exchangeRate?: number; exchangeRateArs?: number; exchangeRateUsd?: number; invoiceType?: string; applyVat?: boolean; vatRate?: number; vatAmount?: number })=>{
     const finalDiscount = options?.discount !== undefined ? options.discount : discount;
@@ -4152,6 +4198,9 @@ function SalesPOSConfigured({
   const allMatchingProducts = useMemo(() => {
     if (!searchTrim) return [];
     return (data.products || []).filter((p: Product) =>
+      isBarcodeMatch(p.barcode, searchTrim) ||
+      String(p.sku || "").trim().toLowerCase() === searchTrim ||
+      (Array.isArray(p.variants) && p.variants.some((v: any) => isBarcodeMatch(v.barcode, searchTrim))) ||
       [p.name, p.sku, p.barcode, p.brand, p.category, p.color].join(" ").toLowerCase().includes(searchTrim)
     );
   }, [data.products, searchTrim]);
@@ -4214,8 +4263,20 @@ function SalesPOSConfigured({
           className="h-12 pl-10 pr-9 text-sm"
           placeholder="Escaneá con lector USB/Bluetooth o escribí código, modelo, marca... [F2]"
           value={scan}
-          onChange={e => setScan(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && scanProduct()}
+          onChange={e => {
+            const val = e.target.value;
+            if (val.includes("\n") || val.includes("\r") || val.includes("\t")) {
+              scanProduct(val);
+            } else {
+              setScan(val);
+            }
+          }}
+          onKeyDown={e => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              scanProduct(scan);
+            }
+          }}
         />
         {scan && (
           <button
@@ -4304,15 +4365,28 @@ function SalesPOSConfigured({
                   {allMatchingProducts.length} {allMatchingProducts.length === 1 ? "resultado" : "resultados"}
                 </Badge>
               </div>
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={() => setScan("")}
-                className="text-xs h-7 gap-1 text-muted-foreground hover:text-foreground"
-              >
-                <X className="size-3.5" />
-                Cerrar búsqueda
-              </Button>
+              <div className="flex items-center gap-2 flex-wrap">
+                {allMatchingProducts.length === 1 && (
+                  <Button
+                    size="sm"
+                    onClick={() => scanProduct(scan)}
+                    className="h-7 px-2.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white gap-1 rounded-lg shadow-2xs"
+                    title="Agregar este producto directamente al carrito [Enter]"
+                  >
+                    <Check className="size-3.5 stroke-[3]" />
+                    Agregar a venta [Enter]
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => setScan("")}
+                  className="text-xs h-7 gap-1 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="size-3.5" />
+                  Cerrar búsqueda
+                </Button>
+              </div>
             </div>
 
             {allMatchingProducts.length === 0 ? (
@@ -4354,13 +4428,13 @@ function SalesPOSConfigured({
                         </div>
                       </div>
                       <div>
-                        {p.variants.length === 1 && ["Único", "Unico", "General", "Estándar"].includes(p.variants[0].size) ? (
+                        {p.variants.length === 1 ? (
                           <Button
                             className={`w-full h-8 text-xs font-bold gap-1 rounded-xl text-white ${channel === "mayorista" ? "bg-orange-600 hover:bg-orange-700" : "bg-primary hover:bg-primary/90"}`}
                             disabled={!allowNegative && !p.variants[0].stock}
                             onClick={() => addVariant(p, p.variants[0])}
                           >
-                            <Plus className="size-3.5" /> Agregar (+1) · {p.variants[0].stock} u.
+                            <Plus className="size-3.5" /> Agregar (+1) · {p.variants[0].size && !["Único", "Unico", "General", "Estándar"].includes(p.variants[0].size) ? `${p.variants[0].size} · ` : ""}{p.variants[0].stock} u.
                           </Button>
                         ) : (
                           <>
@@ -4453,13 +4527,13 @@ function SalesPOSConfigured({
                       </div>
                     </div>
                     <div>
-                      {p.variants.length === 1 && ["Único", "Unico", "General", "Estándar"].includes(p.variants[0].size) ? (
+                      {p.variants.length === 1 ? (
                         <Button
                           className={`w-full h-8 text-xs font-bold gap-1 rounded-xl text-white ${channel === "mayorista" ? "bg-orange-600 hover:bg-orange-700" : "bg-primary hover:bg-primary/90"}`}
                           disabled={!allowNegative && !p.variants[0].stock}
                           onClick={() => addVariant(p, p.variants[0])}
                         >
-                          <Plus className="size-3.5" /> Agregar al carrito · {p.variants[0].stock} u.
+                          <Plus className="size-3.5" /> Agregar al carrito · {p.variants[0].size && !["Único", "Unico", "General", "Estándar"].includes(p.variants[0].size) ? `${p.variants[0].size} · ` : ""}{p.variants[0].stock} u.
                         </Button>
                       ) : (
                         <>

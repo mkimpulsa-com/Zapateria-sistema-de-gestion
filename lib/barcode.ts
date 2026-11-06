@@ -25,6 +25,12 @@ export function cleanBarcodeScan(rawInput: string | number | null | undefined): 
   // Eliminar prefijos de simbología AIM (ej: ]E0 para EAN-13, ]C1 para Code 128)
   clean = clean.replace(/^\][A-Za-z0-9]{2,3}/, "");
 
+  // Eliminar comillas externas que suelen quedar de archivos CSV / Excel
+  clean = clean.replace(/^["']|["']$/g, "");
+
+  // Eliminar sufijo .0 o .00 común en números exportados desde Excel (ej. 7798184680424.0)
+  clean = clean.replace(/\.0+$/, "");
+
   // Eliminar retornos de carro, saltos de línea, tabulaciones y caracteres de control ASCII (0x00 a 0x1F y 0x7F a 0x9F)
   clean = clean.replace(/[\r\n\t\f\v]/g, "");
   clean = clean.replace(/[\x00-\x1F\x7F-\x9F]/g, "");
@@ -125,13 +131,27 @@ export function isBarcodeMatch(
   storedCode: string | number | null | undefined,
   scannedCode: string | number | null | undefined
 ): boolean {
-  const stored = cleanBarcodeScan(storedCode);
-  const scanned = cleanBarcodeScan(scannedCode);
+  let stored = cleanBarcodeScan(storedCode);
+  let scanned = cleanBarcodeScan(scannedCode);
 
   if (!stored || !scanned) return false;
 
   // 1. Coincidencia exacta o insensible a mayúsculas
   if (stored === scanned || stored.toLowerCase() === scanned.toLowerCase()) {
+    return true;
+  }
+
+  // Quitar sufijos .0 y volver a comparar
+  stored = stored.replace(/\.0+$/, "");
+  scanned = scanned.replace(/\.0+$/, "");
+  if (stored.toLowerCase() === scanned.toLowerCase()) {
+    return true;
+  }
+
+  // Quitar espacios internos o guiones (ej. "779 8184 680424" vs "7798184680424")
+  const storedNoSpaces = stored.replace(/[\s\-_]/g, "");
+  const scannedNoSpaces = scanned.replace(/[\s\-_]/g, "");
+  if (storedNoSpaces.toLowerCase() === scannedNoSpaces.toLowerCase()) {
     return true;
   }
 
@@ -142,6 +162,13 @@ export function isBarcodeMatch(
   if (storedDigits.length > 0 && scannedDigits.length > 0) {
     // Si ambos dígitos coinciden exactamente
     if (storedDigits === scannedDigits) return true;
+
+    // Coincidencia ignorando ceros a la izquierda (ej: "000000057991" vs "57991")
+    const storedNoZeroes = storedDigits.replace(/^0+/, "");
+    const scannedNoZeroes = scannedDigits.replace(/^0+/, "");
+    if (storedNoZeroes.length > 0 && storedNoZeroes === scannedNoZeroes) {
+      return true;
+    }
 
     // Discrepancia 12 vs 13 dígitos:
     // Caso A: Scanned es 13 dígitos y Stored es 12 dígitos
@@ -162,6 +189,10 @@ export function isBarcodeMatch(
     if (storedDigits.length === 13 && scannedDigits.length === 13) {
       if (storedDigits.slice(0, 12) === scannedDigits.slice(0, 12)) return true;
     }
+
+    // Caso D: Códigos EAN-8 vs EAN-13 con ceros
+    if (scannedDigits.length === 8 && storedDigits.endsWith(scannedDigits)) return true;
+    if (storedDigits.length === 8 && scannedDigits.endsWith(storedDigits)) return true;
   }
 
   return false;
