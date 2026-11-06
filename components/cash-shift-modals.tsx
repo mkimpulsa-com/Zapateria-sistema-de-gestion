@@ -805,7 +805,7 @@ export function CloseCashShiftModal({
             </button>
 
             {showSalesList && (
-              <div className="border-t divide-y divide-border/50 max-h-48 overflow-y-auto bg-muted/10">
+              <div className="border-t divide-y divide-border/60 max-h-60 overflow-y-auto bg-muted/10">
                 {shiftSales.length === 0 ? (
                   <p className="text-center py-4 text-xs text-muted-foreground italic">
                     No hay ventas registradas en este turno.
@@ -819,9 +819,7 @@ export function CloseCashShiftModal({
                       : (sale.paid_amount_ars ?? sale.paid_amount ?? sale.total)
                     );
                     const isCash = String(sale.payment_method || "Efectivo").toLowerCase().includes("efectivo");
-                    const itemsSummary = (sale.items || [])
-                      .map((it: any) => `${it.quantity || 1}x ${it.name}`)
-                      .join(", ");
+                    const items: any[] = Array.isArray(sale.items) ? sale.items : [];
                     const timeStr = sale.created_at
                       ? new Date(sale.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
                       : "";
@@ -829,9 +827,10 @@ export function CloseCashShiftModal({
                     return (
                       <div
                         key={sale.id}
-                        className="px-3 py-2 text-xs flex items-center justify-between gap-3 hover:bg-background/80 transition-colors"
+                        className="p-3 text-xs space-y-2 hover:bg-background/80 transition-colors"
                       >
-                        <div className="min-w-0 flex-1 space-y-0.5">
+                        {/* Cabecera del Comprobante */}
+                        <div className="flex items-center justify-between gap-2 border-b border-border/40 pb-1.5">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-mono font-bold text-foreground">
                               {sale.receipt_no || "Ticket"}
@@ -841,27 +840,53 @@ export function CloseCashShiftModal({
                                 · {timeStr} hs
                               </span>
                             )}
-                            <span className={`text-[9.5px] px-1.5 py-0.2 rounded font-semibold border ${
+                            <span className={`text-[9.5px] px-1.5 py-0.5 rounded font-semibold border ${
                               isCash 
                                 ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
                                 : "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30"
                             }`}>
                               {sale.payment_method || "Efectivo"}
                             </span>
+                            {sale.customer_name && sale.customer_name !== "Consumidor final" && sale.customer_name !== "Consumidor Final" && (
+                              <span className="text-[10px] text-muted-foreground font-medium">
+                                · {sale.customer_name}
+                              </span>
+                            )}
                           </div>
-                          <p className="text-[11px] text-muted-foreground truncate" title={itemsSummary}>
-                            {itemsSummary || (sale.customer_name ? `Cliente: ${sale.customer_name}` : "Venta rápida")}
-                          </p>
+
+                          <div className="text-right shrink-0">
+                            <span className="font-mono font-black text-xs sm:text-sm text-foreground">
+                              {formatMoney(salePaid, saleCur)}
+                            </span>
+                          </div>
                         </div>
 
-                        <div className="text-right shrink-0">
-                          <span className="font-mono font-bold text-foreground block">
-                            {formatMoney(salePaid, saleCur)}
-                          </span>
-                          {sale.customer_name && sale.customer_name !== "Consumidor final" && sale.customer_name !== "Consumidor Final" && (
-                            <span className="text-[10px] text-muted-foreground block truncate max-w-[110px]">
-                              {sale.customer_name}
-                            </span>
+                        {/* Lista Vertical de Productos */}
+                        <div className="space-y-1 pl-1">
+                          {items.length === 0 ? (
+                            <span className="text-[11px] text-muted-foreground italic">Sin detalle de artículos</span>
+                          ) : (
+                            items.map((it: any, iIdx: number) => {
+                              const qty = Number(it.quantity || 1);
+                              const sizeStr = it.size && !["Único", "Unico", "General", "Estándar"].includes(it.size) ? ` (${it.size})` : "";
+                              return (
+                                <div key={iIdx} className="flex items-center justify-between text-[11px] text-foreground/90 gap-2">
+                                  <div className="flex items-start gap-1.5 min-w-0">
+                                    <span className="font-mono font-bold text-primary shrink-0">
+                                      {qty}x
+                                    </span>
+                                    <span className="break-words">
+                                      {it.name || "Artículo"}{sizeStr}
+                                    </span>
+                                  </div>
+                                  {it.total ? (
+                                    <span className="font-mono text-[10.5px] text-muted-foreground shrink-0">
+                                      {formatMoney(Number(it.total), saleCur)}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              );
+                            })
                           )}
                         </div>
                       </div>
@@ -1467,7 +1492,7 @@ export function CashShiftDetailModal({
             </button>
 
             {showSalesList && (
-              <div className="border-t divide-y divide-border/50 max-h-48 overflow-y-auto bg-muted/10">
+              <div className="border-t divide-y divide-border/60 max-h-60 overflow-y-auto bg-muted/10">
                 {shiftSales.length === 0 ? (
                   <p className="text-center py-4 text-xs text-muted-foreground italic">
                     No hay ventas registradas en este turno.
@@ -1481,9 +1506,7 @@ export function CashShiftDetailModal({
                       : (sale.paid_amount_ars ?? sale.paid_amount ?? sale.total)
                     );
                     const isCash = String(sale.payment_method || "Efectivo").toLowerCase().includes("efectivo");
-                    const itemsSummary = (sale.items || [])
-                      .map((it: any) => `${it.quantity || 1}x ${it.name}`)
-                      .join(", ");
+                    const items: any[] = Array.isArray(sale.items) ? sale.items : [];
                     const timeStr = sale.created_at
                       ? new Date(sale.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
                       : "";
@@ -1491,10 +1514,11 @@ export function CashShiftDetailModal({
                     return (
                       <div
                         key={sale.id}
-                        className="px-3 py-2 text-xs flex items-center justify-between gap-3 hover:bg-background/80 transition-colors"
+                        className="p-3 text-xs space-y-2 hover:bg-background/80 transition-colors"
                       >
-                        <div className="min-w-0 flex-1 space-y-0.5">
-                          <div className="flex items-center gap-2 flex-wrap">
+                        {/* Cabecera del Comprobante */}
+                        <div className="flex items-center justify-between gap-2 border-b border-border/40 pb-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-mono font-bold text-foreground">
                               {sale.receipt_no || "Ticket"}
                             </span>
@@ -1503,27 +1527,53 @@ export function CashShiftDetailModal({
                                 · {timeStr} hs
                               </span>
                             )}
-                            <span className={`text-[9.5px] px-1.5 py-0.2 rounded font-semibold border ${
+                            <span className={`text-[9.5px] px-1.5 py-0.5 rounded font-semibold border ${
                               isCash 
                                 ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
                                 : "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30"
                             }`}>
                               {sale.payment_method || "Efectivo"}
                             </span>
+                            {sale.customer_name && sale.customer_name !== "Consumidor final" && sale.customer_name !== "Consumidor Final" && (
+                              <span className="text-[10px] text-muted-foreground font-medium">
+                                · {sale.customer_name}
+                              </span>
+                            )}
                           </div>
-                          <p className="text-[11px] text-muted-foreground truncate" title={itemsSummary}>
-                            {itemsSummary || (sale.customer_name ? `Cliente: ${sale.customer_name}` : "Venta rápida")}
-                          </p>
+
+                          <div className="text-right shrink-0">
+                            <span className="font-mono font-black text-xs sm:text-sm text-foreground">
+                              {formatMoney(salePaid, saleCur)}
+                            </span>
+                          </div>
                         </div>
 
-                        <div className="text-right shrink-0">
-                          <span className="font-mono font-bold text-foreground block">
-                            {formatMoney(salePaid, saleCur)}
-                          </span>
-                          {sale.customer_name && sale.customer_name !== "Consumidor final" && sale.customer_name !== "Consumidor Final" && (
-                            <span className="text-[10px] text-muted-foreground block truncate max-w-[110px]">
-                              {sale.customer_name}
-                            </span>
+                        {/* Lista Vertical de Productos */}
+                        <div className="space-y-1 pl-1">
+                          {items.length === 0 ? (
+                            <span className="text-[11px] text-muted-foreground italic">Sin detalle de artículos</span>
+                          ) : (
+                            items.map((it: any, iIdx: number) => {
+                              const qty = Number(it.quantity || 1);
+                              const sizeStr = it.size && !["Único", "Unico", "General", "Estándar"].includes(it.size) ? ` (${it.size})` : "";
+                              return (
+                                <div key={iIdx} className="flex items-center justify-between text-[11px] text-foreground/90 gap-2">
+                                  <div className="flex items-start gap-1.5 min-w-0">
+                                    <span className="font-mono font-bold text-primary shrink-0">
+                                      {qty}x
+                                    </span>
+                                    <span className="break-words">
+                                      {it.name || "Artículo"}{sizeStr}
+                                    </span>
+                                  </div>
+                                  {it.total ? (
+                                    <span className="font-mono text-[10.5px] text-muted-foreground shrink-0">
+                                      {formatMoney(Number(it.total), saleCur)}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              );
+                            })
                           )}
                         </div>
                       </div>
