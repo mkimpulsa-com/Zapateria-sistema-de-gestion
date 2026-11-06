@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +24,7 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  Receipt,
 } from "lucide-react";
 import { formatMoney } from "@/lib/currency";
 import { printShiftCloseThermalTicket } from "@/lib/thermal-printer";
@@ -479,6 +480,7 @@ interface CloseCashShiftModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   activeShift: any;
+  sales?: any[];
   settings?: any;
   defaultCashierName?: string;
   onSubmit: (data: {
@@ -504,11 +506,25 @@ export function CloseCashShiftModal({
   open,
   onOpenChange,
   activeShift,
+  sales = [],
   settings = {},
   defaultCashierName = "Administrador",
   onSubmit,
 }: CloseCashShiftModalProps) {
   const shift = activeShift || {};
+  const [showSalesList, setShowSalesList] = useState(false);
+
+  const shiftSales = useMemo(() => {
+    if (!activeShift?.opened_at) return [];
+    const openTime = String(activeShift.opened_at);
+    return (sales || [])
+      .filter((s: any) => {
+        if (s.status === "cancelled") return false;
+        if (s.shift_id && activeShift.id && String(s.shift_id) === String(activeShift.id)) return true;
+        return String(s.created_at || "") >= openTime;
+      })
+      .sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
+  }, [sales, activeShift]);
   const rateArs = Number(shift.exchange_rate_ars || settings?.exchange_rate_ars || settings?.exchange_rate_brl) || 250;
   const rateUsd = Number(shift.exchange_rate_usd || settings?.exchange_rate_usd) || 5.70;
 
@@ -762,6 +778,96 @@ export function CloseCashShiftModal({
               <div className="pt-1 border-t text-[11px] text-muted-foreground flex justify-between">
                 <span>Ventas por Transferencia / Tarjeta:</span>
                 <span className="font-mono font-medium">{formatMoney(otherSales, "ARS")}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Desglose Prolijo y Compacto de Ventas del Turno */}
+          <div className="rounded-xl border border-border/80 bg-card overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowSalesList(!showSalesList)}
+              className="w-full flex items-center justify-between p-2.5 text-xs font-semibold hover:bg-muted/40 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <Receipt className="size-4 text-primary shrink-0" />
+                <span className="font-bold text-foreground">
+                  Ventas y Cobros del Turno
+                </span>
+                <Badge variant="secondary" className="text-[10px] h-5 px-1.5 font-bold">
+                  {shiftSales.length} {shiftSales.length === 1 ? "venta" : "ventas"}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
+                <span>{showSalesList ? "Ocultar" : "Ver detalle"}</span>
+                {showSalesList ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+              </div>
+            </button>
+
+            {showSalesList && (
+              <div className="border-t divide-y divide-border/50 max-h-48 overflow-y-auto bg-muted/10">
+                {shiftSales.length === 0 ? (
+                  <p className="text-center py-4 text-xs text-muted-foreground italic">
+                    No hay ventas registradas en este turno.
+                  </p>
+                ) : (
+                  shiftSales.map((sale: any) => {
+                    const saleCur = (sale.currency || "ARS") as "ARS" | "BRL" | "USD";
+                    const salePaid = Number(
+                      saleCur === "BRL" ? (sale.paid_amount_brl ?? sale.paid_amount)
+                      : saleCur === "USD" ? (sale.paid_amount_usd ?? sale.paid_amount)
+                      : (sale.paid_amount_ars ?? sale.paid_amount ?? sale.total)
+                    );
+                    const isCash = String(sale.payment_method || "Efectivo").toLowerCase().includes("efectivo");
+                    const itemsSummary = (sale.items || [])
+                      .map((it: any) => `${it.quantity || 1}x ${it.name}`)
+                      .join(", ");
+                    const timeStr = sale.created_at
+                      ? new Date(sale.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
+                      : "";
+
+                    return (
+                      <div
+                        key={sale.id}
+                        className="px-3 py-2 text-xs flex items-center justify-between gap-3 hover:bg-background/80 transition-colors"
+                      >
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-mono font-bold text-foreground">
+                              {sale.receipt_no || "Ticket"}
+                            </span>
+                            {timeStr && (
+                              <span className="text-[10px] text-muted-foreground font-mono">
+                                · {timeStr} hs
+                              </span>
+                            )}
+                            <span className={`text-[9.5px] px-1.5 py-0.2 rounded font-semibold border ${
+                              isCash 
+                                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                                : "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30"
+                            }`}>
+                              {sale.payment_method || "Efectivo"}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground truncate" title={itemsSummary}>
+                            {itemsSummary || (sale.customer_name ? `Cliente: ${sale.customer_name}` : "Venta rápida")}
+                          </p>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <span className="font-mono font-bold text-foreground block">
+                            {formatMoney(salePaid, saleCur)}
+                          </span>
+                          {sale.customer_name && sale.customer_name !== "Consumidor final" && sale.customer_name !== "Consumidor Final" && (
+                            <span className="text-[10px] text-muted-foreground block truncate max-w-[110px]">
+                              {sale.customer_name}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             )}
           </div>
@@ -1174,6 +1280,7 @@ interface CashShiftDetailModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   shift: any;
+  sales?: any[];
   settings?: any;
 }
 
@@ -1181,9 +1288,28 @@ export function CashShiftDetailModal({
   open,
   onOpenChange,
   shift,
+  sales = [],
   settings = {},
 }: CashShiftDetailModalProps) {
   if (!shift) return null;
+
+  const [showSalesList, setShowSalesList] = useState(false);
+
+  const shiftSales = useMemo(() => {
+    if (!shift) return [];
+    const openTime = shift.opened_at ? String(shift.opened_at) : "";
+    const closeTime = shift.closed_at ? String(shift.closed_at) : "";
+    return (sales || []).filter((s: any) => {
+      if (s.status === "cancelled") return false;
+      if (s.shift_id && shift.id && String(s.shift_id) === String(shift.id)) return true;
+      if (!openTime) return false;
+      const sTime = String(s.created_at || "");
+      if (closeTime) {
+        return sTime >= openTime && sTime <= closeTime;
+      }
+      return sTime >= openTime;
+    }).sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
+  }, [sales, shift]);
 
   const initialCash = Number(shift.initial_cash || 0);
   const initialCashArs = Number(shift.initial_cash_ars !== undefined ? shift.initial_cash_ars : initialCash);
@@ -1315,6 +1441,96 @@ export function CashShiftDetailModal({
                   </div>
                 )}
               </>
+            )}
+          </div>
+
+          {/* Desglose Prolijo y Compacto de Ventas del Turno */}
+          <div className="rounded-xl border border-border/80 bg-card overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowSalesList(!showSalesList)}
+              className="w-full flex items-center justify-between p-2.5 text-xs font-semibold hover:bg-muted/40 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <Receipt className="size-4 text-primary shrink-0" />
+                <span className="font-bold text-foreground">
+                  Ventas y Cobros del Turno
+                </span>
+                <Badge variant="secondary" className="text-[10px] h-5 px-1.5 font-bold">
+                  {shiftSales.length} {shiftSales.length === 1 ? "venta" : "ventas"}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
+                <span>{showSalesList ? "Ocultar" : "Ver detalle"}</span>
+                {showSalesList ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+              </div>
+            </button>
+
+            {showSalesList && (
+              <div className="border-t divide-y divide-border/50 max-h-48 overflow-y-auto bg-muted/10">
+                {shiftSales.length === 0 ? (
+                  <p className="text-center py-4 text-xs text-muted-foreground italic">
+                    No hay ventas registradas en este turno.
+                  </p>
+                ) : (
+                  shiftSales.map((sale: any) => {
+                    const saleCur = (sale.currency || "ARS") as "ARS" | "BRL" | "USD";
+                    const salePaid = Number(
+                      saleCur === "BRL" ? (sale.paid_amount_brl ?? sale.paid_amount)
+                      : saleCur === "USD" ? (sale.paid_amount_usd ?? sale.paid_amount)
+                      : (sale.paid_amount_ars ?? sale.paid_amount ?? sale.total)
+                    );
+                    const isCash = String(sale.payment_method || "Efectivo").toLowerCase().includes("efectivo");
+                    const itemsSummary = (sale.items || [])
+                      .map((it: any) => `${it.quantity || 1}x ${it.name}`)
+                      .join(", ");
+                    const timeStr = sale.created_at
+                      ? new Date(sale.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
+                      : "";
+
+                    return (
+                      <div
+                        key={sale.id}
+                        className="px-3 py-2 text-xs flex items-center justify-between gap-3 hover:bg-background/80 transition-colors"
+                      >
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono font-bold text-foreground">
+                              {sale.receipt_no || "Ticket"}
+                            </span>
+                            {timeStr && (
+                              <span className="text-[10px] text-muted-foreground font-mono">
+                                · {timeStr} hs
+                              </span>
+                            )}
+                            <span className={`text-[9.5px] px-1.5 py-0.2 rounded font-semibold border ${
+                              isCash 
+                                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                                : "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30"
+                            }`}>
+                              {sale.payment_method || "Efectivo"}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground truncate" title={itemsSummary}>
+                            {itemsSummary || (sale.customer_name ? `Cliente: ${sale.customer_name}` : "Venta rápida")}
+                          </p>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <span className="font-mono font-bold text-foreground block">
+                            {formatMoney(salePaid, saleCur)}
+                          </span>
+                          {sale.customer_name && sale.customer_name !== "Consumidor final" && sale.customer_name !== "Consumidor Final" && (
+                            <span className="text-[10px] text-muted-foreground block truncate max-w-[110px]">
+                              {sale.customer_name}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             )}
           </div>
 

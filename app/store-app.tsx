@@ -1181,6 +1181,7 @@ export default function StoreApp({
         open={closeShiftModal}
         onOpenChange={setCloseShiftModal}
         activeShift={data.activeShift}
+        sales={data?.sales || []}
         settings={data?.settings}
         defaultCashierName={data?.staff?.find((s: any) => s.uid === uid)?.name || "Administrador"}
         onSubmit={async (formData) => {
@@ -1192,6 +1193,7 @@ export default function StoreApp({
       open={Boolean(viewingShift)}
       onOpenChange={(v) => !v && setViewingShift(null)}
       shift={viewingShift}
+      sales={data?.sales || []}
       settings={data?.settings}
     />
     <AlertDialog open={Boolean(deletingShift)} onOpenChange={v => !v && setDeletingShift(null)}>

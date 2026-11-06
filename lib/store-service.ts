@@ -2395,7 +2395,7 @@ export async function runStoreAction(body: any, uid?: string) {
       const isCashPayment = String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo");
       const effectiveCashAmount = saleCurrency === "ARS" ? paidAmountArs : (saleCurrency === "BRL" ? paidAmountBrl : paidAmountUsd);
 
-      if (depositAmount > 0 && bankAccountRef && bankAccountData) {
+      if (!isCashPayment && depositAmount > 0 && bankAccountRef && bankAccountData) {
         const prevAccBal = number(bankAccountData.balance, 0);
         const nextAccBal = prevAccBal + depositAmount;
         transaction.update(bankAccountRef, {
