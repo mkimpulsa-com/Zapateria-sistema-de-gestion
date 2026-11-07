@@ -51,6 +51,7 @@ import { StaffSettingsView } from "@/components/staff-settings-view";
 import { ProductsCsvModal, exportProductsToCsv } from "@/components/products-csv-modal";
 import { ProductDetailModal } from "@/components/product-detail-modal";
 import { OpenCashShiftModal, CloseCashShiftModal, CashShiftDetailModal } from "@/components/cash-shift-modals";
+import { CashShiftReports } from "@/components/cash-shift-reports";
 import { printShiftCloseThermalTicket } from "@/lib/thermal-printer";
 import { cleanBarcodeScan, isBarcodeMatch } from "@/lib/barcode";
 import { downloadOrderControlPdf } from "@/lib/order-pdf";
@@ -919,7 +920,7 @@ export default function StoreApp({
         {section==="caja"&&<Cash data={data!} isCashier={isCashier} setModal={setModal} onEdit={(m:any)=>setEditingCashMovement(m)} onDelete={(m:any)=>setDeletingCashMovement(m)} onViewReceipt={(m:any)=>setViewingCashMovement(m)} onOpenShift={()=>setOpenShiftModal(true)} onCloseShift={()=>setCloseShiftModal(true)} onViewShift={(s:any)=>setViewingShift(s)} onDeleteShift={(s:any)=>setDeletingShift(s)} />} 
         {!isCashier && section==="tienda"&&<WholesaleStoreAdmin data={data!} uid={uid} setSection={setSection} setToast={setToast}/>}
         {section==="catalogos"&&<CatalogConfigured data={data!} products={filtered}/>}
-        {!isCashier && section==="reportes"&&<Reports data={data!} onSelectSale={(s:any)=>setInvoiceSale(s)} onDeleteSale={(s:any)=>setDeletingSale(s)}/>} 
+        {!isCashier && section==="reportes"&&<Reports data={data!} onSelectSale={(s:any)=>setInvoiceSale(s)} onDeleteSale={(s:any)=>setDeletingSale(s)} onViewShift={(s:any)=>setViewingShift(s)} onDeleteShift={(s:any)=>setDeletingShift(s)}/>} 
         {!isCashier && section==="configuracion"&&<SettingsCenter data={data!} onSave={action} busy={busy} dark={dark} setDark={handleSetDark} setToast={setToast} uid={uid} setModal={setModal} onEditBankAccount={(acc:any)=>setEditingBankAccount(acc)} onTransferModal={()=>setTransferModalOpen(true)}/>}
       </main>
 
@@ -2847,139 +2848,23 @@ function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift
         </Card>
       </>
     ) : (
-      /* Pestaña: Historial de Turnos y Cierres Z */
-      <Card className="border-0 shadow-sm">
-        <CardHeader>
-          <CardTitle>Historial de Turnos y Cierres Z de Caja</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Turno</TableHead>
-                <TableHead>Apertura</TableHead>
-                <TableHead>Cierre</TableHead>
-                <TableHead className="text-right">Ventas Efectivo</TableHead>
-                <TableHead className="text-right">Esperado vs Real</TableHead>
-                <TableHead className="text-center">Diferencia</TableHead>
-                <TableHead className="text-center">Estado</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {cashShifts.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                    Aún no se han registrado turnos de caja.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                cashShifts.map((shift: any) => {
-                  const isOpen = shift.status === "open";
-                  const diff = Number(shift.difference || 0);
-
-                  return (
-                    <TableRow key={shift.id} className="hover:bg-muted/30">
-                      <TableCell className="font-bold text-sm font-mono">
-                        #{shift.shift_number || 1}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        <p className="font-semibold">{new Date(shift.opened_at).toLocaleDateString("es-AR")}</p>
-                        <p className="text-muted-foreground">{new Date(shift.opened_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })} hs · {shift.opened_by_name || "Admin"}</p>
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {shift.closed_at ? (
-                          <>
-                            <p className="font-semibold">{new Date(shift.closed_at).toLocaleDateString("es-AR")}</p>
-                            <p className="text-muted-foreground">{new Date(shift.closed_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })} hs · {shift.closed_by_name || "Admin"}</p>
-                          </>
-                        ) : (
-                          <span className="italic text-emerald-600 font-semibold">En curso...</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right font-mono font-bold text-xs">
-                        {money(shift.cash_sales || 0)}
-                        <span className="text-[10px] text-muted-foreground block font-sans">({shift.sales_count || 0} vtas)</span>
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-xs">
-                        {isOpen ? (
-                          <span className="text-muted-foreground">Esperado: {money(shift.expected_cash || 0)}</span>
-                        ) : (
-                          <>
-                            <span className="text-muted-foreground block text-[11px]">Esp: {money(shift.expected_cash || 0)}</span>
-                            <span className="font-bold text-foreground">Real: {money(shift.actual_cash || 0)}</span>
-                          </>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {isOpen ? (
-                          <Badge variant="outline" className="text-[10px]">En curso</Badge>
-                        ) : diff === 0 ? (
-                          <Badge className="bg-emerald-600 text-white text-[10px]">Exacta</Badge>
-                        ) : diff > 0 ? (
-                          <Badge className="bg-blue-600 text-white text-[10px]">+{money(diff)}</Badge>
-                        ) : (
-                          <Badge variant="destructive" className="text-[10px]">-{money(Math.abs(diff))}</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <Badge variant={isOpen ? "default" : "secondary"} className={isOpen ? "bg-emerald-600 text-[10px]" : "text-[10px]"}>
-                          {isOpen ? "Abierta" : "Cerrada"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <Button
-                            variant="outline"
-                            size="xs"
-                            onClick={() => onViewShift && onViewShift(shift)}
-                            className="h-8 gap-1 rounded-lg text-xs"
-                            title="Ver detalle del turno"
-                          >
-                            <FileText className="size-3.5 text-primary" />
-                            <span className="hidden md:inline">Detalle</span>
-                          </Button>
-                          {!isOpen && (
-                            <Button
-                              variant="outline"
-                              size="xs"
-                              onClick={() => printShiftCloseThermalTicket({ shift, settings: data.settings, paperWidth: "80mm" })}
-                              className="h-8 gap-1 rounded-lg text-xs"
-                              title="Reimprimir ticket térmico Z"
-                            >
-                              <Printer className="size-3.5 text-emerald-600" />
-                              <span className="hidden lg:inline">Ticket Z</span>
-                            </Button>
-                          )}
-                          {!isCashier && (
-                            <Button
-                              variant="outline"
-                              size="xs"
-                              onClick={() => onDeleteShift && onDeleteShift(shift)}
-                              className="h-8 gap-1 rounded-lg text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
-                              title="Eliminar turno de caja"
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      /* Pestaña: Historial de Turnos y Cierres Z con Reportes y Auditoría Avanzada */
+      <CashShiftReports
+        cashShifts={cashShifts}
+        sales={data.sales || []}
+        settings={data.settings}
+        onViewShift={onViewShift}
+        onDeleteShift={onDeleteShift}
+        isCashier={isCashier}
+      />
     )}
   </>;
 }
 
 function Catalog({data,products,price,setPrice}:any){return <div className="print-only-area"><div className="no-print"><SectionTitle eyebrow="Venta visual" title="Generador de catálogos" text="Elegí la lista de precios y compartí o imprimí los productos disponibles." action={<div className="flex gap-2"><Button variant="outline" onClick={()=>window.print()}><Printer/>Imprimir / PDF</Button></div>}/><div className="mb-6 flex items-center gap-2 rounded-2xl border bg-card p-2"><button onClick={()=>setPrice("retail")} className={`rounded-xl px-4 py-2 text-sm font-semibold ${price==="retail"?"bg-primary text-primary-foreground":""}`}>Precio minorista</button><button onClick={()=>setPrice("wholesale")} className={`rounded-xl px-4 py-2 text-sm font-semibold ${price==="wholesale"?"bg-primary text-primary-foreground":""}`}>Precio mayorista</button><Badge variant="outline" className="ml-auto">Solo productos con stock</Badge></div></div><div className="mb-7 hidden print:block"><h1 className="text-3xl font-bold">{data.settings?.business_name}</h1><p>{data.settings?.phone} · {data.settings?.address}</p><p className="mt-2 text-sm">Catálogo {price==="retail"?"minorista":"mayorista"}</p></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{products.filter((p:Product)=>p.total_stock>0).map((p:Product)=><Card key={p.id} className="print-card gap-3 overflow-hidden border-0 py-0 shadow-sm"><div className="flex h-28 items-center justify-center bg-gradient-to-br from-[#e8f0ff] to-[#fff0ec] text-[#0f2137]"><ShoppingBag className="size-14 opacity-70"/></div><CardContent className="px-5 pb-5"><div className="flex justify-between gap-3"><div><p className="text-lg font-bold">{p.name}</p><p className="text-xs text-muted-foreground">{p.brand} · {p.color}</p></div><p className="text-xl font-black text-primary">{money(price==="retail"?p.retail_price:p.wholesale_price)}</p></div><div className="my-4 flex flex-wrap gap-1.5">{p.variants.filter(v=>v.stock>0).map(v=><Badge key={v.id} variant="outline">{v.size}</Badge>)}</div><BarcodeLabel value={p.barcode}/></CardContent></Card>)}</div></div>}
 
-function Reports({ data, onSelectSale, onDeleteSale }: any) {
-  const [reportTab, setReportTab] = useState<"ventas" | "compras" | "posicion" | "comercial">("ventas");
+function Reports({ data, onSelectSale, onDeleteSale, onViewShift, onDeleteShift }: any) {
+  const [reportTab, setReportTab] = useState<"ventas" | "compras" | "posicion" | "comercial" | "cajas">("ventas");
   const [filterType, setFilterType] = useState<string>("todos");
   const [purchaseFilterType, setPurchaseFilterType] = useState<string>("todos");
   const [searchTerm, setSearchTerm] = useState<string>("");
@@ -3341,6 +3226,17 @@ function Reports({ data, onSelectSale, onDeleteSale }: any) {
               }`}
             >
               Rendimiento
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportTab("cajas")}
+              className={`rounded-lg px-3 py-1.5 transition-all ${
+                reportTab === "cajas"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Cierres Z / Cajas
             </button>
           </div>
 
@@ -3987,6 +3883,18 @@ function Reports({ data, onSelectSale, onDeleteSale }: any) {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* --- TAB 5: CIERRES DE CAJA Y AUDITORÍA Z --- */}
+      {reportTab === "cajas" && (
+        <CashShiftReports
+          cashShifts={data.cashShifts || []}
+          sales={data.sales || []}
+          settings={data.settings}
+          onViewShift={onViewShift}
+          onDeleteShift={onDeleteShift}
+          isCashier={false}
+        />
       )}
     </>
   );
