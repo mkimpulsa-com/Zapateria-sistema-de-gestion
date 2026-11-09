@@ -52,6 +52,7 @@ import { ProductsCsvModal, exportProductsToCsv } from "@/components/products-csv
 import { ProductDetailModal } from "@/components/product-detail-modal";
 import { OpenCashShiftModal, CloseCashShiftModal, CashShiftDetailModal } from "@/components/cash-shift-modals";
 import { CashShiftReports } from "@/components/cash-shift-reports";
+import { PettyCashView } from "@/components/petty-cash-view";
 import { printShiftCloseThermalTicket } from "@/lib/thermal-printer";
 import { cleanBarcodeScan, isBarcodeMatch } from "@/lib/barcode";
 import { downloadOrderControlPdf } from "@/lib/order-pdf";
@@ -62,7 +63,7 @@ type Product = { id:number; sku:string; barcode:string; name:string; brand:strin
 type Party = { id:number; name:string; type?:string; phone:string; email?:string; balance:number; credit_limit?:number; contact?:string; document?:string; city?:string; address?:string; notes?:string; created_at?:string; bank_info?:string; category?:string };
 type Sale = { id:number; receipt_no:string; customer_id?:string; customer_name?:string; channel:string; total:number; paid_amount?:number; debt_amount?:number; pending_amount?:number; payment_method:string; status:string; created_at:string; bank_account_id?:string; bank_account_name?:string; subtotal?:number; discount?:number; discount_percent?:number; additional_charge?:number; additional_charge_description?:string; cashier_id?:string; cashier_name?:string; currency?:string };
 type Movement = { id:number|string; type:"ingreso"|"egreso"; category:string; amount:number; description:string; reference:string; created_at:string };
-type StoreData = { settings:any; products:Product[]; customers:Party[]; suppliers:Party[]; sales:Sale[]; movements:Movement[]; stockMoves:any[]; customerMoves:any[]; supplierMoves:any[]; bankAccounts:any[]; bankMoves:any[]; categories:any[]; staff?:any[]; cashShifts?:any[]; activeShift?:any; stats:{revenueToday:number;salesToday:number;stockValue:number;cashBalance:number;bankBalance:number;bankBalanceArs?:number;bankBalanceBrl?:number;bankBalanceUsd?:number;lowStock:number;productCount:number} };
+type StoreData = { settings:any; products:Product[]; customers:Party[]; suppliers:Party[]; sales:Sale[]; movements:Movement[]; stockMoves:any[]; customerMoves:any[]; supplierMoves:any[]; bankAccounts:any[]; bankMoves:any[]; categories:any[]; staff?:any[]; cashShifts?:any[]; activeShift?:any; pettyCashMovements?:any[]; stats:{revenueToday:number;salesToday:number;stockValue:number;cashBalance:number;bankBalance:number;bankBalanceArs?:number;bankBalanceBrl?:number;bankBalanceUsd?:number;pettyCashBalanceArs?:number;pettyCashBalanceBrl?:number;lowStock:number;productCount:number} };
 type CartItem = { productId:number; variantId:number; name:string; size:string; quantity:number; unitPrice:number; max:number };
 
 const nav = [
@@ -917,7 +918,7 @@ export default function StoreApp({
         {section==="inventario"&&<Inventory data={data!} filtered={filtered} isCashier={isCashier} onView={(p:Product)=>setViewingProduct(p)} onAddToCart={(p:Product,v:Variant)=>{addVariant(p,v);setSection("ventas");setToast(`${p.name} (Talle ${v.size}) agregado a la venta`);}} adjust={(v:Variant,p:Product)=>{setAdjustTarget({v,p});setModal("stock");}}/>}
         {section==="clientes"&&<CustomersView customers={data!.customers} sales={data!.sales} customerMoves={data!.customerMoves||[]} isCashier={isCashier} onNewCustomer={()=>setModal("customer")} onEditCustomer={(c:any)=>setEditingCustomer(c)} onAdjustDebt={(c:any)=>setAdjustingCustomer(c)} onViewDetail={(c:any)=>setViewingCustomer(c)} onDeleteCustomer={(c:any)=>setDeletingCustomer(c)}/>} 
         {!isCashier && section==="proveedores"&&<SuppliersView suppliers={data!.suppliers} supplierMoves={data!.supplierMoves||[]} onNewSupplier={()=>setModal("supplier")} onEditSupplier={(s:any)=>setEditingSupplier(s)} onAdjustDebt={(s:any)=>setAdjustingSupplier(s)} onViewDetail={(s:any)=>setViewingSupplier(s)} onDeleteSupplier={(s:any)=>setDeletingSupplier(s)}/>} 
-        {section==="caja"&&<Cash data={data!} isCashier={isCashier} setModal={setModal} onEdit={(m:any)=>setEditingCashMovement(m)} onDelete={(m:any)=>setDeletingCashMovement(m)} onViewReceipt={(m:any)=>setViewingCashMovement(m)} onOpenShift={()=>setOpenShiftModal(true)} onCloseShift={()=>setCloseShiftModal(true)} onViewShift={(s:any)=>setViewingShift(s)} onDeleteShift={(s:any)=>setDeletingShift(s)} />} 
+        {section==="caja"&&<Cash data={data!} isCashier={isCashier} setModal={setModal} onEdit={(m:any)=>setEditingCashMovement(m)} onDelete={(m:any)=>setDeletingCashMovement(m)} onViewReceipt={(m:any)=>setViewingCashMovement(m)} onOpenShift={()=>setOpenShiftModal(true)} onCloseShift={()=>setCloseShiftModal(true)} onViewShift={(s:any)=>setViewingShift(s)} onDeleteShift={(s:any)=>setDeletingShift(s)} action={action} user={user} staffProfile={staffProfile} />} 
         {!isCashier && section==="tienda"&&<WholesaleStoreAdmin data={data!} uid={uid} setSection={setSection} setToast={setToast}/>}
         {section==="catalogos"&&<CatalogConfigured data={data!} products={filtered}/>}
         {!isCashier && section==="reportes"&&<Reports data={data!} onSelectSale={(s:any)=>setInvoiceSale(s)} onDeleteSale={(s:any)=>setDeletingSale(s)} onViewShift={(s:any)=>setViewingShift(s)} onDeleteShift={(s:any)=>setDeletingShift(s)}/>} 
@@ -2583,8 +2584,8 @@ function Inventory({data,filtered,adjust,isCashier,onView,onAddToCart}:any){
 
 function Parties({title,text,parties,kind,setModal}:any){return <><SectionTitle eyebrow="Relaciones comerciales" title={title} text={text} action={<Button onClick={()=>setModal(kind==="clientes"?"customer":"supplier")}><Plus/>Agregar</Button>}/><Card className="border-0 shadow-sm"><CardContent className="px-3 sm:px-5"><Table><TableHeader><TableRow><TableHead>Nombre</TableHead><TableHead>Tipo / contacto</TableHead><TableHead>Teléfono</TableHead><TableHead>Saldo</TableHead><TableHead>Estado</TableHead></TableRow></TableHeader><TableBody>{parties.map((p:Party)=><TableRow key={p.id}><TableCell className="font-semibold">{p.name}</TableCell><TableCell className="capitalize">{p.type||p.contact||"—"}</TableCell><TableCell>{p.phone||"—"}</TableCell><TableCell className={p.balance>0?"font-semibold text-amber-600":"text-muted-foreground"}>{money(p.balance)}</TableCell><TableCell><Badge variant={p.balance>0?"secondary":"outline"}>{p.balance>0?"Pendiente":"Al día"}</Badge></TableCell></TableRow>)}</TableBody></Table></CardContent></Card></>}
 
-function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift,onCloseShift,onViewShift,onDeleteShift}:any){
-  const [cashTab, setCashTab] = useState<"movimientos" | "turnos">("movimientos");
+function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift,onCloseShift,onViewShift,onDeleteShift,action,user,staffProfile}:any){
+  const [cashTab, setCashTab] = useState<"movimientos" | "turnos" | "caja_chica">("movimientos");
   const activeShift = data.activeShift;
   const cashShifts: any[] = data.cashShifts || [];
 
@@ -2593,37 +2594,40 @@ function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift
 
   return <>
     <SectionTitle
-      eyebrow={isCashier ? "Mostrador" : "Finanzas de mostrador"}
-      title={isCashier ? "Caja de Turno y Arqueo" : "Caja, Turnos y Arqueo"}
-      text={isCashier ? "Control del efectivo en caja, registro de ingresos/egresos y cierre Z con arqueo físico." : "Gestioná aperturas de caja, flujo de dinero, arqueos de cierre e historial de turnos."}
+      eyebrow={isCashier ? "Mostrador" : cashTab === "caja_chica" ? "Administración" : "Finanzas de mostrador"}
+      title={isCashier ? "Caja de Turno y Arqueo" : cashTab === "caja_chica" ? "Caja Chica y Gastos" : "Caja, Turnos y Arqueo"}
+      text={isCashier ? "Control del efectivo en caja, registro de ingresos/egresos y cierre Z con arqueo físico." : cashTab === "caja_chica" ? "Gestión de fondo fijo, gastos menores y movimientos por fuera en Pesos y Reales." : "Gestioná aperturas de caja, flujo de dinero, arqueos de cierre e historial de turnos."}
       action={
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {activeShift ? (
-            <Button
-              onClick={onCloseShift}
-              className="h-11 px-5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs gap-2 shadow-md shadow-rose-600/25 transition-all hover:scale-[1.02] active:scale-[0.98]"
-            >
-              <Lock className="size-4" />
-              Cerrar Caja / Arqueo
+        cashTab === "caja_chica" ? null : (
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {activeShift ? (
+              <Button
+                onClick={onCloseShift}
+                className="h-11 px-5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs gap-2 shadow-md shadow-rose-600/25 transition-all hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <Lock className="size-4" />
+                Cerrar Caja / Arqueo
+              </Button>
+            ) : (
+              <Button
+                onClick={onOpenShift}
+                className="h-11 px-6 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs gap-2 shadow-md shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <LockOpen className="size-4" />
+                Abrir Turno de Caja
+              </Button>
+            )}
+            <Button variant="outline" onClick={()=>setModal("cash")} className="h-11 px-4 rounded-xl gap-1.5 font-bold">
+              <Plus className="size-4" />
+              Nuevo movimiento
             </Button>
-          ) : (
-            <Button
-              onClick={onOpenShift}
-              className="h-11 px-6 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs gap-2 shadow-md shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
-            >
-              <LockOpen className="size-4" />
-              Abrir Turno de Caja
-            </Button>
-          )}
-          <Button variant="outline" onClick={()=>setModal("cash")} className="h-11 px-4 rounded-xl gap-1.5 font-bold">
-            <Plus className="size-4" />
-            Nuevo movimiento
-          </Button>
-        </div>
+          </div>
+        )
       }
     />
 
-    {/* Hero Card: Estado del Turno de Caja en Vivo */}
+    {/* Hero Card: Estado del Turno de Caja en Vivo (solo en mostrador y turnos) */}
+    {cashTab !== "caja_chica" && (
     <Card className={`mb-6 border-2 overflow-hidden shadow-sm transition-all ${
       activeShift 
         ? "border-emerald-500/40 bg-gradient-to-br from-emerald-500/10 via-card to-card" 
@@ -2719,9 +2723,10 @@ function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift
         )}
       </CardContent>
     </Card>
+    )}
 
-    {/* Selector de Pestañas: Movimientos vs Historial de Turnos */}
-    <div className="mb-4 flex items-center justify-between gap-3 border-b pb-2">
+    {/* Selector de Pestañas: Movimientos vs Historial de Turnos vs Caja Chica */}
+    <div className="mb-4 flex items-center justify-between gap-3 border-b pb-2 flex-wrap">
       <div className="flex rounded-xl bg-muted p-1">
         <button
           type="button"
@@ -2733,7 +2738,7 @@ function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift
           }`}
         >
           <Coins className="size-3.5" />
-          Movimientos de Caja
+          {isCashier ? "Caja Mostrador" : "Caja de Mostrador"}
         </button>
         <button
           type="button"
@@ -2747,14 +2752,51 @@ function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift
           <History className="size-3.5" />
           Historial de Cierres Z ({cashShifts.length})
         </button>
+        {!isCashier && (
+          <button
+            type="button"
+            onClick={() => setCashTab("caja_chica")}
+            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all ${
+              cashTab === "caja_chica"
+                ? "bg-card text-primary shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Wallet className="size-3.5 text-primary" />
+            Caja Chica (Por fuera)
+            {(data?.pettyCashMovements?.length || 0) > 0 && (
+              <Badge variant="secondary" className="text-[10px] h-4 px-1.5 ml-0.5 font-mono">
+                {data.pettyCashMovements.length}
+              </Badge>
+            )}
+          </button>
+        )}
       </div>
 
-      <span className="text-xs text-muted-foreground font-mono">
-        Saldo acumulado: <strong>{money(data.stats.cashBalance)}</strong>
-      </span>
+      <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
+        {cashTab === "caja_chica" ? (
+          <span className="flex items-center gap-2">
+            <span>Saldo ARS: <strong className="text-foreground">{formatMoney(data?.stats?.pettyCashBalanceArs || 0, "ARS")}</strong></span>
+            <span>·</span>
+            <span>Saldo BRL: <strong className="text-teal-600">{formatMoney(data?.stats?.pettyCashBalanceBrl || 0, "BRL")}</strong></span>
+          </span>
+        ) : (
+          <span>
+            Saldo mostrador: <strong className="text-foreground">{money(data.stats.cashBalance)}</strong>
+          </span>
+        )}
+      </div>
     </div>
 
-    {cashTab === "movimientos" ? (
+    {cashTab === "caja_chica" ? (
+      <PettyCashView
+        data={data}
+        action={action}
+        isCashier={isCashier}
+        user={user}
+        staffProfile={staffProfile}
+      />
+    ) : cashTab === "movimientos" ? (
       <>
         <div className="mb-6 grid gap-4 md:grid-cols-3">
           <StatCard label="Saldo en caja" value={money(data.stats.cashBalance)} note={isCashier ? "Efectivo disponible en caja" : "Caja consolidada"} icon={WalletCards} tone="blue"/>

@@ -227,7 +227,7 @@ export async function deleteCashierAccount({
 export async function loadStore(uid?: string) {
   const userId = getStoreUid(uid);
   await ensureSeed(userId);
-  const [settingsSnap, productsSnap, customersSnap, suppliersSnap, salesSnap, movementsSnap, stockSnap, customerMovesSnap, supplierMovesSnap, bankAccountsSnap, bankMovesSnap, categoriesSnap, staffSnap, cashShiftsSnap] = await Promise.all([
+  const [settingsSnap, productsSnap, customersSnap, suppliersSnap, salesSnap, movementsSnap, stockSnap, customerMovesSnap, supplierMovesSnap, bankAccountsSnap, bankMovesSnap, categoriesSnap, staffSnap, cashShiftsSnap, pettyCashSnap] = await Promise.all([
     getDoc(userSettingsDoc(userId)),
     getDocs(userCol("products", userId)),
     getDocs(userCol("customers", userId)),
@@ -242,6 +242,7 @@ export async function loadStore(uid?: string) {
     getDocs(userCol("categories", userId)),
     getDocs(userCol("staff", userId)),
     getDocs(query(userCol("cashShifts", userId), orderBy("opened_at", "desc"), limit(50))),
+    getDocs(query(userCol("pettyCashMovements", userId), orderBy("created_at", "desc"), limit(300))),
   ]);
   const rawSettings = settingsSnap.data() || {};
   const settings = { ...defaultSettings, ...rawSettings };
@@ -411,7 +412,16 @@ export async function loadStore(uid?: string) {
 
   const today = new Date().toISOString().slice(0,10);
   const todaySales = sales.filter((sale:any)=>String(sale.created_at).slice(0,10)===today);
-  return {settings,products,customers,suppliers,sales,movements,stockMoves,customerMoves,supplierMoves,bankAccounts,bankMoves,categories,staff,cashShifts,activeShift,stats:{
+
+  const pettyCashMovements = withId(pettyCashSnap);
+  const pettyCashBalanceArs = pettyCashMovements
+    .filter((m: any) => (m.currency || "ARS") === "ARS")
+    .reduce((sum: number, m: any) => sum + (m.type === "ingreso" ? Number(m.amount || 0) : -Number(m.amount || 0)), 0);
+  const pettyCashBalanceBrl = pettyCashMovements
+    .filter((m: any) => m.currency === "BRL")
+    .reduce((sum: number, m: any) => sum + (m.type === "ingreso" ? Number(m.amount || 0) : -Number(m.amount || 0)), 0);
+
+  return {settings,products,customers,suppliers,sales,movements,stockMoves,customerMoves,supplierMoves,bankAccounts,bankMoves,categories,staff,cashShifts,activeShift,pettyCashMovements,stats:{
     revenueToday:todaySales.reduce((sum:number,sale:any)=>sum+Number(sale.total !== undefined ? sale.total : (sale.total_ars || sale.total_brl || 0)),0),
     salesToday:todaySales.length,
     stockValue:products.reduce((sum:number,product:any)=>sum+Number(product.cost||0)*Number(product.total_stock||0),0),
@@ -420,6 +430,8 @@ export async function loadStore(uid?: string) {
     bankBalanceArs:bankAccounts.filter((acc:any)=>acc.currency==="ARS").reduce((sum:number,acc:any)=>sum+Number(acc.balance||0),0),
     bankBalanceBrl:bankAccounts.filter((acc:any)=>acc.currency==="BRL" || !acc.currency).reduce((sum:number,acc:any)=>sum+Number(acc.balance||0),0),
     bankBalanceUsd:bankAccounts.filter((acc:any)=>acc.currency==="USD").reduce((sum:number,acc:any)=>sum+Number(acc.balance||0),0),
+    pettyCashBalanceArs,
+    pettyCashBalanceBrl,
     lowStock:products.filter((product:any)=>Number(product.total_stock)<=Number(settings.low_stock_at||3)).length, productCount:products.length,
   }};
 }
@@ -437,7 +449,7 @@ async function deleteCollection(name: string, uid?: string) {
 
 async function resetOperationalData(uid?: string) {
   const userId = getStoreUid(uid);
-  for (const name of ["stockMovements","cashMovements","customerMovements","supplierMovements","bankAccounts","bankMovements","sales","products","customers","suppliers","cashShifts"]) {
+  for (const name of ["stockMovements","cashMovements","customerMovements","supplierMovements","bankAccounts","bankMovements","sales","products","customers","suppliers","cashShifts","pettyCashMovements"]) {
     await deleteCollection(name, userId);
   }
   await updateDoc(userSettingsDoc(userId), { next_receipt_number: 1, updated_at: now() });
@@ -446,7 +458,7 @@ async function resetOperationalData(uid?: string) {
 export async function createStoreBackup(uid?: string) {
   const userId = getStoreUid(uid);
   await ensureSeed(userId);
-  const names = ["products","customers","suppliers","sales","cashMovements","stockMovements","customerMovements","supplierMovements","bankAccounts","bankMovements","categories"];
+  const names = ["products","customers","suppliers","sales","cashMovements","stockMovements","customerMovements","supplierMovements","bankAccounts","bankMovements","categories","cashShifts","pettyCashMovements"];
   const data: any = { settings: (await getDoc(userSettingsDoc(userId))).data() };
   for (const name of names) {
     data[name] = withId(await getDocs(userCol(name, userId)));
@@ -459,7 +471,7 @@ async function restoreBackup(backup: any, uid?: string) {
   const userId = getStoreUid(uid);
   if (backup?.format === "zapateria-backup") backup = convertLegacyBackup(backup);
   if (backup?.format !== "zapateria-firebase-backup" || !backup?.data?.settings) throw new Error("La copia no corresponde a una versión compatible del sistema.");
-  const names = ["products","customers","suppliers","sales","cashMovements","stockMovements","customerMovements","supplierMovements","bankAccounts","bankMovements","categories"];
+  const names = ["products","customers","suppliers","sales","cashMovements","stockMovements","customerMovements","supplierMovements","bankAccounts","bankMovements","categories","cashShifts","pettyCashMovements"];
   const total = names.reduce((sum, name) => sum + (Array.isArray(backup.data[name]) ? backup.data[name].length : 0), 0);
   if (total > 5000) throw new Error("La copia supera el límite seguro de 5.000 registros.");
   await resetOperationalData(userId);
@@ -1220,6 +1232,93 @@ export async function runStoreAction(body: any, uid?: string) {
       reference: text(body.reference),
       updated_at: now(),
     });
+  } else if (action === "petty_cash_movement" || action === "create_petty_cash_movement") {
+    const amt = number(body.amount);
+    if (!(amt > 0)) throw new Error("Ingresá un importe válido.");
+    const cur = body.currency === "BRL" ? "BRL" : "ARS";
+    await addDoc(userCol("pettyCashMovements", userId), {
+      type: body.type === "egreso" ? "egreso" : "ingreso",
+      currency: cur,
+      amount: amt,
+      category: text(body.category, "General"),
+      description: text(body.description),
+      reference: text(body.reference),
+      created_at: body.created_at ? new Date(body.created_at).toISOString() : now(),
+      created_by: text(body.cashierId || body.userId),
+      created_by_name: text(body.cashierName || "Administrador"),
+    });
+  } else if (action === "update_petty_cash_movement" || action === "edit_petty_cash_movement") {
+    const movementId = String(body.id || body.movementId || "");
+    if (!movementId) throw new Error("Movimiento de caja chica no encontrado.");
+    const amt = number(body.amount);
+    if (!(amt > 0)) throw new Error("Ingresá un importe válido.");
+    const cur = body.currency === "BRL" ? "BRL" : "ARS";
+    await updateDoc(userDoc("pettyCashMovements", movementId, userId), {
+      type: body.type === "egreso" ? "egreso" : "ingreso",
+      currency: cur,
+      amount: amt,
+      category: text(body.category, "General"),
+      description: text(body.description),
+      reference: text(body.reference),
+      ...(body.created_at ? { created_at: new Date(body.created_at).toISOString() } : {}),
+      updated_at: now(),
+    });
+  } else if (action === "delete_petty_cash_movement") {
+    const movementId = String(body.id || body.movementId || "");
+    if (!movementId) throw new Error("Movimiento de caja chica no encontrado.");
+    await deleteDoc(userDoc("pettyCashMovements", movementId, userId));
+  } else if (action === "transfer_petty_cash") {
+    const amt = number(body.amount);
+    if (!(amt > 0)) throw new Error("Ingresá un importe válido.");
+    const cur = body.currency === "BRL" ? "BRL" : "ARS";
+    const direction = String(body.direction || "to_petty");
+    const time = now();
+    const note = text(body.description);
+    const refCode = text(body.reference, `TRF-${Date.now().toString().slice(-6)}`);
+
+    if (direction === "to_petty") {
+      await addDoc(userCol("cashMovements", userId), {
+        type: "egreso",
+        category: "Pase a Caja Chica",
+        amount: amt,
+        currency: cur,
+        description: note || `Traspaso de mostrador a Caja Chica (${cur})`,
+        reference: refCode,
+        created_at: time,
+      });
+      await addDoc(userCol("pettyCashMovements", userId), {
+        type: "ingreso",
+        category: "Pase desde Mostrador",
+        amount: amt,
+        currency: cur,
+        description: note || `Fondeo recibido desde Caja Mostrador (${cur})`,
+        reference: refCode,
+        created_at: time,
+        created_by: text(body.cashierId || body.userId),
+        created_by_name: text(body.cashierName || "Administrador"),
+      });
+    } else {
+      await addDoc(userCol("pettyCashMovements", userId), {
+        type: "egreso",
+        category: "Pase a Mostrador",
+        amount: amt,
+        currency: cur,
+        description: note || `Traspaso a Caja Mostrador (${cur})`,
+        reference: refCode,
+        created_at: time,
+        created_by: text(body.cashierId || body.userId),
+        created_by_name: text(body.cashierName || "Administrador"),
+      });
+      await addDoc(userCol("cashMovements", userId), {
+        type: "ingreso",
+        category: "Pase desde Caja Chica",
+        amount: amt,
+        currency: cur,
+        description: note || `Efectivo recibido desde Caja Chica (${cur})`,
+        reference: refCode,
+        created_at: time,
+      });
+    }
   } else if (action === "delete_cash_movement") {
     const movementId = String(body.id || body.movementId || "");
     if (!movementId) throw new Error("Movimiento de caja no encontrado.");
