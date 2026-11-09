@@ -7,7 +7,7 @@ import {
   Camera, Check, CircleDollarSign, ClipboardList, Coins, Database, Download,
   FileText, FolderTree, Landmark, LayoutDashboard, LayoutGrid, List, Lock, LockOpen, Moon, PackagePlus, Pencil, Percent, Plus, Printer, Receipt, ScanLine,
   Search, Settings, ShieldAlert, ShoppingBag, ShoppingCart, SlidersHorizontal, Store, Sun, Tags, Trash2, TrendingUp, Truck,
-  Upload, UserPlus, UserRound, Users, Wallet, WalletCards, Monitor, Palette, Save, Volume2, X, AlertTriangle, History,
+  Upload, UserPlus, UserRound, Users, Wallet, WalletCards, Monitor, Palette, Save, Volume2, X, AlertTriangle, History, Minus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -155,6 +155,7 @@ export default function StoreApp({
   const [data,setData]=useState<StoreData|null>(null); const [error,setError]=useState(""); const [busy,setBusy]=useState(false);
   const [section,setSection]=useState<string>(isCashier ? "ventas" : "resumen"); const [query,setQuery]=useState(""); const [dark,setDark]=useState(false);
   const [modal,setModal]=useState(""); const [toast,setToast]=useState(""); const [channel,setChannel]=useState<"mayorista"|"minorista">("minorista");
+  const [cashTab, setCashTab] = useState<"movimientos" | "turnos" | "caja_chica">("movimientos");
   const [adjustTarget,setAdjustTarget]=useState<{v:Variant;p:Product}|null>(null);
   const [editingProduct,setEditingProduct]=useState<Product|null>(null);
   const [adjustingProduct,setAdjustingProduct]=useState<Product|null>(null);
@@ -913,13 +914,13 @@ export default function StoreApp({
 
       <main className="app-main glass-grid min-h-[calc(100vh-176px)] p-4 sm:p-7 lg:p-9">
         {!isCashier && section==="resumen"&&<DashboardView data={data!} setSection={setSection} addVariant={addVariant} setModal={setModal}/>} 
-        {section==="ventas"&&<SalesPOSConfigured data={data!} filtered={filtered} channel={channel} setChannel={handleChannelChange} cart={cart} setCart={setCart} addVariant={addVariant} scan={scan} setScan={setScan} scanProduct={scanProduct} setModal={setModal} discount={discount} setDiscount={setDiscount} discountPercent={discountPercent} setDiscountPercent={setDiscountPercent} additionalCharge={additionalCharge} setAdditionalCharge={setAdditionalCharge} additionalChargeDescription={additionalChargeDescription} setAdditionalChargeDescription={setAdditionalChargeDescription} payment={payment} setPayment={setPayment} customerId={customerId} setCustomerId={setCustomerId} bankAccountId={bankAccountId} setBankAccountId={setBankAccountId} cartTotal={cartTotal} closeSale={closeSale} busy={busy} onOpenShift={()=>setOpenShiftModal(true)} onCloseShift={()=>setCloseShiftModal(true)}/>}
+        {section==="ventas"&&<SalesPOSConfigured data={data!} filtered={filtered} channel={channel} setChannel={handleChannelChange} cart={cart} setCart={setCart} addVariant={addVariant} scan={scan} setScan={setScan} scanProduct={scanProduct} setModal={setModal} discount={discount} setDiscount={setDiscount} discountPercent={discountPercent} setDiscountPercent={setDiscountPercent} additionalCharge={additionalCharge} setAdditionalCharge={setAdditionalCharge} additionalChargeDescription={additionalChargeDescription} setAdditionalChargeDescription={setAdditionalChargeDescription} payment={payment} setPayment={setPayment} customerId={customerId} setCustomerId={setCustomerId} bankAccountId={bankAccountId} setBankAccountId={setBankAccountId} cartTotal={cartTotal} closeSale={closeSale} busy={busy} onOpenShift={()=>setOpenShiftModal(true)} onCloseShift={()=>setCloseShiftModal(true)} action={action} user={user} staffProfile={staffProfile} onOpenPettyCash={() => { setCashTab("caja_chica"); setSection("caja"); }}/>}
         {section==="pedidos"&&<OrdersView orders={orders} storeUid={uid} currency={data?.settings?.currency || "ARS"} products={data?.products || []} businessSettings={data?.settings || {}} bankAccounts={data?.bankAccounts || []} onSelectOrderForSale={handleOrderToSale} onConfirmOrderAsSale={handleConfirmOrderSale} onCancelOrderSale={handleCancelOrderSale} onViewSaleInvoice={handleViewSaleByReceipt} setToast={setToast}/>}
         {!isCashier && section==="productos"&&<Products data={data!} filtered={filtered} setModal={setModal} onView={(p:Product)=>setViewingProduct(p)} onEdit={(p:Product)=>setEditingProduct(p)} onAdjust={(p:Product)=>setAdjustingProduct(p)} onDelete={(p:Product)=>setDeletingProduct(p)}/>} 
         {section==="inventario"&&<Inventory data={data!} filtered={filtered} isCashier={isCashier} onView={(p:Product)=>setViewingProduct(p)} onAddToCart={(p:Product,v:Variant)=>{addVariant(p,v);setSection("ventas");setToast(`${p.name} (Talle ${v.size}) agregado a la venta`);}} adjust={(v:Variant,p:Product)=>{setAdjustTarget({v,p});setModal("stock");}}/>}
         {section==="clientes"&&<CustomersView customers={data!.customers} sales={data!.sales} customerMoves={data!.customerMoves||[]} isCashier={isCashier} onNewCustomer={()=>setModal("customer")} onEditCustomer={(c:any)=>setEditingCustomer(c)} onAdjustDebt={(c:any)=>setAdjustingCustomer(c)} onViewDetail={(c:any)=>setViewingCustomer(c)} onDeleteCustomer={(c:any)=>setDeletingCustomer(c)}/>} 
         {!isCashier && section==="proveedores"&&<SuppliersView suppliers={data!.suppliers} supplierMoves={data!.supplierMoves||[]} onNewSupplier={()=>setModal("supplier")} onEditSupplier={(s:any)=>setEditingSupplier(s)} onAdjustDebt={(s:any)=>setAdjustingSupplier(s)} onViewDetail={(s:any)=>setViewingSupplier(s)} onDeleteSupplier={(s:any)=>setDeletingSupplier(s)}/>} 
-        {section==="caja"&&<Cash data={data!} isCashier={isCashier} setModal={setModal} onEdit={(m:any)=>setEditingCashMovement(m)} onDelete={(m:any)=>setDeletingCashMovement(m)} onViewReceipt={(m:any)=>setViewingCashMovement(m)} onOpenShift={()=>setOpenShiftModal(true)} onCloseShift={()=>setCloseShiftModal(true)} onViewShift={(s:any)=>setViewingShift(s)} onDeleteShift={(s:any)=>setDeletingShift(s)} action={action} user={user} staffProfile={staffProfile} />} 
+        {section==="caja"&&<Cash data={data!} isCashier={isCashier} setModal={setModal} onEdit={(m:any)=>setEditingCashMovement(m)} onDelete={(m:any)=>setDeletingCashMovement(m)} onViewReceipt={(m:any)=>setViewingCashMovement(m)} onOpenShift={()=>setOpenShiftModal(true)} onCloseShift={()=>setCloseShiftModal(true)} onViewShift={(s:any)=>setViewingShift(s)} onDeleteShift={(s:any)=>setDeletingShift(s)} action={action} user={user} staffProfile={staffProfile} cashTab={cashTab} setCashTab={setCashTab} />} 
         {!isCashier && section==="tienda"&&<WholesaleStoreAdmin data={data!} uid={uid} setSection={setSection} setToast={setToast}/>}
         {section==="catalogos"&&<CatalogConfigured data={data!} products={filtered}/>}
         {!isCashier && section==="reportes"&&<Reports data={data!} onSelectSale={(s:any)=>setInvoiceSale(s)} onDeleteSale={(s:any)=>setDeletingSale(s)} onViewShift={(s:any)=>setViewingShift(s)} onDeleteShift={(s:any)=>setDeletingShift(s)}/>} 
@@ -2585,8 +2586,10 @@ function Inventory({data,filtered,adjust,isCashier,onView,onAddToCart}:any){
 
 function Parties({title,text,parties,kind,setModal}:any){return <><SectionTitle eyebrow="Relaciones comerciales" title={title} text={text} action={<Button onClick={()=>setModal(kind==="clientes"?"customer":"supplier")}><Plus/>Agregar</Button>}/><Card className="border-0 shadow-sm"><CardContent className="px-3 sm:px-5"><Table><TableHeader><TableRow><TableHead>Nombre</TableHead><TableHead>Tipo / contacto</TableHead><TableHead>Teléfono</TableHead><TableHead>Saldo</TableHead><TableHead>Estado</TableHead></TableRow></TableHeader><TableBody>{parties.map((p:Party)=><TableRow key={p.id}><TableCell className="font-semibold">{p.name}</TableCell><TableCell className="capitalize">{p.type||p.contact||"—"}</TableCell><TableCell>{p.phone||"—"}</TableCell><TableCell className={p.balance>0?"font-semibold text-amber-600":"text-muted-foreground"}>{money(p.balance)}</TableCell><TableCell><Badge variant={p.balance>0?"secondary":"outline"}>{p.balance>0?"Pendiente":"Al día"}</Badge></TableCell></TableRow>)}</TableBody></Table></CardContent></Card></>}
 
-function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift,onCloseShift,onViewShift,onDeleteShift,action,user,staffProfile}:any){
-  const [cashTab, setCashTab] = useState<"movimientos" | "turnos" | "caja_chica">("movimientos");
+function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift,onCloseShift,onViewShift,onDeleteShift,action,user,staffProfile,cashTab: externalCashTab,setCashTab: setExternalCashTab}:any){
+  const [internalCashTab, setInternalCashTab] = useState<"movimientos" | "turnos" | "caja_chica">("movimientos");
+  const cashTab = externalCashTab !== undefined ? externalCashTab : internalCashTab;
+  const setCashTab = setExternalCashTab || setInternalCashTab;
   const activeShift = data.activeShift;
   const cashShifts: any[] = data.cashShifts || [];
 
@@ -3997,8 +4000,53 @@ function SalesPOSConfigured({
   discount,setDiscount,discountPercent,setDiscountPercent,
   additionalCharge,setAdditionalCharge,additionalChargeDescription,setAdditionalChargeDescription,
   payment,setPayment,customerId,setCustomerId,bankAccountId,setBankAccountId,closeSale,busy,
-  onOpenShift,onCloseShift
+  onOpenShift,onCloseShift,
+  action,user,staffProfile,onOpenPettyCash
 }:any) {
+  // Estados para Modal Rápido de Caja Chica en POS
+  const [pettyModalOpen, setPettyModalOpen] = useState(false);
+  const [pettySubMode, setPettySubMode] = useState<"gasto" | "ingreso">("gasto");
+  const [pettyCurrency, setPettyCurrency] = useState<"ARS" | "BRL">("ARS");
+  const [pettyAmount, setPettyAmount] = useState("");
+  const [pettyCategory, setPettyCategory] = useState("Gastos de Local / Mantenimiento");
+  const [pettyDescription, setPettyDescription] = useState("");
+  const [pettyReference, setPettyReference] = useState("");
+  const [pettyBusy, setPettyBusy] = useState(false);
+
+  const handlePettySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = parseFloat(pettyAmount);
+    if (isNaN(amt) || amt <= 0) return;
+    if (!action) return;
+
+    setPettyBusy(true);
+    try {
+      await action(
+        {
+          action: "petty_cash_movement",
+          type: pettySubMode,
+          currency: pettyCurrency,
+          amount: amt,
+          category: pettyCategory.trim() || (pettySubMode === "ingreso" ? "Ingreso" : "Gasto"),
+          description: pettyDescription.trim(),
+          reference: pettyReference.trim(),
+          created_at: new Date().toISOString(),
+          cashierId: user?.uid || null,
+          cashierName: staffProfile?.name || user?.email || "Cajero",
+        },
+        pettySubMode === "ingreso" ? "Ingreso registrado en Caja Chica" : "Gasto registrado en Caja Chica"
+      );
+      setPettyAmount("");
+      setPettyDescription("");
+      setPettyReference("");
+      setPettyModalOpen(false);
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setPettyBusy(false);
+    }
+  };
+
   const allowNegative=Boolean(data.settings?.allow_negative_stock);
   const cameraEnabled=Boolean(data.settings?.camera_enabled);
   const methods=String(data.settings?.payment_methods||"Efectivo").split(",").map((item:string)=>item.trim()).filter(Boolean);
@@ -4208,6 +4256,27 @@ function SalesPOSConfigured({
     <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <SectionTitle eyebrow="Venta rápida" title="Punto de venta" text="Escaneá, elegí el talle y cobrá sin salir de la pantalla."/>
       <div className="flex items-center gap-1.5 flex-wrap pb-4 sm:pb-0">
+        {/* Botón destacado de Caja Chica en Punto de Venta */}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setPettySubMode("gasto");
+            setPettyCategory("Gastos de Local / Mantenimiento");
+            setPettyModalOpen(true);
+          }}
+          className="h-9 gap-1.5 rounded-xl border-purple-500/40 bg-purple-500/10 hover:bg-purple-500/20 text-purple-800 dark:text-purple-300 text-xs font-bold shadow-xs transition-all cursor-pointer"
+          title="Ver saldo o registrar gastos/ingresos de Caja Chica en el momento"
+        >
+          <Wallet className="size-3.5 text-purple-600 dark:text-purple-400" />
+          <span>Caja Chica</span>
+          <span className="font-mono text-[10.5px] font-extrabold bg-purple-500/20 px-1.5 py-0.5 rounded-md text-purple-900 dark:text-purple-200">
+            ${(data.stats?.pettyCashBalanceArs || 0).toLocaleString("es-AR")}
+            {(data.stats?.pettyCashBalanceBrl || 0) > 0 ? ` · R$ ${(data.stats?.pettyCashBalanceBrl || 0).toLocaleString("es-AR")}` : ""}
+          </span>
+        </Button>
+
         {data.activeShift ? (
           <Button
             type="button"
@@ -5354,6 +5423,233 @@ function SalesPOSConfigured({
         </p>
       </CardContent></Card>
     </div>
+
+    {/* MODAL RÁPIDO DE CAJA CHICA EN EL PUNTO DE VENTA */}
+    <Dialog open={pettyModalOpen} onOpenChange={setPettyModalOpen}>
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <div className="flex items-center justify-between pr-4">
+            <DialogTitle className="flex items-center gap-2 text-base font-bold">
+              <span className="p-1.5 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                <Wallet className="size-5" />
+              </span>
+              <span>Caja Chica · Movimientos Rápidos</span>
+            </DialogTitle>
+          </div>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Registrá gastos o ingresos por fuera de mostrador sin salir del punto de venta ni perder tu carrito.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Resumen de Saldos Actuales Disponibles */}
+        <div className="grid grid-cols-2 gap-2.5 my-2">
+          <div className="p-3 rounded-xl border border-purple-500/20 bg-purple-500/5 flex flex-col justify-between">
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Saldo Disponible ARS</span>
+            <span className="text-lg font-black text-purple-700 dark:text-purple-300 font-mono">
+              ${(data.stats?.pettyCashBalanceArs || 0).toLocaleString("es-AR")}
+            </span>
+          </div>
+          <div className="p-3 rounded-xl border border-purple-500/20 bg-purple-500/5 flex flex-col justify-between">
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Saldo Disponible BRL</span>
+            <span className="text-lg font-black text-purple-700 dark:text-purple-300 font-mono">
+              R$ {(data.stats?.pettyCashBalanceBrl || 0).toLocaleString("es-AR")}
+            </span>
+          </div>
+        </div>
+
+        {/* Selector de Tipo (Gasto / Ingreso) */}
+        <div className="grid grid-cols-2 gap-1.5 p-1 bg-muted/60 rounded-xl">
+          <button
+            type="button"
+            onClick={() => {
+              setPettySubMode("gasto");
+              setPettyCategory("Gastos de Local / Mantenimiento");
+            }}
+            className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all ${
+              pettySubMode === "gasto"
+                ? "bg-rose-500 text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Minus className="size-3.5" />
+            <span>Registrar Gasto</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setPettySubMode("ingreso");
+              setPettyCategory("Aporte de Capital / Fondeo Dueño");
+            }}
+            className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all ${
+              pettySubMode === "ingreso"
+                ? "bg-emerald-600 text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Plus className="size-3.5" />
+            <span>Nuevo Ingreso</span>
+          </button>
+        </div>
+
+        <form onSubmit={handlePettySubmit} className="space-y-3.5 mt-1">
+          {/* Moneda y Monto */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-bold">Monto *</label>
+              <div className="inline-flex rounded-lg border bg-muted/40 p-0.5 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setPettyCurrency("ARS")}
+                  className={`px-2.5 py-0.5 rounded-md transition-all ${
+                    pettyCurrency === "ARS"
+                      ? "bg-card text-foreground shadow-xs font-extrabold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  $ ARS
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPettyCurrency("BRL")}
+                  className={`px-2.5 py-0.5 rounded-md transition-all ${
+                    pettyCurrency === "BRL"
+                      ? "bg-card text-foreground shadow-xs font-extrabold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  R$ BRL
+                </button>
+              </div>
+            </div>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground font-mono">
+                {pettyCurrency === "ARS" ? "$" : "R$"}
+              </span>
+              <Input
+                type="number"
+                step="any"
+                min="0.01"
+                required
+                placeholder="0.00"
+                autoFocus
+                value={pettyAmount}
+                onChange={(e) => setPettyAmount(e.target.value)}
+                className="pl-9 h-11 text-base font-mono font-bold"
+              />
+            </div>
+          </div>
+
+          {/* Categoría con chips rápidos */}
+          <div>
+            <label className="text-xs font-bold block mb-1">Categoría *</label>
+            <div className="flex flex-wrap gap-1 mb-2">
+              {(pettySubMode === "gasto"
+                ? [
+                    "Gastos de Local / Mantenimiento",
+                    "Artículos de Limpieza e Insumos",
+                    "Flete y Envíos",
+                    "Pago a Proveedor (Por fuera)",
+                    "Comida / Refrigerio",
+                    "Retiro del Dueño / Ganancia",
+                  ]
+                : [
+                    "Aporte de Capital / Fondeo Dueño",
+                    "Cobro / Venta por fuera",
+                    "Pase desde Mostrador",
+                    "Devolución de gasto",
+                    "Otro ingreso",
+                  ]
+              ).map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setPettyCategory(cat)}
+                  className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition-all ${
+                    pettyCategory === cat
+                      ? "bg-primary text-primary-foreground font-bold shadow-xs"
+                      : "bg-muted hover:bg-muted/80 text-muted-foreground"
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+            <Input
+              value={pettyCategory}
+              onChange={(e) => setPettyCategory(e.target.value)}
+              placeholder="O escribí una categoría personalizada..."
+              className="h-8 text-xs"
+              required
+            />
+          </div>
+
+          {/* Motivo / Detalle */}
+          <div>
+            <label className="text-xs font-bold block mb-1">Motivo / Concepto (Opcional)</label>
+            <Input
+              value={pettyDescription}
+              onChange={(e) => setPettyDescription(e.target.value)}
+              placeholder={pettySubMode === "gasto" ? "Ej: Flete remis depósito, bolsas, lavandina..." : "Ej: Cobro particular, dinero dejado por dueño..."}
+              className="h-9 text-xs"
+            />
+          </div>
+
+          {/* Comprobante / Nro Ticket (Opcional) */}
+          <div>
+            <label className="text-xs font-bold block mb-1">Comprobante / Nro. Ticket (Opcional)</label>
+            <Input
+              value={pettyReference}
+              onChange={(e) => setPettyReference(e.target.value)}
+              placeholder="Ej: Recibo #4421, Factura B 1204..."
+              className="h-8 text-xs font-mono"
+            />
+          </div>
+
+          {/* Botones de acción */}
+          <div className="pt-2 flex items-center justify-between gap-2">
+            {onOpenPettyCash && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setPettyModalOpen(false);
+                  onOpenPettyCash();
+                }}
+                className="text-xs text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 gap-1.5 h-9 px-2.5 font-bold"
+              >
+                <span>Módulo completo</span>
+                <ArrowRight className="size-3.5" />
+              </Button>
+            )}
+            <div className="flex items-center gap-2 ml-auto">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setPettyModalOpen(false)}
+                className="h-9 text-xs"
+                disabled={pettyBusy}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={pettyBusy || !pettyAmount || parseFloat(pettyAmount) <= 0}
+                className={`h-9 text-xs font-bold gap-1.5 ${
+                  pettySubMode === "gasto"
+                    ? "bg-rose-600 hover:bg-rose-700 text-white"
+                    : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                }`}
+              >
+                {pettyBusy ? "Guardando..." : pettySubMode === "gasto" ? "Guardar Gasto" : "Guardar Ingreso"}
+              </Button>
+            </div>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   </>;
 }
 
