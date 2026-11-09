@@ -795,6 +795,7 @@ export default function StoreApp({
       setAdditionalCharge(0);
       setAdditionalChargeDescription("");
       setCustomerId("");
+      setChannel((data?.settings?.default_channel as any) || "minorista");
     }
   };
 
@@ -4581,6 +4582,7 @@ function SalesPOSConfigured({
                     onClick={() => {
                       if (window.confirm("¿Querés vaciar todos los productos cargados a la venta actual?")) {
                         setCart([]);
+                        setChannel((data?.settings?.default_channel as any) || "minorista");
                       }
                     }}
                     className="text-xs text-muted-foreground hover:text-destructive gap-1"

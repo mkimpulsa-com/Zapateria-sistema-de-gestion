@@ -24,7 +24,7 @@ const defaultSettings = {
   vat_condition:"responsable_inscripto", pos_number:"0001", default_vat_rate:0, prices_include_vat:true,
   iibb_number:"", activity_start_date:"",
   receipt_type:"X", receipt_prefix:"X", next_receipt_number:1, currency:"ARS", secondary_currency:"BRL",
-  exchange_rate_brl:250, exchange_rate_ars:250, exchange_rate_usd:5.70, default_channel:"mayorista",
+  exchange_rate_brl:250, exchange_rate_ars:250, exchange_rate_usd:5.70, default_channel:"minorista",
   payment_methods:"Efectivo,Transferencia,Tarjeta,Mercado Pago,Cuenta corriente", max_discount_percent:20, rounding_mode:"none",
   wholesale_min_qty:0, allow_mixed_sale:true, wholesale_terms:"Precios mayoristas directos sin mínimo de compra.",
   low_stock_at:3, default_sizes:"35,36,37,38,39,40", allow_negative_stock:false, barcode_prefix:"",
@@ -246,6 +246,12 @@ export async function loadStore(uid?: string) {
   ]);
   const rawSettings = settingsSnap.data() || {};
   const settings = { ...defaultSettings, ...rawSettings };
+  if (!rawSettings.default_channel || rawSettings.default_channel === "mayorista") {
+    settings.default_channel = "minorista";
+    if (rawSettings.default_channel === "mayorista") {
+      updateDoc(userSettingsDoc(userId), { default_channel: "minorista" }).catch(() => {});
+    }
+  }
   settings.wholesale_min_qty = Number(rawSettings.wholesale_min_qty) || 0;
   const products = withId(productsSnap)
     .filter((item: any) => item.active !== false)
