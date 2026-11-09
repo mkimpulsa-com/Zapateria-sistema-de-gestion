@@ -31,7 +31,11 @@ import {
   Truck,
   Users,
   WalletCards,
+  Wallet,
+  Coins,
+  Tag,
 } from "lucide-react";
+import { formatMoney } from "@/lib/currency";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +50,7 @@ interface DashboardViewProps {
     suppliers: any[];
     sales: any[];
     movements: any[];
+    pettyCashMovements?: any[];
     stockMoves: any[];
     customerMoves: any[];
     supplierMoves: any[];
@@ -54,6 +59,12 @@ interface DashboardViewProps {
       salesToday: number;
       stockValue: number;
       cashBalance: number;
+      bankBalance?: number;
+      bankBalanceArs?: number;
+      bankBalanceBrl?: number;
+      bankBalanceUsd?: number;
+      pettyCashBalanceArs?: number;
+      pettyCashBalanceBrl?: number;
       lowStock: number;
       productCount: number;
     };
@@ -63,12 +74,7 @@ interface DashboardViewProps {
   setModal?: (modal: string) => void;
 }
 
-const money = (value: number) =>
-  new Intl.NumberFormat("es-AR", {
-    style: "currency",
-    currency: "ARS",
-    maximumFractionDigits: 0,
-  }).format(value || 0);
+const money = (value: number, curr = "ARS") => formatMoney(value, curr);
 
 const dateShort = (value: string) => {
   if (!value) return "";
@@ -169,11 +175,12 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
   const sales = data.sales || [];
   const customers = data.customers || [];
   const movements = data.movements || [];
+  const pettyMovements: any[] = data.pettyCashMovements || [];
 
   // Filter sales and movements by selected period
-  const { filteredSales, filteredMovements } = useMemo(() => {
+  const { filteredSales, filteredMovements, filteredPettyMovements } = useMemo(() => {
     if (period === "historico") {
-      return { filteredSales: sales, filteredMovements: movements };
+      return { filteredSales: sales, filteredMovements: movements, filteredPettyMovements: pettyMovements };
     }
 
     const now = new Date();
@@ -199,9 +206,14 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
       if (!dateVal) return false;
       return new Date(dateVal) >= start;
     });
+    const fPettyMovements = pettyMovements.filter((m: any) => {
+      const dateVal = m.created_at || m.date;
+      if (!dateVal) return false;
+      return new Date(dateVal) >= start;
+    });
 
-    return { filteredSales: fSales, filteredMovements: fMovements };
-  }, [sales, movements, period]);
+    return { filteredSales: fSales, filteredMovements: fMovements, filteredPettyMovements: fPettyMovements };
+  }, [sales, movements, pettyMovements, period]);
 
   // Overall Financial & Operational Summary for selected period
   const periodStats = useMemo(() => {
@@ -229,10 +241,38 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
     const totalCustomersWithDebt = customers.filter((c: any) => Number(c.balance || 0) > 0);
     const totalDebtAmount = totalCustomersWithDebt.reduce((acc: number, c: any) => acc + Number(c.balance || 0), 0);
 
-    // Cash movements for the selected period
+    // Cash movements for the selected period (Mostrador)
     const periodIncome = filteredMovements.filter((m: any) => m.type === "ingreso").reduce((acc: number, m: any) => acc + Number(m.amount || 0), 0);
     const periodExpenses = filteredMovements.filter((m: any) => m.type === "egreso").reduce((acc: number, m: any) => acc + Number(m.amount || 0), 0);
     const periodNetCash = periodIncome - periodExpenses;
+
+    // Caja Chica movements for the selected period
+    const pettyIncomeArs = filteredPettyMovements
+      .filter((m: any) => m.type === "ingreso" && (m.currency || "ARS") === "ARS")
+      .reduce((acc: number, m: any) => acc + Number(m.amount || 0), 0);
+    const pettyIncomeBrl = filteredPettyMovements
+      .filter((m: any) => m.type === "ingreso" && m.currency === "BRL")
+      .reduce((acc: number, m: any) => acc + Number(m.amount || 0), 0);
+    const pettyExpenseArs = filteredPettyMovements
+      .filter((m: any) => m.type === "egreso" && (m.currency || "ARS") === "ARS")
+      .reduce((acc: number, m: any) => acc + Number(m.amount || 0), 0);
+    const pettyExpenseBrl = filteredPettyMovements
+      .filter((m: any) => m.type === "egreso" && m.currency === "BRL")
+      .reduce((acc: number, m: any) => acc + Number(m.amount || 0), 0);
+
+    const pettyNetArs = pettyIncomeArs - pettyExpenseArs;
+    const pettyNetBrl = pettyIncomeBrl - pettyExpenseBrl;
+
+    // Saldos consolidados de efectivo (Mostrador + Caja Chica)
+    const mostradorBalanceArs = Number(data.stats?.cashBalance || 0);
+    const pettyBalanceArs = Number(data.stats?.pettyCashBalanceArs || 0);
+    const pettyBalanceBrl = Number(data.stats?.pettyCashBalanceBrl || 0);
+    const totalCashArs = mostradorBalanceArs + pettyBalanceArs;
+
+    // Flujo consolidado del período
+    const combinedIncome = periodIncome + pettyIncomeArs;
+    const combinedExpenses = periodExpenses + pettyExpenseArs;
+    const combinedNet = combinedIncome - combinedExpenses;
 
     return {
       revenue,
@@ -253,8 +293,23 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
       periodExpenses,
       periodNetCash,
       periodMovementsCount: filteredMovements.length,
+      // Caja chica metrics
+      pettyIncomeArs,
+      pettyIncomeBrl,
+      pettyExpenseArs,
+      pettyExpenseBrl,
+      pettyNetArs,
+      pettyNetBrl,
+      pettyMovementsCount: filteredPettyMovements.length,
+      mostradorBalanceArs,
+      pettyBalanceArs,
+      pettyBalanceBrl,
+      totalCashArs,
+      combinedIncome,
+      combinedExpenses,
+      combinedNet,
     };
-  }, [filteredSales, filteredMovements, customers]);
+  }, [filteredSales, filteredMovements, filteredPettyMovements, customers, data.stats]);
 
   // Chart 1: Revenue & Sales Evolution over time (grouped by day/hour/week)
   const salesTimelineData = useMemo(() => {
@@ -641,6 +696,66 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
     };
   }, [customers, filteredSales]);
 
+  // Desglose de Gastos de Caja Chica por Categoría para el período
+  const pettyExpenseCategories = useMemo(() => {
+    const map = new Map<string, { category: string; amountArs: number; amountBrl: number; count: number }>();
+    const expenses = filteredPettyMovements.filter((m: any) => m.type === "egreso");
+    const totalArs = expenses.filter((m: any) => (m.currency || "ARS") === "ARS").reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+
+    expenses.forEach((m: any) => {
+      const cat = m.category || "General";
+      const cur = m.currency || "ARS";
+      const amt = Number(m.amount || 0);
+      const entry = map.get(cat) || { category: cat, amountArs: 0, amountBrl: 0, count: 0 };
+      if (cur === "BRL") {
+        entry.amountBrl += amt;
+      } else {
+        entry.amountArs += amt;
+      }
+      entry.count += 1;
+      map.set(cat, entry);
+    });
+
+    return Array.from(map.values())
+      .map((item) => ({
+        ...item,
+        percent: totalArs > 0 ? Math.round((item.amountArs / totalArs) * 100) : 0,
+      }))
+      .sort((a, b) => b.amountArs - a.amountArs);
+  }, [filteredPettyMovements]);
+
+  // Lista unificada de Últimos Movimientos (Mostrador + Caja Chica)
+  const unifiedRecentMovements = useMemo(() => {
+    const list: any[] = [
+      ...movements.map((m: any) => ({
+        id: `mostrador-${m.id}`,
+        type: m.type,
+        currency: m.currency || "ARS",
+        amount: Number(m.amount || 0),
+        category: m.category || "Mostrador",
+        description: m.description || m.category,
+        reference: m.reference,
+        created_at: m.created_at || m.date,
+        source: "mostrador" as const,
+      })),
+      ...pettyMovements.map((m: any) => ({
+        id: `cajachica-${m.id}`,
+        type: m.type,
+        currency: m.currency || "ARS",
+        amount: Number(m.amount || 0),
+        category: m.category || "Caja Chica",
+        description: m.description || m.category,
+        reference: m.reference,
+        created_at: m.created_at || m.date,
+        source: "caja_chica" as const,
+      })),
+    ];
+
+    return list
+      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+      .slice(0, 7);
+  }, [movements, pettyMovements]);
+
   // Stock en movimiento (Modelos destacados para venta rápida)
   const stockQuickList = products.slice(0, 4);
 
@@ -757,31 +872,56 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
           </CardContent>
         </Card>
 
-        {/* Cash Balance */}
+        {/* Disponibilidad Total en Efectivo (Mostrador + Caja Chica) */}
         <Card className="group relative overflow-hidden">
-          <CardContent className="p-5 flex flex-col justify-between h-full gap-3">
+          <CardContent className="p-5 flex flex-col justify-between h-full gap-2.5">
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  Saldo en Caja ({PERIOD_LABELS[period]})
+                  Disponibilidad Total Efectivo
                 </p>
-                <p className={`mt-1.5 metric-value text-2xl sm:text-3xl font-semibold tracking-tight ${data.stats.cashBalance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
-                  {money(data.stats.cashBalance)}
-                </p>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <p className={`metric-value text-2xl sm:text-3xl font-black tracking-tight ${periodStats.totalCashArs >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                    {money(periodStats.totalCashArs)}
+                  </p>
+                  {periodStats.pettyBalanceBrl > 0 && (
+                    <Badge variant="outline" className="font-mono text-xs border-teal-500/40 text-teal-700 dark:text-teal-300 bg-teal-500/10">
+                      +R$ {periodStats.pettyBalanceBrl.toLocaleString("es-AR")}
+                    </Badge>
+                  )}
+                </div>
               </div>
               <span className="clay-pill-3d clay-pill-green size-12 shrink-0">
                 <WalletCards className="size-6" strokeWidth={2.3} />
               </span>
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-1 pt-2 border-t border-border/50 text-xs text-muted-foreground">
+
+            {/* Desglose Mostrador vs Caja Chica */}
+            <div className="grid grid-cols-2 gap-2 py-1.5 px-2.5 rounded-xl bg-muted/40 border border-border/60 text-[11px]">
+              <div>
+                <span className="text-muted-foreground block text-[10px]">🛒 Mostrador</span>
+                <span className="font-mono font-bold text-foreground">
+                  {money(periodStats.mostradorBalanceArs)}
+                </span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block text-[10px]">💼 Caja Chica</span>
+                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                  {money(periodStats.pettyBalanceArs)}
+                  {periodStats.pettyBalanceBrl > 0 ? ` · R$ ${periodStats.pettyBalanceBrl}` : ""}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-1 pt-1.5 border-t border-border/50 text-xs text-muted-foreground">
               <span className="inline-flex items-center text-emerald-600 dark:text-emerald-400 font-semibold text-[11px]">
-                <ArrowDownLeft className="size-3 mr-0.5" /> +{money(periodStats.periodIncome)}
+                <ArrowDownLeft className="size-3 mr-0.5" /> +{money(periodStats.combinedIncome)}
               </span>
               <span className="inline-flex items-center text-red-500 font-semibold text-[11px]">
-                <ArrowUpRight className="size-3 mr-0.5" /> -{money(periodStats.periodExpenses)}
+                <ArrowUpRight className="size-3 mr-0.5" /> -{money(periodStats.combinedExpenses)}
               </span>
               <span className="text-[11px] font-medium text-foreground">
-                Flujo: {periodStats.periodNetCash >= 0 ? "+" : ""}{money(periodStats.periodNetCash)}
+                Flujo: {periodStats.combinedNet >= 0 ? "+" : ""}{money(periodStats.combinedNet)}
               </span>
             </div>
           </CardContent>
@@ -1479,68 +1619,120 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
           </CardContent>
         </Card>
 
-        {/* Recent cash movements */}
+        {/* Flujo de Dinero y Movimientos (Mostrador + Caja Chica) */}
         <Card className="border-0 shadow-[0_8px_28px_rgb(15_33_55/7%)]">
           <CardHeader className="flex-row items-center justify-between pb-2">
             <div>
               <CardTitle className="flex items-center gap-2 text-lg">
                 <Receipt className="size-5 text-primary" />
-                Últimos Movimientos
+                Flujo de Dinero y Gastos
               </CardTitle>
               <CardDescription>
-                Registros recientes de caja e ingresos
+                Mostrador y Caja Chica ({PERIOD_LABELS[period]})
               </CardDescription>
             </div>
             <Button
               variant="outline"
               size="sm"
               onClick={() => setSection("caja")}
-              className="text-xs h-8 rounded-lg"
+              className="text-xs h-8 rounded-lg font-semibold"
             >
-              Libro de caja
+              Ver Caja
             </Button>
           </CardHeader>
-          <CardContent className="space-y-3 pt-2">
-            {movements.length === 0 ? (
-              <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-                No hay movimientos de caja registrados.
-              </div>
-            ) : (
-              movements.slice(0, 6).map((m: any) => (
-                <div
-                  key={m.id}
-                  className="flex items-center gap-3 rounded-xl border bg-card p-2.5 transition hover:bg-muted/30"
-                >
-                  <span
-                    className={`grid size-9 place-items-center rounded-xl shrink-0 ${
-                      m.type === "ingreso"
-                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                        : "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300"
-                    }`}
-                  >
-                    {m.type === "ingreso" ? <ArrowDownLeft className="size-4" /> : <ArrowUpRight className="size-4" />}
+          <CardContent className="space-y-4 pt-2">
+            {/* Widget: Gastos de Caja Chica del período */}
+            {periodStats.pettyExpenseArs > 0 && (
+              <div className="rounded-xl border border-rose-500/25 bg-rose-50/50 dark:bg-rose-950/25 p-3 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
+                    <Wallet className="size-3.5" />
+                    Gastos de Caja Chica ({PERIOD_LABELS[period]})
                   </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-bold text-foreground">
-                      {m.description || m.category}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {dateFull(m.created_at)}
-                    </p>
-                  </div>
-                  <p
-                    className={`text-xs font-black shrink-0 ${
-                      m.type === "ingreso"
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-red-600 dark:text-red-400"
-                    }`}
-                  >
-                    {m.type === "ingreso" ? "+" : "-"}
-                    {money(m.amount)}
-                  </p>
+                  <span className="font-mono font-black text-rose-600 dark:text-rose-400">
+                    -{money(periodStats.pettyExpenseArs)}
+                    {periodStats.pettyExpenseBrl > 0 ? ` · R$ ${periodStats.pettyExpenseBrl}` : ""}
+                  </span>
                 </div>
-              ))
+
+                {pettyExpenseCategories.length > 0 && (
+                  <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-rose-200/50 dark:border-rose-900/50 text-[11px]">
+                    {pettyExpenseCategories.slice(0, 4).map((c) => (
+                      <div key={c.category} className="flex items-center justify-between bg-card/70 px-2 py-1 rounded-lg border border-border/40">
+                        <span className="truncate text-muted-foreground max-w-[100px] text-[10.5px]" title={c.category}>
+                          {c.category}
+                        </span>
+                        <span className="font-mono font-bold text-rose-600 text-[10.5px]">
+                          -{money(c.amountArs)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
+
+            {/* Lista unificada de movimientos */}
+            <div className="space-y-2.5">
+              {unifiedRecentMovements.length === 0 ? (
+                <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  No hay movimientos registrados en este período.
+                </div>
+              ) : (
+                unifiedRecentMovements.map((m: any) => {
+                  const isIngreso = m.type === "ingreso";
+                  const isPetty = m.source === "caja_chica";
+                  const cur = m.currency || "ARS";
+
+                  return (
+                    <div
+                      key={m.id}
+                      className="flex items-center gap-3 rounded-xl border bg-card p-2.5 transition hover:bg-muted/30"
+                    >
+                      <span
+                        className={`grid size-9 place-items-center rounded-xl shrink-0 ${
+                          isIngreso
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                            : "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                        }`}
+                      >
+                        {isIngreso ? <ArrowDownLeft className="size-4" /> : <ArrowUpRight className="size-4" />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="truncate text-xs font-bold text-foreground">
+                            {m.description || m.category}
+                          </p>
+                          <Badge
+                            variant="secondary"
+                            className={`text-[9.5px] px-1 py-0 h-4 font-semibold border ${
+                              isPetty
+                                ? "bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20"
+                                : "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20"
+                            }`}
+                          >
+                            {isPetty ? "Caja Chica" : "Mostrador"}
+                          </Badge>
+                        </div>
+                        <p className="text-[10.5px] text-muted-foreground font-mono mt-0.5">
+                          {dateFull(m.created_at)}
+                        </p>
+                      </div>
+                      <p
+                        className={`text-xs font-black shrink-0 font-mono ${
+                          isIngreso
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-red-600 dark:text-red-400"
+                        }`}
+                      >
+                        {isIngreso ? "+" : "-"}
+                        {money(m.amount, cur)}
+                      </p>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>
