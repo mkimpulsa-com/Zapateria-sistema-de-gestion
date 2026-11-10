@@ -67,20 +67,14 @@ export function BankAccountsView({
     () => accounts.filter((a) => a.currency === "ARS").reduce((sum, a) => sum + (Number(a.balance) || 0), 0),
     [accounts]
   );
-  const totalBalanceUsd = useMemo(
-    () => accounts.filter((a) => a.currency === "USD").reduce((sum, a) => sum + (Number(a.balance) || 0), 0),
-    [accounts]
-  );
 
   const rateArs = Number(settings?.exchange_rate_ars || settings?.exchange_rate_brl) || 250;
-  const rateUsd = Number(settings?.exchange_rate_usd) || 5.70;
 
   const totalConsolidatedBrl = useMemo(() => {
     const fromBrl = totalBalanceBrl;
     const fromArs = rateArs > 0 ? totalBalanceArs / rateArs : 0;
-    const fromUsd = totalBalanceUsd * rateUsd;
-    return Math.round((fromBrl + fromArs + fromUsd) * 100) / 100;
-  }, [totalBalanceBrl, totalBalanceArs, totalBalanceUsd, rateArs, rateUsd]);
+    return Math.round((fromBrl + fromArs) * 100) / 100;
+  }, [totalBalanceBrl, totalBalanceArs, rateArs]);
 
   const filteredAccounts = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -131,7 +125,7 @@ export function BankAccountsView({
       </div>
 
       {/* Metrics Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {/* Reales (Moneda base) */}
         <Card className="border-0 shadow-sm bg-gradient-to-br from-emerald-50/50 via-card to-card dark:from-emerald-950/20">
           <CardContent className="p-5 flex items-center justify-between">
@@ -160,27 +154,13 @@ export function BankAccountsView({
           </CardContent>
         </Card>
 
-        {/* Dólares */}
-        <Card className="border-0 shadow-sm bg-gradient-to-br from-amber-50/50 via-card to-card dark:from-amber-950/20">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">Saldo Total Dólares (US$)</p>
-              <p className="mt-1 text-2xl font-black text-amber-700 dark:text-amber-300">{formatMoney(totalBalanceUsd, "USD")}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{accounts.filter(a => a.currency === "USD").length} cuentas en dólares</p>
-            </div>
-            <span className="grid size-12 place-items-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
-              <CreditCard className="size-6" />
-            </span>
-          </CardContent>
-        </Card>
-
         {/* Consolidado en BRL */}
         <Card className="border-0 shadow-sm bg-gradient-to-br from-violet-50/50 via-card to-card dark:from-violet-950/20">
           <CardContent className="p-5 flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-400">Total Consolidado (R$ BRL)</p>
               <p className="mt-1 text-2xl font-black text-violet-700 dark:text-violet-300">{formatMoney(totalConsolidatedBrl, "BRL")}</p>
-              <p className="mt-1 text-xs text-muted-foreground">Convirtiendo ARS y USD</p>
+              <p className="mt-1 text-xs text-muted-foreground">Convirtiendo ARS a BRL</p>
             </div>
             <span className="grid size-12 place-items-center rounded-2xl bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300">
               <History className="size-6" />

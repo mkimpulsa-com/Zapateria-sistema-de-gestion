@@ -224,6 +224,63 @@ export async function deleteCashierAccount({
   await batch.commit();
 }
 
+function accumulateShiftSaleTotals(shiftSales: any[], defaultRateArs = 250) {
+  let cashSales = 0;
+  let otherSales = 0;
+  let cashSalesArs = 0;
+  let cashSalesBrl = 0;
+  let cashSalesUsd = 0;
+
+  shiftSales.forEach((s: any) => {
+    if (s.status === "cancelled") return;
+    if (s.is_split_payment) {
+      const sArs = Number(s.split_ars || 0);
+      const sBrl = Number(s.split_brl || 0);
+      const sRate = Math.max(0.0001, Number(s.exchange_rate_ars || s.exchange_rate || defaultRateArs));
+      const arsIsCash = String(s.split_ars_method || s.payment_method || "Efectivo").toLowerCase().includes("efectivo");
+      const brlIsCash = String(s.split_brl_method || s.payment_method || "Efectivo").toLowerCase().includes("efectivo");
+
+      if (sArs > 0) {
+        if (arsIsCash) {
+          cashSales += sArs;
+          cashSalesArs += sArs;
+        } else {
+          otherSales += sArs;
+        }
+      }
+      if (sBrl > 0) {
+        const brlEquivArs = Math.round(sBrl * sRate);
+        if (brlIsCash) {
+          cashSales += brlEquivArs;
+          cashSalesBrl = Math.round((cashSalesBrl + sBrl) * 100) / 100;
+        } else {
+          otherSales += brlEquivArs;
+        }
+      }
+      return;
+    }
+
+    const amount = Number(s.paid_amount_ars !== undefined ? s.paid_amount_ars : (s.paid_amount || s.total || 0));
+    const method = String(s.payment_method || "").toLowerCase();
+    const saleCur = String(s.currency || "ARS").toUpperCase();
+
+    if (method.includes("efectivo")) {
+      cashSales += amount;
+      if (saleCur === "BRL") {
+        cashSalesBrl = Math.round((cashSalesBrl + Number(s.paid_amount_brl !== undefined ? s.paid_amount_brl : (s.paid_amount || 0))) * 100) / 100;
+      } else if (saleCur === "USD") {
+        cashSalesUsd = Math.round((cashSalesUsd + Number(s.paid_amount_usd !== undefined ? s.paid_amount_usd : (s.paid_amount || 0))) * 100) / 100;
+      } else {
+        cashSalesArs += Number(s.paid_amount_ars !== undefined ? s.paid_amount_ars : amount);
+      }
+    } else {
+      otherSales += amount;
+    }
+  });
+
+  return { cashSales, otherSales, cashSalesArs, cashSalesBrl, cashSalesUsd };
+}
+
 export async function loadStore(uid?: string) {
   const userId = getStoreUid(uid);
   await ensureSeed(userId);
@@ -246,6 +303,10 @@ export async function loadStore(uid?: string) {
   ]);
   const rawSettings = settingsSnap.data() || {};
   const settings = { ...defaultSettings, ...rawSettings };
+  if (settings.currency === "USD") {
+    settings.currency = "ARS";
+    updateDoc(userSettingsDoc(userId), { currency: "ARS" }).catch(() => {});
+  }
   if (!rawSettings.default_channel || rawSettings.default_channel === "mayorista") {
     settings.default_channel = "minorista";
     if (rawSettings.default_channel === "mayorista") {
@@ -340,31 +401,14 @@ export async function loadStore(uid?: string) {
       String(s.created_at) >= shiftOpenedAt
     );
     
-    // Ventas en efectivo vs otros medios (en moneda de la venta y consolidado en ARS)
-    let cashSales = 0;
-    let otherSales = 0;
-    let cashSalesArs = 0;
-    let cashSalesBrl = 0;
-    let cashSalesUsd = 0;
-
-    shiftSales.forEach((s: any) => {
-      const amount = Number(s.paid_amount_ars !== undefined ? s.paid_amount_ars : (s.paid_amount || s.total || 0));
-      const method = String(s.payment_method || "").toLowerCase();
-      const saleCur = String(s.currency || "ARS").toUpperCase();
-
-      if (method.includes("efectivo")) {
-        cashSales += amount;
-        if (saleCur === "BRL") {
-          cashSalesBrl += Number(s.paid_amount_brl !== undefined ? s.paid_amount_brl : (s.paid_amount || 0));
-        } else if (saleCur === "USD") {
-          cashSalesUsd += Number(s.paid_amount_usd !== undefined ? s.paid_amount_usd : (s.paid_amount || 0));
-        } else {
-          cashSalesArs += Number(s.paid_amount_ars !== undefined ? s.paid_amount_ars : amount);
-        }
-      } else {
-        otherSales += amount;
-      }
-    });
+    // Ventas en efectivo vs otros medios (en moneda de la venta, mixtas y consolidado en ARS)
+    const {
+      cashSales,
+      otherSales,
+      cashSalesArs,
+      cashSalesBrl,
+      cashSalesUsd,
+    } = accumulateShiftSaleTotals(shiftSales, Number(activeShift.exchange_rate_ars || settings.exchange_rate_ars || 250));
 
     // Movimientos manuales de caja durante el turno (excluyendo ventas, apertura y retiros de cierre)
     const shiftCashMoves = movements.filter((m: any) => 
@@ -1628,30 +1672,13 @@ export async function runStoreAction(body: any, uid?: string) {
       String(s.created_at) >= shiftOpenedAt
     );
 
-    let cashSales = 0;
-    let otherSales = 0;
-    let cashSalesArs = 0;
-    let cashSalesBrl = 0;
-    let cashSalesUsd = 0;
-
-    shiftSales.forEach((s: any) => {
-      const amount = Number(s.paid_amount_ars !== undefined ? s.paid_amount_ars : (s.paid_amount || s.total || 0));
-      const method = String(s.payment_method || "").toLowerCase();
-      const saleCur = String(s.currency || "ARS").toUpperCase();
-
-      if (method.includes("efectivo")) {
-        cashSales += amount;
-        if (saleCur === "BRL") {
-          cashSalesBrl += Number(s.paid_amount_brl !== undefined ? s.paid_amount_brl : (s.paid_amount || 0));
-        } else if (saleCur === "USD") {
-          cashSalesUsd += Number(s.paid_amount_usd !== undefined ? s.paid_amount_usd : (s.paid_amount || 0));
-        } else {
-          cashSalesArs += Number(s.paid_amount_ars !== undefined ? s.paid_amount_ars : amount);
-        }
-      } else {
-        otherSales += amount;
-      }
-    });
+    const {
+      cashSales,
+      otherSales,
+      cashSalesArs,
+      cashSalesBrl,
+      cashSalesUsd,
+    } = accumulateShiftSaleTotals(shiftSales, Number(shiftData.exchange_rate_ars || 250));
 
     // Consultar movimientos de caja manuales durante el turno (excluyendo ventas, apertura y retiros de cierre)
     const movesSnap = await getDocs(query(userCol("cashMovements", userId), orderBy("created_at", "desc"), limit(200)));
@@ -2174,10 +2201,15 @@ export async function runStoreAction(body: any, uid?: string) {
       const productRefs = uniqueIds.map(id => userDoc("products", id, userId));
       const customerRef = customerId ? userDoc("customers", customerId, userId) : null;
       const bankAccountRef = bankAccountId ? userDoc("bankAccounts", bankAccountId, userId) : null;
+      const splitBrlBankId = String(body.splitBrlBankAccountId || "");
+      const splitBrlBankRef = (body.isSplitPayment && splitBrlBankId && splitBrlBankId !== bankAccountId)
+        ? userDoc("bankAccounts", splitBrlBankId, userId)
+        : null;
 
-      const [settingsSnapshot, bankAccountSnapshot, customerSnapshot, ...productSnapshots] = await Promise.all([
+      const [settingsSnapshot, bankAccountSnapshot, splitBrlBankSnapshot, customerSnapshot, ...productSnapshots] = await Promise.all([
         transaction.get(settingsRef),
         bankAccountRef ? transaction.get(bankAccountRef) : null,
+        splitBrlBankRef ? transaction.get(splitBrlBankRef) : null,
         customerRef ? transaction.get(customerRef) : null,
         ...productRefs.map(item => transaction.get(item)),
       ]);
@@ -2187,6 +2219,16 @@ export async function runStoreAction(body: any, uid?: string) {
       if (bankAccountSnapshot && bankAccountSnapshot.exists()) {
         bankAccountData = bankAccountSnapshot.data() as any;
         bankAccountName = bankAccountData.name || "Cuenta Bancaria";
+      }
+
+      let splitBrlBankData: any = null;
+      let splitBrlBankName = "Caja general";
+      if (splitBrlBankSnapshot && splitBrlBankSnapshot.exists()) {
+        splitBrlBankData = splitBrlBankSnapshot.data() as any;
+        splitBrlBankName = splitBrlBankData.name || "Cuenta Bancaria";
+      } else if (splitBrlBankId && splitBrlBankId === bankAccountId && bankAccountData) {
+        splitBrlBankData = bankAccountData;
+        splitBrlBankName = bankAccountName;
       }
 
       let customerData: any = null;
@@ -2301,6 +2343,12 @@ export async function runStoreAction(body: any, uid?: string) {
         additionalChargeUsd = Math.round((additionalChargeBrl / rateUsd) * 100) / 100;
       }
 
+      const isSplitPayment = Boolean(body.isSplitPayment);
+      const splitArs = isSplitPayment ? Math.max(0, Number(body.splitArs) || 0) : 0;
+      const splitBrl = isSplitPayment ? Math.max(0, Math.round((Number(body.splitBrl) || 0) * 100) / 100) : 0;
+      const splitArsMethod = isSplitPayment ? text(body.splitArsMethod || body.paymentMethod, "Efectivo") : "";
+      const splitBrlMethod = isSplitPayment ? text(body.splitBrlMethod || body.paymentMethod, "Efectivo") : "";
+
       let paidAmountBrl = 0;
       let pendingAmountBrl = 0;
       let paidAmountArs = 0;
@@ -2308,7 +2356,17 @@ export async function runStoreAction(body: any, uid?: string) {
       let paidAmountUsd = 0;
       let pendingAmountUsd = 0;
 
-      if (saleCurrency === "ARS") {
+      if (isSplitPayment) {
+        const rawSplitEquivArs = Math.round(splitArs + (splitBrl * rateArs));
+        // Tolerancia de redondeo hasta $2 cuando el tramo BRL tiene centavos al cubrir el total exacto
+        const isCoveredWithRounding = (splitArs > 0 || splitBrl > 0) && Math.abs(rawSplitEquivArs - totalArs) <= 2 && rawSplitEquivArs >= totalArs - 2;
+        paidAmountArs = isCoveredWithRounding ? totalArs : Math.max(0, Math.min(totalArs, rawSplitEquivArs));
+        pendingAmountArs = Math.max(0, totalArs - paidAmountArs);
+        paidAmountBrl = Math.round((paidAmountArs / rateArs) * 100) / 100;
+        pendingAmountBrl = Math.round((pendingAmountArs / rateArs) * 100) / 100;
+        paidAmountUsd = Math.round((paidAmountBrl / rateUsd) * 100) / 100;
+        pendingAmountUsd = Math.round((pendingAmountBrl / rateUsd) * 100) / 100;
+      } else if (saleCurrency === "ARS") {
         const rawPaid = body.paidAmountArs !== undefined ? Number(body.paidAmountArs) : (body.paidAmount !== undefined ? Number(body.paidAmount) : totalArs);
         paidAmountArs = Math.max(0, Math.min(totalArs, isNaN(rawPaid) ? totalArs : rawPaid));
         pendingAmountArs = Math.max(0, totalArs - paidAmountArs);
@@ -2428,6 +2486,14 @@ export async function runStoreAction(body: any, uid?: string) {
         };
       });
 
+      const arsIsCash = isSplitPayment ? splitArsMethod.toLowerCase().includes("efectivo") : String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo");
+      const brlIsCash = isSplitPayment ? splitBrlMethod.toLowerCase().includes("efectivo") : String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo");
+      const effectivePaymentMethod = isSplitPayment
+        ? ((arsIsCash && brlIsCash)
+          ? "Mixto · Efectivo (ARS + BRL)"
+          : `Mixto (${splitArsMethod} ARS + ${splitBrlMethod} BRL)`)
+        : text(body.paymentMethod, "Efectivo");
+
       createdSaleData = {
         id: saleRef.id,
         receipt_no: receiptNo,
@@ -2468,6 +2534,11 @@ export async function runStoreAction(body: any, uid?: string) {
         exchange_rate: rateArs,
         exchange_rate_ars: rateArs,
         exchange_rate_usd: rateUsd,
+        is_split_payment: isSplitPayment,
+        split_ars: isSplitPayment ? splitArs : 0,
+        split_brl: isSplitPayment ? splitBrl : 0,
+        split_ars_method: isSplitPayment ? splitArsMethod : "",
+        split_brl_method: isSplitPayment ? splitBrlMethod : "",
         total_brl: totalBrl,
         paid_amount_brl: paidAmountBrl,
         pending_amount_brl: pendingAmountBrl,
@@ -2488,7 +2559,7 @@ export async function runStoreAction(body: any, uid?: string) {
         paid_amount: paidAmount,
         debt_amount: pendingAmount,
         pending_amount: pendingAmount,
-        payment_method: text(body.paymentMethod, "Efectivo"),
+        payment_method: effectivePaymentMethod,
         bank_account_id: bankAccountId,
         bank_account_name: bankAccountName,
         cashier_id: body.cashierId ? String(body.cashierId) : null,
@@ -2527,57 +2598,143 @@ export async function runStoreAction(body: any, uid?: string) {
         created_at: createdAt,
       }));
 
-      // El monto abonado ingresa a la cuenta bancaria seleccionada o a caja general
-      let depositAmount = paidAmountBrl;
-      if (bankAccountData?.currency === "ARS") depositAmount = paidAmountArs;
-      else if (bankAccountData?.currency === "USD") depositAmount = paidAmountUsd;
-      else depositAmount = paidAmountBrl;
-
       const isOnline = body.channel === "online";
-      const isCashPayment = String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo");
+      const isCashPayment = isSplitPayment ? (arsIsCash && brlIsCash) : String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo");
       const effectiveCashAmount = saleCurrency === "ARS" ? paidAmountArs : (saleCurrency === "BRL" ? paidAmountBrl : paidAmountUsd);
 
-      if (!isCashPayment && depositAmount > 0 && bankAccountRef && bankAccountData) {
-        const prevAccBal = number(bankAccountData.balance, 0);
-        const nextAccBal = prevAccBal + depositAmount;
-        transaction.update(bankAccountRef, {
-          balance: nextAccBal,
-          updated_at: createdAt,
-        });
+      let depositAmount = 0;
+      let splitArsDeposit = 0;
+      let splitBrlDeposit = 0;
 
-        transaction.set(doc(userCol("bankMovements", userId)), {
-          account_id: bankAccountId,
-          account_name: bankAccountName,
-          type: "ingreso",
-          category: isOnline ? "Venta Online" : "Venta",
-          amount: depositAmount,
-          currency: bankAccountData.currency || saleCurrency,
-          exchange_rate: saleCurrency === "BRL" ? rateArs : 1,
-          balance_before: prevAccBal,
-          balance_after: nextAccBal,
-          reference: receiptNo,
-          sale_id: saleRef.id,
-          description: isOnline
-            ? `Venta online comprobante ${receiptNo}${body.orderNumber ? ` (${body.orderNumber})` : ""} · ${body.paymentMethod || "Transferencia"}`
-            : `Venta comprobante ${receiptNo} (${saleStatus === "pago_parcial" ? "Cobro parcial" : "Cobro total"} - ${saleCurrency === "BRL" ? `R$ ${paidAmountBrl.toFixed(2)}` : (saleCurrency === "USD" ? `US$ ${paidAmountUsd.toFixed(2)}` : `$${paidAmountArs}`)} - ${body.paymentMethod || "Efectivo"})`,
-          created_at: createdAt,
-        });
-      } else if (effectiveCashAmount > 0) {
-        transaction.set(doc(userCol("cashMovements", userId)), {
-          type: "ingreso",
-          category: isOnline ? "Venta Online" : "Venta",
-          amount: effectiveCashAmount,
-          currency: saleCurrency,
-          amount_currency: effectiveCashAmount,
-          shift_id: activeOpenShift ? activeOpenShift.id : null,
-          shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
-          description: isOnline
-            ? `Venta online comprobante ${receiptNo}${body.orderNumber ? ` (${body.orderNumber})` : ""} · ${body.paymentMethod || "Efectivo"}`
-            : `Venta en efectivo ${body.channel === "minorista" ? "minorista" : "mayorista"} comprobante ${receiptNo}`,
-          reference: receiptNo,
-          sale_id: saleRef.id,
-          created_at: createdAt,
-        });
+      if (isSplitPayment) {
+        // 1) Tramo en Pesos (ARS)
+        if (splitArs > 0) {
+          if (!arsIsCash && bankAccountRef && bankAccountData) {
+            const prevAccBal = number(bankAccountData.balance, 0);
+            const amtToAcc = bankAccountData.currency === "BRL" ? Math.round((splitArs / rateArs) * 100) / 100 : splitArs;
+            const nextAccBal = prevAccBal + amtToAcc;
+            transaction.update(bankAccountRef, { balance: nextAccBal, updated_at: createdAt });
+            splitArsDeposit = amtToAcc;
+            transaction.set(doc(userCol("bankMovements", userId)), {
+              account_id: bankAccountId,
+              account_name: bankAccountName,
+              type: "ingreso",
+              category: "Venta",
+              amount: amtToAcc,
+              currency: bankAccountData.currency || "ARS",
+              exchange_rate: bankAccountData.currency === "BRL" ? rateArs : 1,
+              balance_before: prevAccBal,
+              balance_after: nextAccBal,
+              reference: receiptNo,
+              sale_id: saleRef.id,
+              description: `Venta mixta ${receiptNo} · Tramo ARS (${splitArsMethod})`,
+              created_at: createdAt,
+            });
+          } else {
+            transaction.set(doc(userCol("cashMovements", userId)), {
+              type: "ingreso",
+              category: "Venta",
+              amount: splitArs,
+              currency: "ARS",
+              amount_currency: splitArs,
+              shift_id: activeOpenShift ? activeOpenShift.id : null,
+              shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
+              description: `Venta mixta ${receiptNo} · Tramo efectivo Pesos ($ ARS)`,
+              reference: receiptNo,
+              sale_id: saleRef.id,
+              created_at: createdAt,
+            });
+          }
+        }
+
+        // 2) Tramo en Reales (BRL)
+        if (splitBrl > 0) {
+          const targetBrlRef = splitBrlBankRef || (splitBrlBankId && splitBrlBankId === bankAccountId ? bankAccountRef : null);
+          if (!brlIsCash && targetBrlRef && splitBrlBankData) {
+            const prevBrlBal = number(splitBrlBankData.balance, 0) + (targetBrlRef === bankAccountRef ? splitArsDeposit : 0);
+            const amtBrlAcc = splitBrlBankData.currency === "ARS" ? Math.round(splitBrl * rateArs) : splitBrl;
+            const nextBrlBal = prevBrlBal + amtBrlAcc;
+            transaction.update(targetBrlRef, { balance: nextBrlBal, updated_at: createdAt });
+            splitBrlDeposit = amtBrlAcc;
+            transaction.set(doc(userCol("bankMovements", userId)), {
+              account_id: splitBrlBankId,
+              account_name: splitBrlBankName,
+              type: "ingreso",
+              category: "Venta",
+              amount: amtBrlAcc,
+              currency: splitBrlBankData.currency || "BRL",
+              exchange_rate: splitBrlBankData.currency === "ARS" ? rateArs : 1,
+              balance_before: prevBrlBal,
+              balance_after: nextBrlBal,
+              reference: receiptNo,
+              sale_id: saleRef.id,
+              description: `Venta mixta ${receiptNo} · Tramo BRL (${splitBrlMethod})`,
+              created_at: createdAt,
+            });
+          } else {
+            transaction.set(doc(userCol("cashMovements", userId)), {
+              type: "ingreso",
+              category: "Venta",
+              amount: splitBrl,
+              currency: "BRL",
+              amount_currency: splitBrl,
+              shift_id: activeOpenShift ? activeOpenShift.id : null,
+              shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
+              description: `Venta mixta ${receiptNo} · Tramo efectivo Reales (R$ BRL)`,
+              reference: receiptNo,
+              sale_id: saleRef.id,
+              created_at: createdAt,
+            });
+          }
+        }
+      } else {
+        // Venta simple (1 sola moneda)
+        if (bankAccountData?.currency === "ARS") depositAmount = paidAmountArs;
+        else if (bankAccountData?.currency === "USD") depositAmount = paidAmountUsd;
+        else depositAmount = paidAmountBrl;
+
+        if (!isCashPayment && depositAmount > 0 && bankAccountRef && bankAccountData) {
+          const prevAccBal = number(bankAccountData.balance, 0);
+          const nextAccBal = prevAccBal + depositAmount;
+          transaction.update(bankAccountRef, {
+            balance: nextAccBal,
+            updated_at: createdAt,
+          });
+
+          transaction.set(doc(userCol("bankMovements", userId)), {
+            account_id: bankAccountId,
+            account_name: bankAccountName,
+            type: "ingreso",
+            category: isOnline ? "Venta Online" : "Venta",
+            amount: depositAmount,
+            currency: bankAccountData.currency || saleCurrency,
+            exchange_rate: saleCurrency === "BRL" ? rateArs : 1,
+            balance_before: prevAccBal,
+            balance_after: nextAccBal,
+            reference: receiptNo,
+            sale_id: saleRef.id,
+            description: isOnline
+              ? `Venta online comprobante ${receiptNo}${body.orderNumber ? ` (${body.orderNumber})` : ""} · ${body.paymentMethod || "Transferencia"}`
+              : `Venta comprobante ${receiptNo} (${saleStatus === "pago_parcial" ? "Cobro parcial" : "Cobro total"} - ${saleCurrency === "BRL" ? `R$ ${paidAmountBrl.toFixed(2)}` : (saleCurrency === "USD" ? `US$ ${paidAmountUsd.toFixed(2)}` : `$${paidAmountArs}`)} - ${body.paymentMethod || "Efectivo"})`,
+            created_at: createdAt,
+          });
+        } else if (effectiveCashAmount > 0) {
+          transaction.set(doc(userCol("cashMovements", userId)), {
+            type: "ingreso",
+            category: isOnline ? "Venta Online" : "Venta",
+            amount: effectiveCashAmount,
+            currency: saleCurrency,
+            amount_currency: effectiveCashAmount,
+            shift_id: activeOpenShift ? activeOpenShift.id : null,
+            shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
+            description: isOnline
+              ? `Venta online comprobante ${receiptNo}${body.orderNumber ? ` (${body.orderNumber})` : ""} · ${body.paymentMethod || "Efectivo"}`
+              : `Venta en efectivo ${body.channel === "minorista" ? "minorista" : "mayorista"} comprobante ${receiptNo}`,
+            reference: receiptNo,
+            sale_id: saleRef.id,
+            created_at: createdAt,
+          });
+        }
       }
 
       // El saldo pendiente (deuda) se acumula en la cuenta corriente del cliente (si hay cliente seleccionado)
@@ -2629,6 +2786,15 @@ export async function runStoreAction(body: any, uid?: string) {
         paidAmountArs,
         paidAmount: effectiveCashAmount,
         isCashPayment,
+        isSplitPayment,
+        splitArs,
+        splitBrl,
+        arsIsCash,
+        brlIsCash,
+        splitArsDeposit,
+        splitBrlDeposit,
+        splitBrlBankId: splitBrlBankId || null,
+        rateArs,
         isOnlinePayment: isOnline,
         orderId: body.orderId || null,
         orderNumber: body.orderNumber || null,

@@ -405,10 +405,7 @@ export function SaleInvoiceModal({
         `💳 *Forma de pago:* ${paymentMethod}\n` +
         (isBrl
           ? `🇧🇷 *Moneda de cobro:* Reales (R$ BRL)\n` +
-            `💱 *Cotizaciones:* 1 R$ = $${brlRate.toLocaleString("es-AR")} ARS · 1 US$ = R$ ${usdRate.toFixed(2)}\n`
-          : isUsd
-          ? `🇺🇸 *Moneda de cobro:* Dólares (US$ USD)\n` +
-            `💱 *Cotización:* 1 US$ = R$ ${usdRate.toFixed(2)} BRL\n`
+            `💱 *Cotización:* 1 R$ = $${brlRate.toLocaleString("es-AR")} ARS\n`
           : `🇦🇷 *Moneda de cobro:* Pesos ($ ARS)\n` +
             `💱 *Cotización:* 1 R$ = $${brlRate.toLocaleString("es-AR")} ARS\n`) +
         `━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -422,11 +419,13 @@ export function SaleInvoiceModal({
           : "") +
         `*TOTAL DE LA VENTA:* ${formatMoney(total, curr)}\n` +
         (isBrl
-          ? `💵 *Equivalencias:* $${totalArs.toLocaleString("es-AR")} ARS · US$ ${totalUsd.toFixed(2)}\n`
-          : isUsd
-          ? `💵 *Equivalencias:* R$ ${totalBrl.toFixed(2)} BRL · $${totalArs.toLocaleString("es-AR")} ARS\n`
-          : `💵 *Equivalencias:* R$ ${totalBrl.toFixed(2)} BRL · US$ ${totalUsd.toFixed(2)}\n`) +
-        `💰 *Monto Abonado:* ${formatMoney(paidCur, curr)}\n` +
+          ? `💵 *Equivalencia:* $${totalArs.toLocaleString("es-AR")} ARS\n`
+          : `💵 *Equivalencia:* R$ ${totalBrl.toFixed(2)} BRL\n`) +
+        (sale.is_split_payment
+          ? `💰 *Pago Mixto:*\n` +
+            (Number(sale.split_ars || 0) > 0 ? `   • Pesos (${sale.split_ars_method || "Efectivo"}): $${Number(sale.split_ars).toLocaleString("es-AR")} ARS\n` : "") +
+            (Number(sale.split_brl || 0) > 0 ? `   • Reales (${sale.split_brl_method || "Efectivo"}): R$ ${Number(sale.split_brl).toFixed(2)} BRL\n` : "")
+          : `💰 *Monto Abonado:* ${formatMoney(paidCur, curr)}\n`) +
         (debtCur > 0 ? `⚠️ *Saldo Pendiente (Deuda):* ${formatMoney(debtCur, curr)}\n` : "") +
         `📌 *Estado:* ${sale.status === "pago_parcial" ? "Pago Parcial" : sale.status === "con_deuda" ? "Con Deuda" : "Pagada Total"}\n\n` +
         `¡Muchas gracias por tu compra! Conservá este comprobante ante cambios o garantías.`
@@ -1244,27 +1243,47 @@ export function SaleInvoiceModal({
                   <div className="rounded-lg bg-slate-50 border border-slate-200 p-2 my-1 space-y-1 text-slate-800">
                     <div className="flex justify-between font-bold text-xs">
                       <span>Moneda de cobro</span>
-                      <span>{curr === "BRL" ? "🇧🇷 Reales (R$ BRL)" : curr === "USD" ? "🇺🇸 Dólares (US$ USD)" : "🇦🇷 Pesos ($ ARS)"}</span>
+                      <span>
+                        {sale.is_split_payment
+                          ? "🇦🇷+🇧🇷 Mixto (Pesos + Reales)"
+                          : curr === "BRL"
+                          ? "🇧🇷 Reales (R$ BRL)"
+                          : "🇦🇷 Pesos ($ ARS)"}
+                      </span>
                     </div>
                     <div className="flex justify-between text-[11px] text-slate-600">
                       <span>Cotización aplicada</span>
                       <span>
-                        {curr === "USD"
-                          ? `1 US$ = R$ ${usdRate.toFixed(2)} BRL`
-                          : `1 R$ = $${brlRate.toLocaleString("es-AR")} ARS`}
+                        {`1 R$ = $${brlRate.toLocaleString("es-AR")} ARS`}
                       </span>
                     </div>
                     <div className="flex justify-between text-[11px] text-slate-600 border-t border-slate-200 pt-1">
-                      <span>Equivalencias</span>
+                      <span>Equivalencia</span>
                       <span className="font-mono font-medium">
                         {curr === "BRL"
-                          ? `${moneyArs(totalArs)} · ${moneyUsd(totalUsd)}`
-                          : curr === "USD"
-                          ? `${moneyBrl(totalBrl)} · ${moneyArs(totalArs)}`
-                          : `${moneyBrl(totalBrl)} · ${moneyUsd(totalUsd)}`}
+                          ? `${moneyArs(totalArs)}`
+                          : `${moneyBrl(totalBrl)}`}
                       </span>
                     </div>
                   </div>
+
+                  {sale.is_split_payment && (
+                    <div className="rounded-lg bg-purple-50 border border-purple-200 p-2 text-[11px] space-y-0.5 text-purple-950">
+                      <div className="font-bold text-purple-800">Desglose de Cobro Mixto:</div>
+                      {Number(sale.split_ars || 0) > 0 && (
+                        <div className="flex justify-between">
+                          <span>· En Pesos ({sale.split_ars_method || "Efectivo"}):</span>
+                          <span className="font-mono font-bold">{moneyArs(Number(sale.split_ars))}</span>
+                        </div>
+                      )}
+                      {Number(sale.split_brl || 0) > 0 && (
+                        <div className="flex justify-between">
+                          <span>· En Reales ({sale.split_brl_method || "Efectivo"}):</span>
+                          <span className="font-mono font-bold">{moneyBrl(Number(sale.split_brl))}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="flex justify-between text-emerald-700 font-bold">
                     <span>Monto Abonado</span>

@@ -421,8 +421,40 @@ export default function StoreApp({
           const isCash = Boolean(nextData.isCashPayment);
           const isOnline = Boolean(nextData.isOnlinePayment || nextData.createdSale?.channel === "online");
           const salePaid = Number(nextData.paidAmount || nextData.paidAmountArs || 0);
+          const isSplit = Boolean(nextData.isSplitPayment);
 
-          if((isCash || (isOnline && !nextData.bankAccountId)) && salePaid > 0){
+          if (isSplit) {
+            const splitMovs: any[] = [];
+            if (nextData.arsIsCash && Number(nextData.splitArs) > 0) {
+              splitMovs.push({
+                id: `cm-ars-${Date.now()}`,
+                type: "ingreso",
+                category: "Venta",
+                amount: Number(nextData.splitArs),
+                currency: "ARS",
+                amount_currency: Number(nextData.splitArs),
+                description: `Venta mixta ${nextData.createdSale.receipt_no} · Tramo efectivo Pesos ($ ARS)`,
+                reference: nextData.createdSale.receipt_no,
+                created_at: nextData.createdAt,
+              });
+            }
+            if (nextData.brlIsCash && Number(nextData.splitBrl) > 0) {
+              splitMovs.push({
+                id: `cm-brl-${Date.now() + 1}`,
+                type: "ingreso",
+                category: "Venta",
+                amount: Number(nextData.splitBrl),
+                currency: "BRL",
+                amount_currency: Number(nextData.splitBrl),
+                description: `Venta mixta ${nextData.createdSale.receipt_no} · Tramo efectivo Reales (R$ BRL)`,
+                reference: nextData.createdSale.receipt_no,
+                created_at: nextData.createdAt,
+              });
+            }
+            if (splitMovs.length > 0) {
+              updatedMovements = [...splitMovs, ...updatedMovements].slice(0, 50);
+            }
+          } else if((isCash || (isOnline && !nextData.bankAccountId)) && salePaid > 0){
             const newCashMove = {
               id: `cm-${Date.now()}`,
               type: "ingreso",
@@ -455,7 +487,22 @@ export default function StoreApp({
 
           // 5. Actualizar saldo bancario si corresponde
           let updatedBankAccounts = prevData.bankAccounts||[];
-          if(nextData.bankAccountId && nextData.depositAmount>0){
+          if (isSplit) {
+            if (nextData.bankAccountId && Number(nextData.splitArsDeposit) > 0) {
+              updatedBankAccounts = updatedBankAccounts.map((b: any) =>
+                String(b.id) === String(nextData.bankAccountId)
+                  ? { ...b, balance: Number(b.balance || 0) + Number(nextData.splitArsDeposit) }
+                  : b
+              );
+            }
+            if (nextData.splitBrlBankId && Number(nextData.splitBrlDeposit) > 0) {
+              updatedBankAccounts = updatedBankAccounts.map((b: any) =>
+                String(b.id) === String(nextData.splitBrlBankId)
+                  ? { ...b, balance: Number(b.balance || 0) + Number(nextData.splitBrlDeposit) }
+                  : b
+              );
+            }
+          } else if(nextData.bankAccountId && nextData.depositAmount>0){
             updatedBankAccounts = updatedBankAccounts.map((b:any)=>{
               if(String(b.id)===String(nextData.bankAccountId)){
                 return {...b, balance: Number(b.balance||0) + nextData.depositAmount};
@@ -466,12 +513,38 @@ export default function StoreApp({
 
           // 6. Actualizar turno de caja activo en tiempo real
           let updatedActiveShift = prevData.activeShift;
+          let addedCashTotalArs = 0;
+          let addedOtherTotalArs = 0;
+          let addedCashArs = 0;
+          let addedCashBrl = 0;
+          const sRate = Math.max(0.0001, Number(nextData.rateArs || prevData.settings?.exchange_rate_ars || 250));
+          if (isSplit) {
+            const sArs = Number(nextData.splitArs || 0);
+            const sBrl = Number(nextData.splitBrl || 0);
+            const sBrlEquivArs = Math.round(sBrl * sRate);
+            if (nextData.arsIsCash) { addedCashArs += sArs; addedCashTotalArs += sArs; } else { addedOtherTotalArs += sArs; }
+            if (nextData.brlIsCash) { addedCashBrl += sBrl; addedCashTotalArs += sBrlEquivArs; } else { addedOtherTotalArs += sBrlEquivArs; }
+          } else {
+            const amtArs = Number(nextData.paidAmountArs || 0);
+            if (isCash) {
+              addedCashTotalArs = amtArs;
+              if (nextData.saleCurrency === "BRL") addedCashBrl = Number(nextData.paidAmountBrl || 0);
+              else addedCashArs = amtArs;
+            } else {
+              addedOtherTotalArs = amtArs;
+            }
+          }
+
           if (updatedActiveShift && updatedActiveShift.status === "open") {
             const shiftSalesCount = (Number(updatedActiveShift.sales_count) || 0) + 1;
-            const shiftCashSales = (Number(updatedActiveShift.cash_sales) || 0) + (isCash ? salePaid : 0);
-            const shiftOtherSales = (Number(updatedActiveShift.other_sales) || 0) + (!isCash ? salePaid : 0);
+            const shiftCashSales = (Number(updatedActiveShift.cash_sales) || 0) + addedCashTotalArs;
+            const shiftOtherSales = (Number(updatedActiveShift.other_sales) || 0) + addedOtherTotalArs;
             const shiftTotalSales = shiftCashSales + shiftOtherSales;
             const shiftExpected = Number(updatedActiveShift.initial_cash || 0) + shiftCashSales + Number(updatedActiveShift.cash_incomes || 0) - Number(updatedActiveShift.cash_expenses || 0);
+            const shiftCashSalesArs = (Number(updatedActiveShift.cash_sales_ars) || 0) + addedCashArs;
+            const shiftCashSalesBrl = Math.round(((Number(updatedActiveShift.cash_sales_brl) || 0) + addedCashBrl) * 100) / 100;
+            const shiftExpectedArs = Number(updatedActiveShift.initial_cash_ars !== undefined ? updatedActiveShift.initial_cash_ars : (updatedActiveShift.initial_cash || 0)) + shiftCashSalesArs;
+            const shiftExpectedBrl = Math.round(((Number(updatedActiveShift.initial_cash_brl) || 0) + shiftCashSalesBrl) * 100) / 100;
 
             updatedActiveShift = {
               ...updatedActiveShift,
@@ -480,6 +553,10 @@ export default function StoreApp({
               other_sales: shiftOtherSales,
               total_sales: shiftTotalSales,
               expected_cash: shiftExpected,
+              cash_sales_ars: shiftCashSalesArs,
+              cash_sales_brl: shiftCashSalesBrl,
+              expected_cash_ars: shiftExpectedArs,
+              expected_cash_brl: shiftExpectedBrl,
             };
           }
 
@@ -488,8 +565,8 @@ export default function StoreApp({
           const updatedStats = {
             ...prevStats,
             salesToday: (prevStats.salesToday||0) + 1,
-            revenueToday: (prevStats.revenueToday||0) + salePaid,
-            cashBalance: (prevStats.cashBalance||0) + (isCash ? salePaid : 0),
+            revenueToday: (prevStats.revenueToday||0) + Number(nextData.totalArs || salePaid),
+            cashBalance: (prevStats.cashBalance||0) + addedCashTotalArs,
           };
 
           return {
@@ -757,7 +834,7 @@ export default function StoreApp({
       input?.focus();
     }, 40);
   };
-  const closeSale=async(paidAmountOverride?:number, options?: { discount?: number; discountPercent?: number; additionalCharge?: number; additionalChargeDescription?: string; currency?: "BRL" | "ARS" | "USD" | string; exchangeRate?: number; exchangeRateArs?: number; exchangeRateUsd?: number; invoiceType?: string; applyVat?: boolean; vatRate?: number; vatAmount?: number })=>{
+  const closeSale=async(paidAmountOverride?:number, options?: { discount?: number; discountPercent?: number; additionalCharge?: number; additionalChargeDescription?: string; currency?: "BRL" | "ARS" | "USD" | string; exchangeRate?: number; exchangeRateArs?: number; exchangeRateUsd?: number; invoiceType?: string; applyVat?: boolean; vatRate?: number; vatAmount?: number; isSplitPayment?: boolean; splitArs?: number; splitBrl?: number; splitArsMethod?: string; splitBrlMethod?: string; splitBrlBankAccountId?: string })=>{
     const finalDiscount = options?.discount !== undefined ? options.discount : discount;
     const finalDiscountPercent = options?.discountPercent !== undefined ? options.discountPercent : discountPercent;
     const finalAdditionalCharge = options?.additionalCharge !== undefined ? options.additionalCharge : additionalCharge;
@@ -785,6 +862,12 @@ export default function StoreApp({
       applyVat: options?.applyVat,
       vatRate: options?.vatRate,
       vatAmount: options?.vatAmount,
+      isSplitPayment: options?.isSplitPayment,
+      splitArs: options?.splitArs,
+      splitBrl: options?.splitBrl,
+      splitArsMethod: options?.splitArsMethod,
+      splitBrlMethod: options?.splitBrlMethod,
+      splitBrlBankAccountId: options?.splitBrlBankAccountId,
     },"Venta registrada exitosamente");
     if(res){
       if(res.createdSale){
@@ -3959,7 +4042,7 @@ function SettingsPage({data,setModal}:any){
     ["Nombre personalizable",data.settings?.business_name,Store],
     ["Sucursal","Única",Building2],
     ["Comprobantes","Tipo X · no fiscal",FileText],
-    ["Moneda base",data.settings?.currency==="BRL"?"Reales brasileños (R$ BRL)":data.settings?.currency==="USD"?"Dólares (US$ USD)":"Pesos (ARS)",CircleDollarSign],
+    ["Moneda base",data.settings?.currency==="BRL"?"Reales brasileños (R$ BRL)":"Pesos (ARS)",CircleDollarSign],
     ["Canal predeterminado",data.settings?.default_channel==="mayorista"?"Mayorista":"Minorista",Tags],
   ];
   return <><SectionTitle eyebrow="Administración" title="Configuración" text="Datos generales y reglas de operación del negocio." action={<Button onClick={()=>setModal("settings")}><Settings/>Editar datos</Button>}/><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{rows.map(([label,value,Icon]:any)=><Card key={label} className="gap-3 border-0 py-5 shadow-sm"><CardContent className="flex items-center gap-4 px-5"><span className="grid size-12 place-items-center rounded-2xl bg-primary/10 text-primary"><Icon/></span><div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p><p className="mt-1 font-bold">{value}</p></div></CardContent></Card>)}</div><Card className="mt-6 border-0 shadow-sm"><CardHeader><CardTitle>Capacidades activas</CardTitle></CardHeader><CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{["Inventario por producto, modelo y variante","Lectores USB, Bluetooth y cámara","Precios minoristas y mayoristas","Caja con ingresos y egresos","Clientes y cuentas corrientes","Catálogo imprimible con códigos","Comprobantes internos X","Modo claro y nocturno","Historial de movimientos"].map(x=><div key={x} className="flex items-center gap-2 rounded-xl bg-muted/50 p-3 text-sm"><Check className="size-4 text-emerald-600"/>{x}</div>)}</CardContent></Card></>}
@@ -4102,35 +4185,33 @@ function SalesPOSConfigured({
   const rounding = data.settings?.rounding_mode === "100" ? 100 : data.settings?.rounding_mode === "10" ? 10 : 0;
   const displayTotal = rounding ? Math.round(rawTotal / rounding) * rounding : rawTotal;
 
-  // Multi-moneda: Pesos ($ ARS) [Predeterminada], Reales (R$ BRL), Dólares (US$ USD)
-  const baseCurrency = (data.settings?.currency || "ARS") as "BRL" | "ARS" | "USD";
-  const [saleCurrency, setSaleCurrency] = useState<"BRL" | "ARS" | "USD">(baseCurrency);
+  // Multi-moneda: Pesos ($ ARS), Reales (R$ BRL) y Mixto (Pesos + Reales)
+  const baseCurrency = (data.settings?.currency === "BRL" ? "BRL" : "ARS") as "BRL" | "ARS";
+  const [saleCurrency, setSaleCurrency] = useState<"BRL" | "ARS" | "MIXTO">(baseCurrency);
+  const activeDisplayCurrency: "BRL" | "ARS" = saleCurrency === "MIXTO" ? baseCurrency : saleCurrency;
   const rateArs = Number(data.settings?.exchange_rate_ars || data.settings?.exchange_rate_brl) || 250;
-  const rateUsd = Number(data.settings?.exchange_rate_usd) || 5.70;
 
   useEffect(() => {
-    if (data.settings?.currency) {
-      setSaleCurrency(data.settings.currency);
-    }
+    setSaleCurrency(data.settings?.currency === "BRL" ? "BRL" : "ARS");
   }, [data.settings?.currency]);
 
-  const currencySymbol = CURRENCIES[saleCurrency]?.symbol || (saleCurrency === "BRL" ? "R$" : saleCurrency === "USD" ? "US$" : "$");
+  const currencySymbol = CURRENCIES[activeDisplayCurrency]?.symbol || (activeDisplayCurrency === "BRL" ? "R$" : "$");
 
   const toActiveCurrency = (amt: number) => {
     return convertAmount({
       amount: amt,
       from: baseCurrency,
-      to: saleCurrency,
-      rates: { exchange_rate_ars: rateArs, exchange_rate_usd: rateUsd },
+      to: activeDisplayCurrency,
+      rates: { exchange_rate_ars: rateArs },
     });
   };
 
   const toBaseCurrency = (amt: number) => {
     return convertAmount({
       amount: amt,
-      from: saleCurrency,
+      from: activeDisplayCurrency,
       to: baseCurrency,
-      rates: { exchange_rate_ars: rateArs, exchange_rate_usd: rateUsd },
+      rates: { exchange_rate_ars: rateArs },
     });
   };
 
@@ -4152,27 +4233,43 @@ function SalesPOSConfigured({
   // Totales según si la base del negocio es ARS o BRL
   const displayTotalArs = baseCurrency === "ARS" ? displayTotal : Math.round(displayTotal * rateArs);
   const displayTotalBrl = baseCurrency === "ARS" ? Math.round((displayTotal / rateArs) * 100) / 100 : displayTotal;
-  const displayTotalUsd = baseCurrency === "ARS" ? Math.round((displayTotalBrl / rateUsd) * 100) / 100 : Math.round((displayTotal / rateUsd) * 100) / 100;
 
-  const currentTotal = saleCurrency === "ARS" ? displayTotalArs : (saleCurrency === "BRL" ? displayTotalBrl : displayTotalUsd);
+  const currentTotal = activeDisplayCurrency === "ARS" ? displayTotalArs : displayTotalBrl;
 
   // Desgloses de IVA en la moneda de cobro actual
   const vatChargeArs = baseCurrency === "ARS" ? vatCharge : Math.round(vatCharge * rateArs);
   const vatChargeBrl = baseCurrency === "ARS" ? Math.round((vatCharge / rateArs) * 100) / 100 : vatCharge;
-  const vatChargeUsd = baseCurrency === "ARS" ? Math.round((vatChargeBrl / rateUsd) * 100) / 100 : Math.round((vatCharge / rateUsd) * 100) / 100;
-  const displayVatCharge = saleCurrency === "ARS" ? vatChargeArs : (saleCurrency === "BRL" ? vatChargeBrl : vatChargeUsd);
+  const displayVatCharge = activeDisplayCurrency === "ARS" ? vatChargeArs : vatChargeBrl;
 
   const taxableBaseArs = baseCurrency === "ARS" ? taxableBase : Math.round(taxableBase * rateArs);
   const taxableBaseBrl = baseCurrency === "ARS" ? Math.round((taxableBase / rateArs) * 100) / 100 : taxableBase;
-  const taxableBaseUsd = baseCurrency === "ARS" ? Math.round((taxableBaseBrl / rateUsd) * 100) / 100 : Math.round((taxableBase / rateUsd) * 100) / 100;
-  const displayTaxableBase = saleCurrency === "ARS" ? taxableBaseArs : (saleCurrency === "BRL" ? taxableBaseBrl : taxableBaseUsd);
+  const displayTaxableBase = activeDisplayCurrency === "ARS" ? taxableBaseArs : taxableBaseBrl;
 
-  const handleCurrencyChange = (newCur: "BRL" | "ARS" | "USD") => {
+  // Estados para cobro multi-moneda (Mixto: Pesos ARS + Reales BRL)
+  const [splitArsInput, setSplitArsInput] = useState<string>("");
+  const [splitBrlInput, setSplitBrlInput] = useState<string>("");
+  const [splitArsMethod, setSplitArsMethod] = useState<string>("Efectivo");
+  const [splitBrlMethod, setSplitBrlMethod] = useState<string>("Efectivo");
+  const [splitBrlBankAccountId, setSplitBrlBankAccountId] = useState<string>("");
+
+  const handleCurrencyChange = (newCur: "BRL" | "ARS" | "MIXTO") => {
     setSaleCurrency(newCur);
     setIsCustomPaid(false);
-    const matching = (data.bankAccounts || []).filter((a: any) => (a.currency || "ARS") === newCur);
+    if (newCur === "MIXTO") {
+      // Prellenar mitad en pesos y el resto en reales si aún estaba vacío o al cambiar a Mixto
+      const halfArs = Math.round(displayTotalArs / 2);
+      const restBrl = rateArs > 0 ? Math.round(((displayTotalArs - halfArs) / rateArs) * 100) / 100 : 0;
+      setSplitArsInput(displayTotalArs > 0 ? String(halfArs) : "");
+      setSplitBrlInput(displayTotalArs > 0 ? String(restBrl) : "");
+      setSplitArsMethod("Efectivo");
+      setSplitBrlMethod("Efectivo");
+      const brlAccs = (data.bankAccounts || []).filter((a: any) => (a.currency || "ARS") === "BRL");
+      setSplitBrlBankAccountId(brlAccs.length > 0 ? String(brlAccs[0].id) : "");
+    }
+    const targetAccCur = newCur === "MIXTO" ? "ARS" : newCur;
+    const matching = (data.bankAccounts || []).filter((a: any) => (a.currency || "ARS") === targetAccCur);
     const currentAcc = (data.bankAccounts || []).find((a: any) => String(a.id) === String(bankAccountId));
-    if (!currentAcc || (currentAcc.currency || "ARS") !== newCur) {
+    if (!currentAcc || (currentAcc.currency || "ARS") !== targetAccCur) {
       if (matching.length > 0) {
         setBankAccountId(String(matching[0].id));
       } else {
@@ -4187,12 +4284,46 @@ function SalesPOSConfigured({
 
   useEffect(() => {
     if (!isCustomPaid) {
-      setPaidInput(saleCurrency === "BRL" ? String(displayTotalBrl) : (saleCurrency === "USD" ? String(displayTotalUsd) : String(displayTotalArs)));
+      setPaidInput(activeDisplayCurrency === "BRL" ? String(displayTotalBrl) : String(displayTotalArs));
     }
-  }, [displayTotalBrl, displayTotalArs, displayTotalUsd, saleCurrency, isCustomPaid]);
+  }, [displayTotalBrl, displayTotalArs, activeDisplayCurrency, isCustomPaid]);
+
+  useEffect(() => {
+    if (saleCurrency === "MIXTO" && cart.length === 0) {
+      setSplitArsInput("");
+      setSplitBrlInput("");
+    }
+  }, [cart.length, saleCurrency]);
+
+  const rawSplitArs = Math.max(0, Number(splitArsInput) || 0);
+  const rawSplitBrl = Math.max(0, Number(splitBrlInput) || 0);
+  const rawSplitEquivArs = Math.round(rawSplitArs + (rawSplitBrl * rateArs));
+  const splitCoveredWithRounding = (rawSplitArs > 0 || rawSplitBrl > 0) && Math.abs(rawSplitEquivArs - displayTotalArs) <= 2 && rawSplitEquivArs >= displayTotalArs - 2;
+  const splitExcessArs = Math.max(0, rawSplitEquivArs - displayTotalArs);
+  const splitRemainingArs = Math.max(0, splitCoveredWithRounding ? 0 : displayTotalArs - rawSplitEquivArs);
+  const splitRemainingBrl = rateArs > 0 ? Math.max(0, Math.round((splitRemainingArs / rateArs) * 100) / 100) : 0;
+
+  // Si entregó vuelto en pago mixto, descontamos el excedente de ARS primero (o BRL si no hubo ARS) para que a caja ingrese neto exacto
+  let appliedSplitArs = rawSplitArs;
+  let appliedSplitBrl = rawSplitBrl;
+  if (saleCurrency === "MIXTO" && splitExcessArs > 2) {
+    if (appliedSplitArs >= splitExcessArs) {
+      appliedSplitArs = Math.max(0, appliedSplitArs - splitExcessArs);
+    } else {
+      const remExcess = splitExcessArs - appliedSplitArs;
+      appliedSplitArs = 0;
+      appliedSplitBrl = Math.max(0, Math.round((appliedSplitBrl - remExcess / rateArs) * 100) / 100);
+    }
+  }
 
   const parsedPaid = Number(paidInput);
-  const paidAmount = isNaN(parsedPaid) ? 0 : Math.max(0, Math.min(currentTotal, parsedPaid));
+  const paidAmount = saleCurrency === "MIXTO"
+    ? (splitCoveredWithRounding
+        ? currentTotal
+        : (activeDisplayCurrency === "ARS"
+            ? Math.min(displayTotalArs, rawSplitEquivArs)
+            : Math.min(displayTotalBrl, Math.round((rawSplitEquivArs / rateArs) * 100) / 100)))
+    : (isNaN(parsedPaid) ? 0 : Math.max(0, Math.min(currentTotal, parsedPaid)));
   const pendingAmount = Math.max(0, Math.round((currentTotal - paidAmount) * 100) / 100);
   const saleStatus: "pagada" | "pago_parcial" | "con_deuda" =
     pendingAmount === 0 ? "pagada" : paidAmount > 0 ? "pago_parcial" : "con_deuda";
@@ -4227,7 +4358,7 @@ function SalesPOSConfigured({
     }
   }, [selectedCustomer]);
 
-  const formatCurr = (val: number) => formatMoney(val, saleCurrency);
+  const formatCurr = (val: number) => formatMoney(val, activeDisplayCurrency);
 
   const [showAllCatalog, setShowAllCatalog] = useState(false);
   const [searchLimit, setSearchLimit] = useState(24);
@@ -4944,7 +5075,7 @@ function SalesPOSConfigured({
             </div>
           )}
 
-        {/* Descuento por % y margen en $ / R$ / US$ */}
+        {/* Descuento por % y margen en $ / R$ */}
         <div className="rounded-xl border border-border/80 bg-muted/20 p-3 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
@@ -5115,14 +5246,15 @@ function SalesPOSConfigured({
               </button>
               <button
                 type="button"
-                onClick={() => handleCurrencyChange("USD")}
+                onClick={() => handleCurrencyChange("MIXTO")}
                 className={`rounded-md px-2.5 py-1 text-xs font-bold transition-all ${
-                  saleCurrency === "USD"
-                    ? "bg-blue-600 text-white shadow"
+                  saleCurrency === "MIXTO"
+                    ? "bg-purple-600 text-white shadow"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
+                title="Cobrar una parte en Pesos y otra parte en Reales"
               >
-                🇺🇸 US$ USD
+                🇦🇷+🇧🇷 Mixto
               </button>
             </div>
           </div>
@@ -5140,8 +5272,8 @@ function SalesPOSConfigured({
               </>
             ) : (
               <>
-                <span>Moneda: <strong>Dólares (US$ USD)</strong> · 1 US$ = R$ {rateUsd.toFixed(2)}</span>
-                <span className="font-extrabold text-foreground">{formatCurr(displayTotalUsd)}</span>
+                <span><strong>Pago Mixto (ARS + BRL)</strong> · 1 R$ = ${rateArs.toLocaleString("es-AR")} ARS</span>
+                <span className="font-extrabold text-purple-700 dark:text-purple-300">{formatCurr(currentTotal)}</span>
               </>
             )}
           </div>
@@ -5260,27 +5392,31 @@ function SalesPOSConfigured({
           )}
         </div>
 
-        {/* Medio de pago */}
-        <div>
-          <label className="text-xs font-semibold block mb-1">Medio de pago</label>
-          <select
-            value={payment}
-            onChange={e => setPayment(e.target.value)}
-            className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-          >
-            {methods.map((method: string) => (
-              <option key={method}>{method}</option>
-            ))}
-          </select>
-        </div>
+        {/* Medio de pago (para moneda única) */}
+        {saleCurrency !== "MIXTO" && (
+          <>
+            <div>
+              <label className="text-xs font-semibold block mb-1">Medio de pago</label>
+              <select
+                value={payment}
+                onChange={e => setPayment(e.target.value)}
+                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+              >
+                {methods.map((method: string) => (
+                  <option key={method}>{method}</option>
+                ))}
+              </select>
+            </div>
 
-        <BankAccountSelectField
-          accounts={data.bankAccounts || []}
-          bankAccountId={bankAccountId}
-          setBankAccountId={setBankAccountId}
-          onNewAccount={() => setModal("bank_account")}
-          currency={saleCurrency}
-        />
+            <BankAccountSelectField
+              accounts={data.bankAccounts || []}
+              bankAccountId={bankAccountId}
+              setBankAccountId={setBankAccountId}
+              onNewAccount={() => setModal("bank_account")}
+              currency={activeDisplayCurrency}
+            />
+          </>
+        )}
         <CustomerSelectField customers={data?.customers || []} customerId={customerId} setCustomerId={setCustomerId} onNewCustomer={()=>setModal("customer")}/>
 
         <div className="border-t pt-4 space-y-1.5 text-xs sm:text-sm">
@@ -5346,12 +5482,10 @@ function SalesPOSConfigured({
             <div>
               <span className="font-bold text-sm sm:text-base">Total {invoiceType === "X" ? "Ticket X" : `Factura ${invoiceType}`}</span>
               <p className="text-[11px] text-muted-foreground font-medium">
-                {saleCurrency === "BRL" ? (
-                  <>Eq. ${displayTotalArs.toLocaleString("es-AR")} ARS · US$ {displayTotalUsd.toFixed(2)}</>
-                ) : saleCurrency === "ARS" ? (
-                  <>Eq. R$ {displayTotalBrl.toFixed(2)} BRL · US$ {displayTotalUsd.toFixed(2)}</>
+                {activeDisplayCurrency === "BRL" ? (
+                  <>Eq. ${displayTotalArs.toLocaleString("es-AR")} ARS</>
                 ) : (
-                  <>Eq. R$ {displayTotalBrl.toFixed(2)} BRL · ${displayTotalArs.toLocaleString("es-AR")} ARS</>
+                  <>Eq. R$ {displayTotalBrl.toFixed(2)} BRL</>
                 )}
               </p>
             </div>
@@ -5359,8 +5493,8 @@ function SalesPOSConfigured({
               <span className={`text-3xl font-black tracking-tight ${
                 saleCurrency === "BRL"
                   ? "text-emerald-600 dark:text-emerald-400"
-                  : saleCurrency === "USD"
-                  ? "text-blue-600 dark:text-blue-400"
+                  : saleCurrency === "MIXTO"
+                  ? "text-purple-700 dark:text-purple-300"
                   : "text-foreground"
               }`}>
                 {formatCurr(currentTotal)}
@@ -5370,10 +5504,198 @@ function SalesPOSConfigured({
         </div>
 
         {/* Sección de Monto Abonado y Deuda Pendiente */}
+        {saleCurrency === "MIXTO" ? (
+          <div className="rounded-xl border border-purple-500/35 bg-purple-500/5 p-3 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-purple-800 dark:text-purple-300 flex items-center gap-1.5">
+                <Coins className="size-3.5" />
+                Cobro Multi-Moneda (ARS + BRL)
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const halfArs = Math.round(displayTotalArs / 2);
+                    const restBrl = rateArs > 0 ? Math.round(((displayTotalArs - halfArs) / rateArs) * 100) / 100 : 0;
+                    setSplitArsInput(displayTotalArs > 0 ? String(halfArs) : "0");
+                    setSplitBrlInput(displayTotalArs > 0 ? String(restBrl) : "0");
+                  }}
+                  className="text-[10.5px] font-semibold text-purple-700 dark:text-purple-300 hover:underline px-1.5 py-0.5 rounded bg-purple-500/15"
+                >
+                  50% / 50%
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSplitArsInput("0");
+                    setSplitBrlInput("0");
+                  }}
+                  className="text-[10.5px] font-semibold text-muted-foreground hover:text-destructive px-1.5 py-0.5 rounded bg-muted"
+                >
+                  Limpiar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCurrencyChange(baseCurrency)}
+                  className="text-[10.5px] font-semibold text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded border bg-background"
+                  title="Volver a cobrar en una sola moneda"
+                >
+                  1 moneda
+                </button>
+              </div>
+            </div>
+
+            {/* Tramo 1: Pesos Argentinos */}
+            <div className="rounded-lg border bg-background/80 p-2.5 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold flex items-center gap-1">
+                  <span>🇦🇷</span> En Pesos ($ ARS)
+                </span>
+                <select
+                  value={splitArsMethod}
+                  onChange={(e) => setSplitArsMethod(e.target.value)}
+                  className="h-7 rounded-md border bg-background px-1.5 text-[11px] font-semibold"
+                >
+                  {methods.map((m: string) => (
+                    <option key={`ars-${m}`} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground font-mono">$</span>
+                <Input
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={splitArsInput}
+                  onChange={(e) => setSplitArsInput(e.target.value)}
+                  placeholder="0"
+                  className="pl-8 font-mono font-bold text-base h-9"
+                />
+              </div>
+              {!splitArsMethod.toLowerCase().includes("efectivo") && (
+                <BankAccountSelectField
+                  accounts={data.bankAccounts || []}
+                  bankAccountId={bankAccountId}
+                  setBankAccountId={setBankAccountId}
+                  onNewAccount={() => setModal("bank_account")}
+                  currency="ARS"
+                />
+              )}
+            </div>
+
+            {/* Tramo 2: Reales Brasileños */}
+            <div className="rounded-lg border bg-background/80 p-2.5 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
+                  <span>🇧🇷</span> En Reales (R$ BRL)
+                </span>
+                <select
+                  value={splitBrlMethod}
+                  onChange={(e) => setSplitBrlMethod(e.target.value)}
+                  className="h-7 rounded-md border bg-background px-1.5 text-[11px] font-semibold"
+                >
+                  <option value="Efectivo">Efectivo</option>
+                  <option value="PIX / Transferencia">PIX / Transferencia</option>
+                  {methods.filter((m: string) => m.toLowerCase() !== "efectivo").map((m: string) => (
+                    <option key={`brl-${m}`} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground font-mono">R$</span>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={splitBrlInput}
+                  onChange={(e) => setSplitBrlInput(e.target.value)}
+                  placeholder="0.00"
+                  className="pl-9 font-mono font-bold text-base h-9"
+                />
+              </div>
+              {!splitBrlMethod.toLowerCase().includes("efectivo") && (
+                <BankAccountSelectField
+                  accounts={data.bankAccounts || []}
+                  bankAccountId={splitBrlBankAccountId}
+                  setBankAccountId={setSplitBrlBankAccountId}
+                  onNewAccount={() => setModal("bank_account")}
+                  currency="BRL"
+                />
+              )}
+              {rawSplitBrl > 0 && (
+                <p className="text-[10.5px] text-muted-foreground font-mono">
+                  Equivale a ${Math.round(rawSplitBrl * rateArs).toLocaleString("es-AR")} ARS (1 R$ = ${rateArs.toLocaleString("es-AR")})
+                </p>
+              )}
+            </div>
+
+            {/* Botones rápidos para completar el resto faltante */}
+            {splitRemainingArs > 0 && displayTotalArs > 0 && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between font-bold text-amber-800 dark:text-amber-300">
+                  <span>Falta cubrir:</span>
+                  <span className="font-mono">
+                    ${splitRemainingArs.toLocaleString("es-AR")} ARS · R$ {splitRemainingBrl.toFixed(2)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    onClick={() => setSplitArsInput(String(rawSplitArs + splitRemainingArs))}
+                    className="h-7 text-[11px] font-bold bg-background"
+                  >
+                    + Completar ${splitRemainingArs.toLocaleString("es-AR")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    onClick={() => setSplitBrlInput(String(Math.round((rawSplitBrl + splitRemainingBrl) * 100) / 100))}
+                    className="h-7 text-[11px] font-bold bg-background text-emerald-700 dark:text-emerald-400"
+                  >
+                    + Completar R$ {splitRemainingBrl.toFixed(2)}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Indicador de Vuelto si entregó de más */}
+            {splitExcessArs > 2 && (
+              <div className="flex items-center justify-between rounded-lg bg-blue-500/10 border border-blue-500/30 p-2 text-xs">
+                <span className="font-bold text-blue-800 dark:text-blue-300">Vuelto a entregar:</span>
+                <span className="font-mono font-black text-blue-700 dark:text-blue-300">
+                  ${splitExcessArs.toLocaleString("es-AR")} ARS (o R$ {(splitExcessArs / rateArs).toFixed(2)})
+                </span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-0.5 text-xs">
+              <span className="text-muted-foreground font-medium">
+                Cubierto: <strong className="font-mono text-foreground">${Math.min(displayTotalArs, rawSplitEquivArs).toLocaleString("es-AR")}</strong>
+              </span>
+              {saleStatus === "pagada" ? (
+                <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px]">
+                  ✓ Pagada Total (Mixto)
+                </Badge>
+              ) : saleStatus === "pago_parcial" ? (
+                <Badge className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px]">
+                  ⚠ Pago Parcial · Deuda: {formatCurr(pendingAmount)}
+                </Badge>
+              ) : (
+                <Badge variant="destructive" className="font-bold text-[11px]">
+                  ⛔ Con Deuda Total
+                </Badge>
+              )}
+            </div>
+          </div>
+        ) : (
         <div className="rounded-xl border border-border/80 bg-muted/30 p-3 space-y-2.5">
           <div className="flex items-center justify-between">
             <label className="text-xs font-bold text-foreground">
-              Monto Abonado ({saleCurrency === "BRL" ? "R$ BRL" : saleCurrency === "USD" ? "US$ USD" : "$ ARS"}) <span className="text-destructive font-bold">*</span>
+              Monto Abonado ({saleCurrency === "BRL" ? "R$ BRL" : "$ ARS"}) <span className="text-destructive font-bold">*</span>
             </label>
             <div className="flex items-center gap-1.5">
               <button
@@ -5401,7 +5723,7 @@ function SalesPOSConfigured({
 
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground">
-              {saleCurrency === "BRL" ? "R$" : saleCurrency === "USD" ? "US$" : "$"}
+              {saleCurrency === "BRL" ? "R$" : "$"}
             </span>
             <Input
               type="number"
@@ -5417,6 +5739,15 @@ function SalesPOSConfigured({
               className="pl-12 font-bold text-base h-10"
             />
           </div>
+
+          <button
+            type="button"
+            onClick={() => handleCurrencyChange("MIXTO")}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg border border-purple-500/40 bg-purple-500/10 hover:bg-purple-500/20 text-purple-800 dark:text-purple-300 text-[11.5px] font-bold transition-all cursor-pointer"
+          >
+            <Coins className="size-3.5 text-purple-600 dark:text-purple-400" />
+            <span>🇦🇷 + 🇧🇷 Dividir pago en Pesos y Reales</span>
+          </button>
 
           <div className="flex items-center justify-between pt-0.5 text-xs">
             <span className="text-muted-foreground font-medium">Estado de venta:</span>
@@ -5444,7 +5775,7 @@ function SalesPOSConfigured({
                 {formatCurr(pendingAmount)}
                 {saleCurrency !== "BRL" ? (
                   <span className="ml-1 text-[11px] font-normal text-muted-foreground">
-                    (Base: R$ {(saleCurrency === "ARS" ? pendingAmount / rateArs : pendingAmount * rateUsd).toFixed(2)})
+                    (Base: R$ {(pendingAmount / rateArs).toFixed(2)})
                   </span>
                 ) : (
                   <span className="ml-1 text-[11px] font-normal text-muted-foreground">
@@ -5455,6 +5786,7 @@ function SalesPOSConfigured({
             </div>
           )}
         </div>
+        )}
 
         <Button
           id="pos-checkout-btn"
@@ -5471,13 +5803,18 @@ function SalesPOSConfigured({
             discountPercent,
             additionalCharge: chargeAmount,
             additionalChargeDescription,
-            currency: saleCurrency,
+            currency: activeDisplayCurrency,
             exchangeRateArs: rateArs,
-            exchangeRateUsd: rateUsd,
             invoiceType,
             applyVat,
             vatRate: applyVat ? vatRate : 0,
             vatAmount: vatCharge,
+            isSplitPayment: saleCurrency === "MIXTO",
+            splitArs: saleCurrency === "MIXTO" ? appliedSplitArs : undefined,
+            splitBrl: saleCurrency === "MIXTO" ? appliedSplitBrl : undefined,
+            splitArsMethod: saleCurrency === "MIXTO" ? splitArsMethod : undefined,
+            splitBrlMethod: saleCurrency === "MIXTO" ? splitBrlMethod : undefined,
+            splitBrlBankAccountId: saleCurrency === "MIXTO" && !splitBrlMethod.toLowerCase().includes("efectivo") ? splitBrlBankAccountId : undefined,
           })}
         >
           {busy
@@ -6001,10 +6338,9 @@ function SettingsCenter({data,onSave,busy,dark,setDark,setToast,uid,setModal,onE
         <SettingsFormCard title="Identidad del negocio" description="Información de la sucursal y datos generales." icon={Store} onSubmit={submitSettings} busy={busy}>
           <Field label="Nombre del negocio / empresa" name="businessName" defaultValue={settings.business_name} required/>
           <Field label="Nombre de la sucursal" name="branchName" defaultValue={settings.branch_name}/>
-          <SelectField label="Moneda principal del sistema" name="currency" defaultValue={settings.currency||"ARS"}>
+          <SelectField label="Moneda principal del sistema" name="currency" defaultValue={settings.currency==="BRL"?"BRL":"ARS"}>
             <option value="ARS">🇦🇷 Pesos Argentinos ($ ARS / $) - Predeterminada</option>
             <option value="BRL">🇧🇷 Reales Brasileños (R$ BRL)</option>
-            <option value="USD">🇺🇸 Dólares Estadounidenses (US$ USD)</option>
           </SelectField>
           <Field label="Teléfono" name="phone" defaultValue={settings.phone}/>
           <Field label="WhatsApp" name="whatsapp" defaultValue={settings.whatsapp}/>
@@ -6070,7 +6406,7 @@ function SettingsCenter({data,onSave,busy,dark,setDark,setToast,uid,setModal,onE
           onTransfer={onTransferModal}
         />
       </TabsContent>
-      <TabsContent value="ventas"><SettingsFormCard title="Ventas, Monedas y Comprobantes X" description="Configurá la moneda principal del sistema completo (Pesos Argentinos por defecto o Reales Brasileños), cotizaciones y cobros." icon={FileText} onSubmit={submitSettings} busy={busy}><SelectField label="Moneda principal del sistema completo" name="currency" defaultValue={settings.currency||"ARS"}><option value="ARS">🇦🇷 Pesos Argentinos ($ ARS / $) - Predeterminada</option><option value="BRL">🇧🇷 Reales Brasileños (R$ BRL)</option><option value="USD">🇺🇸 Dólares Estadounidenses (US$ USD)</option></SelectField><Field label="Cotización: 1 Real (R$ BRL) en Pesos ($ ARS)" name="exchangeRateArs" type="number" step="any" defaultValue={settings.exchange_rate_ars||settings.exchange_rate_brl||250} placeholder="Ej: 250"/><Field label="Cotización: 1 Dólar (US$ USD) en Reales (R$ BRL)" name="exchangeRateUsd" type="number" step="any" defaultValue={settings.exchange_rate_usd||5.70} placeholder="Ej: 5.70"/><input type="hidden" name="exchangeRateBrl" value={settings.exchange_rate_ars||settings.exchange_rate_brl||250} /><div className="md:col-span-2 rounded-xl bg-muted/40 border p-3 text-xs text-muted-foreground flex flex-wrap items-center justify-between gap-2"><span>Paridades activas: <strong>1 R$ = ${Number(settings.exchange_rate_ars||settings.exchange_rate_brl||250).toLocaleString("es-AR")} ARS</strong> · <strong>1 US$ = R$ {Number(settings.exchange_rate_usd||5.70).toFixed(2)} BRL</strong> · <strong>1 US$ ≈ ${(Number(settings.exchange_rate_usd||5.70) * Number(settings.exchange_rate_ars||settings.exchange_rate_brl||250)).toLocaleString("es-AR")} ARS</strong></span><Badge variant="outline" className="font-mono text-[10px]">Multi-moneda CR</Badge></div><Field label="Prefijo del comprobante" name="receiptPrefix" defaultValue={settings.receipt_prefix||"X"}/><Field label="Próximo número" name="nextReceiptNumber" type="number" defaultValue={settings.next_receipt_number||1}/><SelectField label="Canal de venta predeterminado" name="defaultChannel" defaultValue={settings.default_channel||"minorista"}><option value="minorista">Minorista (Público general / Consumidor final)</option><option value="mayorista">Mayorista (Comercios y revendedores)</option></SelectField><Field label="Medios de pago separados por coma" name="paymentMethods" defaultValue={settings.payment_methods}/><Field label="Descuento máximo (%)" name="maxDiscountPercent" type="number" defaultValue={settings.max_discount_percent}/><SelectField label="Redondeo del total" name="roundingMode" defaultValue={settings.rounding_mode}><option value="none">Sin redondeo</option><option value="10">Al múltiplo de $10</option><option value="100">Al múltiplo de $100</option></SelectField><Field label="Mínimo mayorista (pares) - dejar en 0 para sin mínimo" name="wholesaleMinQty" type="number" defaultValue={settings.wholesale_min_qty ?? 0}/><SettingToggle name="allowMixedSale" label="Combinar modelos" description="Permite alcanzar el mínimo mayorista sumando distintos modelos." defaultChecked={Boolean(settings.allow_mixed_sale)}/><div className="md:col-span-2"><TextAreaField label="Condiciones mayoristas" name="wholesaleTerms" defaultValue={settings.wholesale_terms}/></div></SettingsFormCard></TabsContent>
+      <TabsContent value="ventas"><SettingsFormCard title="Ventas, Monedas y Comprobantes X" description="Configurá la moneda principal del sistema completo (Pesos Argentinos por defecto o Reales Brasileños), cotizaciones y cobros." icon={FileText} onSubmit={submitSettings} busy={busy}><SelectField label="Moneda principal del sistema completo" name="currency" defaultValue={settings.currency==="BRL"?"BRL":"ARS"}><option value="ARS">🇦🇷 Pesos Argentinos ($ ARS / $) - Predeterminada</option><option value="BRL">🇧🇷 Reales Brasileños (R$ BRL)</option></SelectField><Field label="Cotización: 1 Real (R$ BRL) en Pesos ($ ARS)" name="exchangeRateArs" type="number" step="any" defaultValue={settings.exchange_rate_ars||settings.exchange_rate_brl||250} placeholder="Ej: 250"/><input type="hidden" name="exchangeRateBrl" value={settings.exchange_rate_ars||settings.exchange_rate_brl||250} /><div className="md:col-span-2 rounded-xl bg-muted/40 border p-3 text-xs text-muted-foreground flex flex-wrap items-center justify-between gap-2"><span>Paridad activa: <strong>1 R$ = ${Number(settings.exchange_rate_ars||settings.exchange_rate_brl||250).toLocaleString("es-AR")} ARS</strong></span><Badge variant="outline" className="font-mono text-[10px]">Multi-moneda CR</Badge></div><Field label="Prefijo del comprobante" name="receiptPrefix" defaultValue={settings.receipt_prefix||"X"}/><Field label="Próximo número" name="nextReceiptNumber" type="number" defaultValue={settings.next_receipt_number||1}/><SelectField label="Canal de venta predeterminado" name="defaultChannel" defaultValue={settings.default_channel||"minorista"}><option value="minorista">Minorista (Público general / Consumidor final)</option><option value="mayorista">Mayorista (Comercios y revendedores)</option></SelectField><Field label="Medios de pago separados por coma" name="paymentMethods" defaultValue={settings.payment_methods}/><Field label="Descuento máximo (%)" name="maxDiscountPercent" type="number" defaultValue={settings.max_discount_percent}/><SelectField label="Redondeo del total" name="roundingMode" defaultValue={settings.rounding_mode}><option value="none">Sin redondeo</option><option value="10">Al múltiplo de $10</option><option value="100">Al múltiplo de $100</option></SelectField><Field label="Mínimo mayorista (pares) - dejar en 0 para sin mínimo" name="wholesaleMinQty" type="number" defaultValue={settings.wholesale_min_qty ?? 0}/><SettingToggle name="allowMixedSale" label="Combinar modelos" description="Permite alcanzar el mínimo mayorista sumando distintos modelos." defaultChecked={Boolean(settings.allow_mixed_sale)}/><div className="md:col-span-2"><TextAreaField label="Condiciones mayoristas" name="wholesaleTerms" defaultValue={settings.wholesale_terms}/></div></SettingsFormCard></TabsContent>
       <TabsContent value="inventario"><SettingsFormCard title="Reglas de inventario" description="Definí alertas, talles habituales y el comportamiento cuando no hay existencias." icon={Boxes} onSubmit={submitSettings} busy={busy}><Field label="Alerta de stock mínimo" name="lowStockAt" type="number" defaultValue={settings.low_stock_at}/><Field label="Talles predeterminados" name="defaultSizes" defaultValue={settings.default_sizes}/><Field label="Prefijo para códigos propios" name="barcodePrefix" defaultValue={settings.barcode_prefix}/><SettingToggle name="allowNegativeStock" label="Permitir stock negativo" description="Habilita ventas aunque el talle figure sin existencias. Usalo con control." defaultChecked={Boolean(settings.allow_negative_stock)}/><div className="md:col-span-2 rounded-2xl border bg-muted/35 p-4"><p className="font-bold">Estado actual</p><div className="mt-3 grid gap-3 sm:grid-cols-3"><div><p className="text-2xl font-black">{data.stats.productCount}</p><p className="text-xs text-muted-foreground">Modelos activos</p></div><div><p className="text-2xl font-black">{data.stats.lowStock}</p><p className="text-xs text-muted-foreground">Alertas vigentes</p></div><div><p className="text-2xl font-black">{data.products.reduce((sum:number,p:Product)=>sum+p.total_stock,0)}</p><p className="text-xs text-muted-foreground">Pares registrados</p></div></div></div></SettingsFormCard></TabsContent>
       <TabsContent value="catalogo"><SettingsFormCard title="Catálogos comerciales" description="Elegí qué información se imprime y comparte con clientes." icon={Tags} onSubmit={submitSettings} busy={busy}><SelectField label="Lista de precios predeterminada en catálogos" name="catalogDefaultPrice" defaultValue={settings.catalog_default_price||"both"}><option value="wholesale">Solo Precios Mayoristas</option><option value="retail">Solo Precios Minoristas</option><option value="both">Ambas listas (Mayorista + PVP)</option></SelectField><Field label="Contacto visible" name="catalogContact" defaultValue={settings.catalog_contact} placeholder="WhatsApp, teléfono o Instagram"/><SettingToggle name="catalogInStockOnly" label="Solo productos con stock" description="Oculta automáticamente modelos agotados." defaultChecked={Boolean(settings.catalog_in_stock_only)}/><SettingToggle name="catalogShowBarcode" label="Mostrar códigos de barras" description="Incluye el código en cada ficha impresa." defaultChecked={Boolean(settings.catalog_show_barcode)}/><div className="md:col-span-2"><TextAreaField label="Condiciones al pie del catálogo" name="catalogTerms" defaultValue={settings.catalog_terms}/></div></SettingsFormCard></TabsContent>
       <TabsContent value="lectores"><SettingsFormCard title="Lectores y cámara" description="Configurá y verificá los dispositivos usados en el punto de venta." icon={ScanLine} onSubmit={submitSettings} busy={busy}><SettingToggle name="scanSound" label="Confirmación sonora" description="Reproduce un sonido breve al reconocer un código." defaultChecked={Boolean(settings.scan_sound)}/><SettingToggle name="cameraEnabled" label="Lector con cámara" description="Habilita el escaneo mediante la cámara del dispositivo." defaultChecked={Boolean(settings.camera_enabled)}/><div className="md:col-span-2 grid gap-3 rounded-2xl border bg-muted/30 p-4 md:grid-cols-[1fr_auto_auto]"><div><p className="mb-2 text-sm font-bold">Prueba de lector USB o Bluetooth</p><Input value={readerCode} onChange={e=>setReaderCode(e.target.value)} onKeyDown={e=>e.key==="Enter"&&testReader()} placeholder="Escaneá un código aquí"/><p className="mt-2 text-xs text-muted-foreground">{readerResult||"El lector debe escribir el código y enviar Enter."}</p></div><Button type="button" variant="outline" className="self-end" onClick={testReader}><ScanLine/>Probar lector</Button><Button type="button" variant="outline" className="self-end" onClick={testCamera}><Camera/>Probar cámara</Button></div></SettingsFormCard></TabsContent>

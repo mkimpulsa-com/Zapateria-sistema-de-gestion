@@ -33,7 +33,6 @@ import { toast } from "sonner";
 
 const DENOMINATIONS_ARS = [20000, 10000, 2000, 1000, 500, 200, 100];
 const DENOMINATIONS_BRL = [200, 100, 50, 20, 10, 5, 2];
-const DENOMINATIONS_USD = [100, 50, 20, 10, 5, 2, 1];
 
 interface OpenCashShiftModalProps {
   open: boolean;
@@ -62,51 +61,43 @@ export function OpenCashShiftModal({
   settings = {},
 }: OpenCashShiftModalProps) {
   const rateArs = Number(settings?.exchange_rate_ars || settings?.exchange_rate_brl) || 250;
-  const rateUsd = Number(settings?.exchange_rate_usd) || 5.70;
 
   const suggestedArs = Number(lastClosedShift?.retained_cash_ars !== undefined ? lastClosedShift.retained_cash_ars : (lastClosedShift?.retained_cash || 0));
   const suggestedBrl = Number(lastClosedShift?.retained_cash_brl || 0);
-  const suggestedUsd = Number(lastClosedShift?.retained_cash_usd || 0);
-  const hasSuggested = suggestedArs > 0 || suggestedBrl > 0 || suggestedUsd > 0;
+  const hasSuggested = suggestedArs > 0 || suggestedBrl > 0;
 
   const [initialCashArs, setInitialCashArs] = useState<number>(suggestedArs);
   const [initialCashBrl, setInitialCashBrl] = useState<number>(suggestedBrl);
-  const [initialCashUsd, setInitialCashUsd] = useState<number>(suggestedUsd);
 
   const [openingNotes, setOpeningNotes] = useState("");
   const [cashierName, setCashierName] = useState(defaultCashierName);
   const [showDenominations, setShowDenominations] = useState(false);
-  const [activeDenomTab, setActiveDenomTab] = useState<"ARS" | "BRL" | "USD">("ARS");
+  const [activeDenomTab, setActiveDenomTab] = useState<"ARS" | "BRL">("ARS");
 
   const [countsArs, setCountsArs] = useState<Record<number, number>>({});
   const [countsBrl, setCountsBrl] = useState<Record<number, number>>({});
-  const [countsUsd, setCountsUsd] = useState<Record<number, number>>({});
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (open) {
       setInitialCashArs(suggestedArs);
       setInitialCashBrl(suggestedBrl);
-      setInitialCashUsd(suggestedUsd);
       setCountsArs({});
       setCountsBrl({});
-      setCountsUsd({});
       setShowDenominations(false);
     }
-  }, [open, suggestedArs, suggestedBrl, suggestedUsd]);
+  }, [open, suggestedArs, suggestedBrl]);
 
-  // Conversión y consolidación de montos
-  const totalArs = Math.round(initialCashArs + (initialCashBrl * rateArs) + (initialCashUsd * rateUsd * rateArs));
+  // Conversión y consolidación de montos (Pesos y Reales)
+  const totalArs = Math.round(initialCashArs + (initialCashBrl * rateArs));
   const totalBrl = Math.round((totalArs / rateArs) * 100) / 100;
-  const totalUsd = Math.round((totalBrl / rateUsd) * 100) / 100;
 
   const handleApplySuggested = () => {
     setInitialCashArs(suggestedArs);
     setInitialCashBrl(suggestedBrl);
-    setInitialCashUsd(suggestedUsd);
   };
 
-  const handleCountChange = (currency: "ARS" | "BRL" | "USD", denom: number, qty: number) => {
+  const handleCountChange = (currency: "ARS" | "BRL", denom: number, qty: number) => {
     const validQty = Math.max(0, qty);
     if (currency === "ARS") {
       const nextCounts = { ...countsArs, [denom]: validQty };
@@ -116,7 +107,7 @@ export function OpenCashShiftModal({
         0
       );
       setInitialCashArs(sum);
-    } else if (currency === "BRL") {
+    } else {
       const nextCounts = { ...countsBrl, [denom]: validQty };
       setCountsBrl(nextCounts);
       const sum = Object.entries(nextCounts).reduce(
@@ -124,20 +115,12 @@ export function OpenCashShiftModal({
         0
       );
       setInitialCashBrl(sum);
-    } else {
-      const nextCounts = { ...countsUsd, [denom]: validQty };
-      setCountsUsd(nextCounts);
-      const sum = Object.entries(nextCounts).reduce(
-        (acc, [val, q]) => acc + Number(val) * Number(q || 0),
-        0
-      );
-      setInitialCashUsd(sum);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (initialCashArs < 0 || initialCashBrl < 0 || initialCashUsd < 0) {
+    if (initialCashArs < 0 || initialCashBrl < 0) {
       toast.error("Los montos iniciales no pueden ser negativos.");
       return;
     }
@@ -147,9 +130,7 @@ export function OpenCashShiftModal({
         initialCash: totalArs,
         initialCashArs,
         initialCashBrl,
-        initialCashUsd,
         exchangeRateArs: rateArs,
-        exchangeRateUsd: rateUsd,
         openingNotes,
         cashierName,
       });
@@ -173,7 +154,7 @@ export function OpenCashShiftModal({
             <div>
               <DialogTitle className="text-base font-bold">Apertura de Caja</DialogTitle>
               <DialogDescription className="text-xs">
-                Registrá el fondo inicial en multi-moneda para comenzar el turno.
+                Registrá el fondo inicial en Pesos y Reales para comenzar el turno.
               </DialogDescription>
             </div>
           </div>
@@ -190,7 +171,6 @@ export function OpenCashShiftModal({
                   Se dejaron:{" "}
                   <strong>${suggestedArs.toLocaleString("es-AR")} ARS</strong>
                   {suggestedBrl > 0 && <> · <strong>R$ {suggestedBrl.toFixed(2)} BRL</strong></>}
-                  {suggestedUsd > 0 && <> · <strong>US$ {suggestedUsd.toFixed(2)} USD</strong></>}
                 </span>
               </div>
               <Button
@@ -274,37 +254,6 @@ export function OpenCashShiftModal({
                   />
                 </div>
               </div>
-
-              {/* Dólares Estadounidenses (USD) */}
-              <div className="rounded-xl border border-border/80 bg-muted/20 p-2.5 space-y-1">
-                <div className="flex items-center justify-between text-xs font-semibold">
-                  <span className="flex items-center gap-1.5 text-foreground">
-                    <span>🇺🇸</span> Dólares (US$ USD)
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-muted-foreground font-normal">
-                      1 US$ = R$ {rateUsd.toFixed(2)}
-                    </span>
-                    {initialCashUsd > 0 && (
-                      <span className="font-mono text-emerald-600 font-bold text-xs">
-                        {formatMoney(initialCashUsd, "USD")}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="relative">
-                  <span className="absolute left-3 top-2 text-muted-foreground font-mono text-xs font-bold">US$</span>
-                  <Input
-                    type="number"
-                    min={0}
-                    step="any"
-                    value={initialCashUsd === 0 ? "" : initialCashUsd}
-                    onChange={(e) => setInitialCashUsd(Math.max(0, Number(e.target.value) || 0))}
-                    placeholder="0.00"
-                    className="pl-11 h-9 font-mono font-bold text-sm"
-                  />
-                </div>
-              </div>
             </div>
 
             {/* Total Consolidado en tiempo real */}
@@ -314,7 +263,7 @@ export function OpenCashShiftModal({
                   <Coins className="size-3.5" /> Total Inicial Consolidado:
                 </span>
                 <span className="text-[11px] text-muted-foreground block">
-                  Eq. {formatMoney(totalBrl, "BRL")} · {formatMoney(totalUsd, "USD")}
+                  Eq. {formatMoney(totalBrl, "BRL")}
                 </span>
               </div>
               <span className="font-mono font-black text-base text-foreground">
@@ -362,17 +311,6 @@ export function OpenCashShiftModal({
                   >
                     🇧🇷 BRL
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveDenomTab("USD")}
-                    className={`flex-1 py-1 px-2 rounded-md font-bold text-xs transition-all ${
-                      activeDenomTab === "USD"
-                        ? "bg-background text-foreground shadow-xs"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    🇺🇸 USD
-                  </button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -402,21 +340,6 @@ export function OpenCashShiftModal({
                           placeholder="0"
                           value={countsBrl[denom] || ""}
                           onChange={(e) => handleCountChange("BRL", denom, Number(e.target.value) || 0)}
-                        />
-                      </div>
-                    ))}
-
-                  {activeDenomTab === "USD" &&
-                    DENOMINATIONS_USD.map((denom) => (
-                      <div key={denom} className="flex items-center justify-between gap-1 text-xs">
-                        <span className="font-mono text-[11px] text-muted-foreground">US$ {denom}</span>
-                        <Input
-                          type="number"
-                          min={0}
-                          className="h-7 w-16 text-right font-mono text-xs px-1.5"
-                          placeholder="0"
-                          value={countsUsd[denom] || ""}
-                          onChange={(e) => handleCountChange("USD", denom, Number(e.target.value) || 0)}
                         />
                       </div>
                     ))}
@@ -687,17 +610,14 @@ export function CloseCashShiftModal({
       .sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
   }, [sales, activeShift]);
   const rateArs = Number(shift.exchange_rate_ars || settings?.exchange_rate_ars || settings?.exchange_rate_brl) || 250;
-  const rateUsd = Number(shift.exchange_rate_usd || settings?.exchange_rate_usd) || 5.70;
 
   const initialCash = Number(shift.initial_cash || 0);
   const initialCashArs = Number(shift.initial_cash_ars !== undefined ? shift.initial_cash_ars : initialCash);
   const initialCashBrl = Number(shift.initial_cash_brl || 0);
-  const initialCashUsd = Number(shift.initial_cash_usd || 0);
 
   const cashSales = Number(shift.cash_sales || 0);
   const cashSalesArs = Number(shift.cash_sales_ars !== undefined ? shift.cash_sales_ars : cashSales);
   const cashSalesBrl = Number(shift.cash_sales_brl || 0);
-  const cashSalesUsd = Number(shift.cash_sales_usd || 0);
 
   const otherSales = Number(shift.other_sales || 0);
   const totalSales = Number(shift.total_sales || (cashSales + otherSales));
@@ -708,60 +628,51 @@ export function CloseCashShiftModal({
   const expectedCash = Number(shift.expected_cash !== undefined ? shift.expected_cash : (initialCash + cashSales + cashIncomes - cashExpenses));
   const expectedCashArs = Number(shift.expected_cash_ars !== undefined ? shift.expected_cash_ars : (initialCashArs + cashSalesArs + cashIncomes - cashExpenses));
   const expectedCashBrl = Number(shift.expected_cash_brl !== undefined ? shift.expected_cash_brl : (initialCashBrl + cashSalesBrl));
-  const expectedCashUsd = Number(shift.expected_cash_usd !== undefined ? shift.expected_cash_usd : (initialCashUsd + cashSalesUsd));
 
-  const hasMultiCurrency = initialCashBrl > 0 || initialCashUsd > 0 || cashSalesBrl > 0 || cashSalesUsd > 0;
+  const hasMultiCurrency = initialCashBrl > 0 || cashSalesBrl > 0;
 
   const [actualCashArs, setActualCashArs] = useState<number>(0);
   const [actualCashBrl, setActualCashBrl] = useState<number>(0);
-  const [actualCashUsd, setActualCashUsd] = useState<number>(0);
 
   const [withdrawnCashArs, setWithdrawnCashArs] = useState<number>(0);
   const [withdrawnCashBrl, setWithdrawnCashBrl] = useState<number>(0);
-  const [withdrawnCashUsd, setWithdrawnCashUsd] = useState<number>(0);
 
   const [closingNotes, setClosingNotes] = useState("");
   const [cashierName, setCashierName] = useState(defaultCashierName);
   const [showDenominations, setShowDenominations] = useState(false);
-  const [activeDenomTab, setActiveDenomTab] = useState<"ARS" | "BRL" | "USD">("ARS");
+  const [activeDenomTab, setActiveDenomTab] = useState<"ARS" | "BRL">("ARS");
 
   const [countsArs, setCountsArs] = useState<Record<number, number>>({});
   const [countsBrl, setCountsBrl] = useState<Record<number, number>>({});
-  const [countsUsd, setCountsUsd] = useState<Record<number, number>>({});
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (open && activeShift) {
       setActualCashArs(expectedCashArs);
       setActualCashBrl(expectedCashBrl);
-      setActualCashUsd(expectedCashUsd);
       setWithdrawnCashArs(0);
       setWithdrawnCashBrl(0);
-      setWithdrawnCashUsd(0);
       setClosingNotes("");
       setShowDenominations(false);
       setCountsArs({});
       setCountsBrl({});
-      setCountsUsd({});
     }
-  }, [open, activeShift, expectedCashArs, expectedCashBrl, expectedCashUsd]);
+  }, [open, activeShift, expectedCashArs, expectedCashBrl]);
 
   // Consolidación en ARS
-  const actualCashTotal = Math.round(actualCashArs + (actualCashBrl * rateArs) + (actualCashUsd * rateUsd * rateArs));
+  const actualCashTotal = Math.round(actualCashArs + (actualCashBrl * rateArs));
   const differenceTotal = actualCashTotal - expectedCash;
 
   const diffArs = actualCashArs - expectedCashArs;
   const diffBrl = Math.round((actualCashBrl - expectedCashBrl) * 100) / 100;
-  const diffUsd = Math.round((actualCashUsd - expectedCashUsd) * 100) / 100;
 
   const retainedCashArs = Math.max(0, actualCashArs - withdrawnCashArs);
   const retainedCashBrl = Math.max(0, Math.round((actualCashBrl - withdrawnCashBrl) * 100) / 100);
-  const retainedCashUsd = Math.max(0, Math.round((actualCashUsd - withdrawnCashUsd) * 100) / 100);
 
-  const withdrawnCashTotal = Math.round(withdrawnCashArs + (withdrawnCashBrl * rateArs) + (withdrawnCashUsd * rateUsd * rateArs));
+  const withdrawnCashTotal = Math.round(withdrawnCashArs + (withdrawnCashBrl * rateArs));
   const retainedCashTotal = Math.max(0, actualCashTotal - withdrawnCashTotal);
 
-  const handleCountChange = (currency: "ARS" | "BRL" | "USD", denom: number, qty: number) => {
+  const handleCountChange = (currency: "ARS" | "BRL", denom: number, qty: number) => {
     const validQty = Math.max(0, qty);
     if (currency === "ARS") {
       const nextCounts = { ...countsArs, [denom]: validQty };
@@ -771,7 +682,7 @@ export function CloseCashShiftModal({
         0
       );
       setActualCashArs(sum);
-    } else if (currency === "BRL") {
+    } else {
       const nextCounts = { ...countsBrl, [denom]: validQty };
       setCountsBrl(nextCounts);
       const sum = Object.entries(nextCounts).reduce(
@@ -779,30 +690,21 @@ export function CloseCashShiftModal({
         0
       );
       setActualCashBrl(sum);
-    } else {
-      const nextCounts = { ...countsUsd, [denom]: validQty };
-      setCountsUsd(nextCounts);
-      const sum = Object.entries(nextCounts).reduce(
-        (acc, [val, q]) => acc + Number(val) * Number(q || 0),
-        0
-      );
-      setActualCashUsd(sum);
     }
   };
 
   const handleSetExactCash = () => {
     setActualCashArs(expectedCashArs);
     setActualCashBrl(expectedCashBrl);
-    setActualCashUsd(expectedCashUsd);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (actualCashArs < 0 || actualCashBrl < 0 || actualCashUsd < 0) {
+    if (actualCashArs < 0 || actualCashBrl < 0) {
       toast.error("El efectivo contado no puede ser negativo.");
       return;
     }
-    if (withdrawnCashArs > actualCashArs || withdrawnCashBrl > actualCashBrl || withdrawnCashUsd > actualCashUsd) {
+    if (withdrawnCashArs > actualCashArs || withdrawnCashBrl > actualCashBrl) {
       toast.error("El monto retirado no puede superar el efectivo disponible en caja para cada moneda.");
       return;
     }
@@ -816,13 +718,10 @@ export function CloseCashShiftModal({
         retainedCash: retainedCashTotal,
         actualCashArs,
         actualCashBrl,
-        actualCashUsd,
         withdrawnCashArs,
         withdrawnCashBrl,
-        withdrawnCashUsd,
         retainedCashArs,
         retainedCashBrl,
-        retainedCashUsd,
         closingNotes,
         cashierName,
       });
@@ -885,7 +784,6 @@ export function CloseCashShiftModal({
                 <div className="pl-3 text-[11px] space-y-0.5 text-muted-foreground/90 pb-1">
                   {initialCashArs > 0 && <div>· En Pesos: {formatMoney(initialCashArs, "ARS")}</div>}
                   {initialCashBrl > 0 && <div>· En Reales: {formatMoney(initialCashBrl, "BRL")}</div>}
-                  {initialCashUsd > 0 && <div>· En Dólares: {formatMoney(initialCashUsd, "USD")}</div>}
                 </div>
               )}
 
@@ -899,7 +797,6 @@ export function CloseCashShiftModal({
                 <div className="pl-3 text-[11px] space-y-0.5 text-emerald-600 dark:text-emerald-400 pb-1">
                   {cashSalesArs > 0 && <div>· Ventas Pesos: +{formatMoney(cashSalesArs, "ARS")}</div>}
                   {cashSalesBrl > 0 && <div>· Ventas Reales: +{formatMoney(cashSalesBrl, "BRL")}</div>}
-                  {cashSalesUsd > 0 && <div>· Ventas Dólares: +{formatMoney(cashSalesUsd, "USD")}</div>}
                 </div>
               )}
 
@@ -932,7 +829,6 @@ export function CloseCashShiftModal({
                 <span>Esperado:</span>
                 <span className="font-mono font-bold text-foreground">🇦🇷 {formatMoney(expectedCashArs, "ARS")}</span>
                 {expectedCashBrl > 0 && <span className="font-mono font-bold text-emerald-600">· 🇧🇷 {formatMoney(expectedCashBrl, "BRL")}</span>}
-                {expectedCashUsd > 0 && <span className="font-mono font-bold text-blue-600">· 🇺🇸 {formatMoney(expectedCashUsd, "USD")}</span>}
               </div>
             )}
 
@@ -1017,9 +913,16 @@ export function CloseCashShiftModal({
                           </div>
 
                           <div className="text-right shrink-0">
-                            <span className="font-mono font-black text-xs sm:text-sm text-foreground">
+                            <span className="font-mono font-black text-xs sm:text-sm text-foreground block">
                               {formatMoney(salePaid, saleCur)}
                             </span>
+                            {sale.is_split_payment && (
+                              <span className="font-mono text-[10px] font-bold text-purple-700 dark:text-purple-300 block">
+                                {Number(sale.split_ars || 0) > 0 ? `$${Number(sale.split_ars).toLocaleString("es-AR")}` : ""}
+                                {Number(sale.split_ars || 0) > 0 && Number(sale.split_brl || 0) > 0 ? " + " : ""}
+                                {Number(sale.split_brl || 0) > 0 ? `R$ ${Number(sale.split_brl).toFixed(2)}` : ""}
+                              </span>
+                            )}
                           </div>
                         </div>
 
@@ -1135,32 +1038,6 @@ export function CloseCashShiftModal({
                   </div>
                 </div>
               )}
-
-              {/* Dólares USD */}
-              {(hasMultiCurrency || expectedCashUsd > 0) && (
-                <div className="rounded-xl border p-2 bg-muted/20 space-y-1">
-                  <div className="flex items-center justify-between text-xs font-semibold">
-                    <span className="flex items-center gap-1">
-                      <span>🇺🇸</span> Efectivo en Dólares (US$ USD)
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">
-                      Esperado: <strong>{formatMoney(expectedCashUsd, "USD")}</strong>
-                    </span>
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-3 top-2 text-muted-foreground font-mono text-xs font-bold">US$</span>
-                    <Input
-                      type="number"
-                      min={0}
-                      step="any"
-                      value={actualCashUsd === 0 ? "" : actualCashUsd}
-                      onChange={(e) => setActualCashUsd(Math.max(0, Number(e.target.value) || 0))}
-                      placeholder="0.00"
-                      className="pl-11 h-9 font-mono font-bold text-sm"
-                    />
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Indicador de Diferencia Consolidada */}
@@ -1184,7 +1061,6 @@ export function CloseCashShiftModal({
                   <div className="text-[10px] text-muted-foreground space-x-2 pl-5">
                     <span>ARS: {diffArs > 0 ? `+$${diffArs}` : diffArs < 0 ? `-$${Math.abs(diffArs)}` : "$0"}</span>
                     {expectedCashBrl > 0 && <span>· BRL: {diffBrl > 0 ? `+R$${diffBrl}` : diffBrl < 0 ? `-R$${Math.abs(diffBrl)}` : "R$0"}</span>}
-                    {expectedCashUsd > 0 && <span>· USD: {diffUsd > 0 ? `+US$${diffUsd}` : diffUsd < 0 ? `-US$${Math.abs(diffUsd)}` : "US$0"}</span>}
                   </div>
                 )}
               </div>
@@ -1233,17 +1109,6 @@ export function CloseCashShiftModal({
                   >
                     🇧🇷 BRL
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveDenomTab("USD")}
-                    className={`flex-1 py-1 px-2 rounded-md font-bold text-xs transition-all ${
-                      activeDenomTab === "USD"
-                        ? "bg-background text-foreground shadow-xs"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    🇺🇸 USD
-                  </button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -1273,21 +1138,6 @@ export function CloseCashShiftModal({
                           placeholder="0"
                           value={countsBrl[denom] || ""}
                           onChange={(e) => handleCountChange("BRL", denom, Number(e.target.value) || 0)}
-                        />
-                      </div>
-                    ))}
-
-                  {activeDenomTab === "USD" &&
-                    DENOMINATIONS_USD.map((denom) => (
-                      <div key={denom} className="flex items-center justify-between gap-1 text-xs">
-                        <span className="font-mono text-[11px] text-muted-foreground">US$ {denom}</span>
-                        <Input
-                          type="number"
-                          min={0}
-                          className="h-7 w-16 text-right font-mono text-xs px-1.5"
-                          placeholder="0"
-                          value={countsUsd[denom] || ""}
-                          onChange={(e) => handleCountChange("USD", denom, Number(e.target.value) || 0)}
                         />
                       </div>
                     ))}
@@ -1330,20 +1180,6 @@ export function CloseCashShiftModal({
                     />
                   </div>
                 )}
-                {hasMultiCurrency && actualCashUsd > 0 && (
-                  <div className="relative">
-                    <span className="absolute left-2.5 top-2 text-muted-foreground font-mono text-xs">US$</span>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={actualCashUsd}
-                      value={withdrawnCashUsd === 0 ? "" : withdrawnCashUsd}
-                      onChange={(e) => setWithdrawnCashUsd(Math.min(actualCashUsd, Math.max(0, Number(e.target.value) || 0)))}
-                      placeholder="0.00 USD"
-                      className="pl-10 h-8 font-mono text-xs font-bold"
-                    />
-                  </div>
-                )}
               </div>
               <p className="text-[10px] text-muted-foreground">Efectivo que se retira del local.</p>
               <div className="flex flex-wrap gap-1 pt-0.5">
@@ -1355,7 +1191,6 @@ export function CloseCashShiftModal({
                   onClick={() => {
                     setWithdrawnCashArs(Math.max(0, actualCashArs - initialCashArs));
                     setWithdrawnCashBrl(Math.max(0, actualCashBrl - initialCashBrl));
-                    setWithdrawnCashUsd(Math.max(0, actualCashUsd - initialCashUsd));
                   }}
                 >
                   Dejar fondo inicial
@@ -1368,7 +1203,6 @@ export function CloseCashShiftModal({
                   onClick={() => {
                     setWithdrawnCashArs(actualCashArs);
                     setWithdrawnCashBrl(actualCashBrl);
-                    setWithdrawnCashUsd(actualCashUsd);
                   }}
                 >
                   Retirar todo
@@ -1381,7 +1215,6 @@ export function CloseCashShiftModal({
                   onClick={() => {
                     setWithdrawnCashArs(0);
                     setWithdrawnCashBrl(0);
-                    setWithdrawnCashUsd(0);
                   }}
                 >
                   Dejar todo
@@ -1404,16 +1237,10 @@ export function CloseCashShiftModal({
                     <span>{formatMoney(retainedCashArs, "ARS")}</span>
                   </div>
                   {hasMultiCurrency && (
-                    <>
-                      <div className="flex justify-between">
-                        <span>🇧🇷 Reales:</span>
-                        <span>{formatMoney(retainedCashBrl, "BRL")}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>🇺🇸 Dólares:</span>
-                        <span>{formatMoney(retainedCashUsd, "USD")}</span>
-                      </div>
-                    </>
+                    <div className="flex justify-between">
+                      <span>🇧🇷 Reales:</span>
+                      <span>{formatMoney(retainedCashBrl, "BRL")}</span>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1516,12 +1343,10 @@ export function CashShiftDetailModal({
   const initialCash = Number(shift.initial_cash || 0);
   const initialCashArs = Number(shift.initial_cash_ars !== undefined ? shift.initial_cash_ars : initialCash);
   const initialCashBrl = Number(shift.initial_cash_brl || 0);
-  const initialCashUsd = Number(shift.initial_cash_usd || 0);
 
   const cashSales = Number(shift.cash_sales || 0);
   const cashSalesArs = Number(shift.cash_sales_ars !== undefined ? shift.cash_sales_ars : cashSales);
   const cashSalesBrl = Number(shift.cash_sales_brl || 0);
-  const cashSalesUsd = Number(shift.cash_sales_usd || 0);
 
   const otherSales = Number(shift.other_sales || 0);
   const totalSales = Number(shift.total_sales || (cashSales + otherSales));
@@ -1531,7 +1356,7 @@ export function CashShiftDetailModal({
   const withdrawnCash = Number(shift.withdrawn_cash || 0);
   const retainedCash = Number(shift.retained_cash || 0);
 
-  const hasMultiCurrency = initialCashBrl > 0 || initialCashUsd > 0 || cashSalesBrl > 0 || cashSalesUsd > 0;
+  const hasMultiCurrency = initialCashBrl > 0 || cashSalesBrl > 0;
   const isClosed = shift.status === "closed";
 
   return (
@@ -1587,7 +1412,6 @@ export function CashShiftDetailModal({
               <div className="pl-3 text-[11px] text-muted-foreground space-y-0.5 border-l-2 border-primary/30 my-1">
                 {initialCashArs > 0 && <div>· ARS: {formatMoney(initialCashArs, "ARS")}</div>}
                 {initialCashBrl > 0 && <div>· BRL: {formatMoney(initialCashBrl, "BRL")}</div>}
-                {initialCashUsd > 0 && <div>· USD: {formatMoney(initialCashUsd, "USD")}</div>}
               </div>
             )}
 
@@ -1599,7 +1423,6 @@ export function CashShiftDetailModal({
               <div className="pl-3 text-[11px] text-emerald-600 dark:text-emerald-400 space-y-0.5 border-l-2 border-emerald-500/30 my-1">
                 {cashSalesArs > 0 && <div>· Ventas ARS: +{formatMoney(cashSalesArs, "ARS")}</div>}
                 {cashSalesBrl > 0 && <div>· Ventas BRL: +{formatMoney(cashSalesBrl, "BRL")}</div>}
-                {cashSalesUsd > 0 && <div>· Ventas USD: +{formatMoney(cashSalesUsd, "USD")}</div>}
               </div>
             )}
 
@@ -1635,11 +1458,10 @@ export function CashShiftDetailModal({
                   <span>Fondo retenido en cajón:</span>
                   <span className="font-mono font-semibold">{formatMoney(retainedCash, "ARS")}</span>
                 </div>
-                {hasMultiCurrency && (shift.retained_cash_brl > 0 || shift.retained_cash_usd > 0) && (
+                {hasMultiCurrency && (shift.retained_cash_brl > 0) && (
                   <div className="pl-3 text-[10px] text-muted-foreground">
                     {shift.retained_cash_ars !== undefined && <span>· ARS: {formatMoney(shift.retained_cash_ars, "ARS")} </span>}
-                    {shift.retained_cash_brl > 0 && <span>· BRL: {formatMoney(shift.retained_cash_brl, "BRL")} </span>}
-                    {shift.retained_cash_usd > 0 && <span>· USD: {formatMoney(shift.retained_cash_usd, "USD")}</span>}
+                    {shift.retained_cash_brl > 0 && <span>· BRL: {formatMoney(shift.retained_cash_brl, "BRL")}</span>}
                   </div>
                 )}
               </>
@@ -1719,9 +1541,16 @@ export function CashShiftDetailModal({
                           </div>
 
                           <div className="text-right shrink-0">
-                            <span className="font-mono font-black text-xs sm:text-sm text-foreground">
+                            <span className="font-mono font-black text-xs sm:text-sm text-foreground block">
                               {formatMoney(salePaid, saleCur)}
                             </span>
+                            {sale.is_split_payment && (
+                              <span className="font-mono text-[10px] font-bold text-purple-700 dark:text-purple-300 block">
+                                {Number(sale.split_ars || 0) > 0 ? `$${Number(sale.split_ars).toLocaleString("es-AR")}` : ""}
+                                {Number(sale.split_ars || 0) > 0 && Number(sale.split_brl || 0) > 0 ? " + " : ""}
+                                {Number(sale.split_brl || 0) > 0 ? `R$ ${Number(sale.split_brl).toFixed(2)}` : ""}
+                              </span>
+                            )}
                           </div>
                         </div>
 

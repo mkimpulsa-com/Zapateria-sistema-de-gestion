@@ -82,7 +82,6 @@ export function EditProductModal({
   const isArs = currency === "ARS";
   const currLabel = isArs ? "$ AR" : "R$ BRL";
   const rateArs = Number(settings?.exchange_rate_ars || settings?.exchange_rate_brl) || 250;
-  const rateUsd = Number(settings?.exchange_rate_usd) || 5.70;
 
   const categoryNames = useMemo(() => {
     const list: string[] = [];
@@ -557,9 +556,6 @@ export function EditProductModal({
                 <span className="font-semibold text-foreground">Equivalencia mayorista estimada:</span>
                 <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30 font-bold">
                   {isArs ? `🇧🇷 R$ ${(wholesalePrice / rateArs).toFixed(2)} BRL` : `🇦🇷 $ ${Math.round(wholesalePrice * rateArs).toLocaleString("es-AR")} ARS`}
-                </Badge>
-                <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold">
-                  🇺🇸 US$ {(wholesalePrice / (isArs ? (rateArs * rateUsd) : rateUsd)).toFixed(2)} USD
                 </Badge>
               </div>
             )}

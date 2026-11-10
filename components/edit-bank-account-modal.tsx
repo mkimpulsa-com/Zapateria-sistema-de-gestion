@@ -136,7 +136,6 @@ export function EditBankAccountModal({
               >
                 <option value="ARS">🇦🇷 ARS ($ - Pesos Argentinos) [Predeterminada]</option>
                 <option value="BRL">🇧🇷 BRL (R$ - Reales Brasileños)</option>
-                <option value="USD">🇺🇸 USD (US$ - Dólares Estadounidenses)</option>
               </select>
             </div>
           </div>

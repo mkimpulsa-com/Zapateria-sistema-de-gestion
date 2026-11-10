@@ -138,7 +138,6 @@ export function NewBankAccountModal({
               >
                 <option value="ARS">🇦🇷 ARS ($ - Pesos Argentinos) [Predeterminada]</option>
                 <option value="BRL">🇧🇷 BRL (R$ - Reales Brasileños)</option>
-                <option value="USD">🇺🇸 USD (US$ - Dólares Estadounidenses)</option>
               </select>
             </div>
 
@@ -156,18 +155,18 @@ export function NewBankAccountModal({
 
           <div className="grid gap-1.5">
             <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Saldo inicial ({currency === "BRL" ? "R$ Reales" : currency === "USD" ? "US$ Dólares" : "$ ARS"})
+              Saldo inicial ({currency === "BRL" ? "R$ Reales" : "$ ARS"})
             </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-bold">
-                {currency === "BRL" ? "R$" : currency === "USD" ? "US$" : "$"}
+                {currency === "BRL" ? "R$" : "$"}
               </span>
               <Input
                 type="number"
                 min="0"
                 step="any"
                 placeholder="0"
-                className={currency === "USD" ? "pl-11 font-semibold" : currency === "BRL" ? "pl-9 font-semibold" : "pl-7 font-semibold"}
+                className={currency === "BRL" ? "pl-9 font-semibold" : "pl-7 font-semibold"}
                 value={initialBalance}
                 onChange={(e) => setInitialBalance(e.target.value)}
               />

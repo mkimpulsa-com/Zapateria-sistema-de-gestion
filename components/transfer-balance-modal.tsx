@@ -123,7 +123,7 @@ export function TransferBalanceModal({
             <div>
               <DialogTitle className="text-xl">Transferir entre cuentas</DialogTitle>
               <DialogDescription>
-                Movimiento interno de fondos entre cuentas en Reales, Pesos o Dólares.
+                Movimiento interno de fondos entre cuentas en Pesos y Reales.
               </DialogDescription>
             </div>
           </div>

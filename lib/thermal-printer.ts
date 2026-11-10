@@ -469,6 +469,11 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
       <span><strong>${paymentMethod}</strong></span>
     </div>
 
+    ${sale.is_split_payment ? `
+      ${Number(sale.split_ars || 0) > 0 ? `<div class="total-row" style="padding-left: 6px; font-size: 0.9em;"><span>· Abonado ARS (${cleanThermalText(sale.split_ars_method || "Efectivo")}):</span><span>${thermalMoney(sale.split_ars, "ARS")}</span></div>` : ""}
+      ${Number(sale.split_brl || 0) > 0 ? `<div class="total-row" style="padding-left: 6px; font-size: 0.9em;"><span>· Abonado BRL (${cleanThermalText(sale.split_brl_method || "Efectivo")}):</span><span>${thermalMoney(sale.split_brl, "BRL")}</span></div>` : ""}
+    ` : ""}
+
     ${debtAmount > 0 ? `
       <div class="total-row" style="color: #000; font-weight: bold;">
         <span>Monto abonado:</span>
@@ -673,19 +678,17 @@ export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth 
     <span>(+) Fondo Inicial de Caja:</span>
     <span>${thermalMoney(initialCash, "ARS")}</span>
   </div>
-  ${(shift.initial_cash_brl > 0 || shift.initial_cash_usd > 0) ? `
+  ${(shift.initial_cash_brl > 0) ? `
     ${shift.initial_cash_ars > 0 ? `<div class="row" style="padding-left: 8px; font-size: 0.9em; color: #444;"><span>· ARS:</span><span>${thermalMoney(shift.initial_cash_ars, "ARS")}</span></div>` : ""}
     ${shift.initial_cash_brl > 0 ? `<div class="row" style="padding-left: 8px; font-size: 0.9em; color: #444;"><span>· BRL:</span><span>${thermalMoney(shift.initial_cash_brl, "BRL")}</span></div>` : ""}
-    ${shift.initial_cash_usd > 0 ? `<div class="row" style="padding-left: 8px; font-size: 0.9em; color: #444;"><span>· USD:</span><span>${thermalMoney(shift.initial_cash_usd, "USD")}</span></div>` : ""}
   ` : ""}
   <div class="row">
     <span>(+) Ventas en Efectivo (${salesCount}):</span>
     <span>${thermalMoney(cashSales, "ARS")}</span>
   </div>
-  ${(shift.cash_sales_brl > 0 || shift.cash_sales_usd > 0) ? `
+  ${(shift.cash_sales_brl > 0) ? `
     ${shift.cash_sales_ars > 0 ? `<div class="row" style="padding-left: 8px; font-size: 0.9em; color: #444;"><span>· Ventas ARS:</span><span>${thermalMoney(shift.cash_sales_ars, "ARS")}</span></div>` : ""}
     ${shift.cash_sales_brl > 0 ? `<div class="row" style="padding-left: 8px; font-size: 0.9em; color: #444;"><span>· Ventas BRL:</span><span>${thermalMoney(shift.cash_sales_brl, "BRL")}</span></div>` : ""}
-    ${shift.cash_sales_usd > 0 ? `<div class="row" style="padding-left: 8px; font-size: 0.9em; color: #444;"><span>· Ventas USD:</span><span>${thermalMoney(shift.cash_sales_usd, "USD")}</span></div>` : ""}
   ` : ""}
   ${cashIncomes > 0 ? `
     <div class="row">
@@ -730,10 +733,9 @@ export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth 
     <span>Queda en Cajon (Sig. Turno):</span>
     <span><strong>${thermalMoney(retainedCash, "ARS")}</strong></span>
   </div>
-  ${(shift.retained_cash_brl > 0 || shift.retained_cash_usd > 0) ? `
+  ${(shift.retained_cash_brl > 0) ? `
     ${shift.retained_cash_ars !== undefined ? `<div class="row" style="padding-left: 8px; font-size: 0.9em; color: #444;"><span>· ARS:</span><span>${thermalMoney(shift.retained_cash_ars, "ARS")}</span></div>` : ""}
     ${shift.retained_cash_brl > 0 ? `<div class="row" style="padding-left: 8px; font-size: 0.9em; color: #444;"><span>· BRL:</span><span>${thermalMoney(shift.retained_cash_brl, "BRL")}</span></div>` : ""}
-    ${shift.retained_cash_usd > 0 ? `<div class="row" style="padding-left: 8px; font-size: 0.9em; color: #444;"><span>· USD:</span><span>${thermalMoney(shift.retained_cash_usd, "USD")}</span></div>` : ""}
   ` : ""}
 
   <div class="divider"></div>
