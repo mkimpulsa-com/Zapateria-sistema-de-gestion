@@ -1186,6 +1186,9 @@ export default function StoreApp({
         onOpenChange={setCloseShiftModal}
         activeShift={data.activeShift}
         sales={data?.sales || []}
+        pettyCashMovements={data?.pettyCashMovements || []}
+        pettyCashBalanceArs={data?.stats?.pettyCashBalanceArs || 0}
+        pettyCashBalanceBrl={data?.stats?.pettyCashBalanceBrl || 0}
         settings={data?.settings}
         defaultCashierName={data?.staff?.find((s: any) => s.uid === uid)?.name || "Administrador"}
         onSubmit={async (formData) => {
@@ -1198,6 +1201,9 @@ export default function StoreApp({
       onOpenChange={(v) => !v && setViewingShift(null)}
       shift={viewingShift}
       sales={data?.sales || []}
+      pettyCashMovements={data?.pettyCashMovements || []}
+      pettyCashBalanceArs={data?.stats?.pettyCashBalanceArs || 0}
+      pettyCashBalanceBrl={data?.stats?.pettyCashBalanceBrl || 0}
       settings={data?.settings}
     />
     <AlertDialog open={Boolean(deletingShift)} onOpenChange={v => !v && setDeletingShift(null)}>
@@ -2898,6 +2904,7 @@ function Cash({data,setModal,onEdit,onDelete,onViewReceipt,isCashier,onOpenShift
       <CashShiftReports
         cashShifts={cashShifts}
         sales={data.sales || []}
+        pettyCashMovements={data.pettyCashMovements || []}
         settings={data.settings}
         onViewShift={onViewShift}
         onDeleteShift={onDeleteShift}
@@ -3936,6 +3943,7 @@ function Reports({ data, onSelectSale, onDeleteSale, onViewShift, onDeleteShift 
         <CashShiftReports
           cashShifts={data.cashShifts || []}
           sales={data.sales || []}
+          pettyCashMovements={data.pettyCashMovements || []}
           settings={data.settings}
           onViewShift={onViewShift}
           onDeleteShift={onDeleteShift}
@@ -4005,7 +4013,7 @@ function SalesPOSConfigured({
 }:any) {
   // Estados para Modal Rápido de Caja Chica en POS
   const [pettyModalOpen, setPettyModalOpen] = useState(false);
-  const [pettySubMode, setPettySubMode] = useState<"gasto" | "ingreso">("gasto");
+  const [pettySubMode, setPettySubMode] = useState<"egreso" | "ingreso">("egreso");
   const [pettyCurrency, setPettyCurrency] = useState<"ARS" | "BRL">("ARS");
   const [pettyAmount, setPettyAmount] = useState("");
   const [pettyCategory, setPettyCategory] = useState("Gastos de Local / Mantenimiento");
@@ -4262,7 +4270,7 @@ function SalesPOSConfigured({
           variant="outline"
           size="sm"
           onClick={() => {
-            setPettySubMode("gasto");
+            setPettySubMode("egreso");
             setPettyCategory("Gastos de Local / Mantenimiento");
             setPettyModalOpen(true);
           }}
@@ -4734,7 +4742,7 @@ function SalesPOSConfigured({
                                     setCart((items: CartItem[]) =>
                                       items.map(x =>
                                         x.variantId === item.variantId
-                                          ? { ...x, quantity: Math.min(x.max, x.quantity + 1) }
+                                          ? { ...x, quantity: allowNegative ? x.quantity + 1 : Math.min(x.max, x.quantity + 1) }
                                           : x
                                       )
                                     )
@@ -4835,12 +4843,31 @@ function SalesPOSConfigured({
 
       {/* Columna Derecha: Resumen de Cobro y Operación */}
       <Card className="sticky top-24 h-fit gap-4 border-0 py-5 shadow-[0_14px_40px_rgb(15_33_55/12%)]">
-        <CardHeader className="flex-row items-center justify-between px-5">
+        <CardHeader className="flex-row items-center justify-between gap-2 px-5">
           <CardTitle className="flex items-center gap-2">
             <ShoppingCart className="size-5 text-primary"/>
             Resumen de cobro
           </CardTitle>
-          <Badge>{cart.reduce((sum:number,item:CartItem)=>sum+item.quantity,0)} unidades</Badge>
+          <div className="flex items-center gap-1.5">
+            <Badge>{cart.reduce((sum:number,item:CartItem)=>sum+item.quantity,0)} unidades</Badge>
+            {cart.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => {
+                  if (window.confirm("¿Querés vaciar todos los productos cargados a la venta actual?")) {
+                    setCart([]);
+                    setChannel((data?.settings?.default_channel as any) || "minorista");
+                  }
+                }}
+                className="h-6 px-1.5 text-[11px] text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                title="Vaciar toda la venta"
+              >
+                <Trash2 className="size-3" />
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4 px-5">
           {cart.length === 0 ? (
@@ -4848,13 +4875,70 @@ function SalesPOSConfigured({
               Sin productos cargados aún.
             </div>
           ) : (
-            <div className="max-h-44 space-y-1.5 overflow-y-auto pr-1">
+            <div className="max-h-56 space-y-1.5 overflow-y-auto pr-1">
               {cart.map((item: CartItem) => (
-                <div key={item.variantId} className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-muted/40">
-                  <span className="truncate font-medium max-w-[190px]">
-                    {item.name} <strong className="text-primary">T.{item.size}</strong> × {item.quantity}
-                  </span>
-                  <span className="font-mono font-bold shrink-0">{formatCurr(toActiveCurrency(item.unitPrice * item.quantity))}</span>
+                <div key={item.variantId} className="flex items-center justify-between gap-2 text-xs py-1.5 px-2.5 rounded-lg bg-muted/40 border border-border/40">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">
+                      {item.name} <strong className="text-primary">T.{item.size}</strong>
+                    </p>
+                    <div className="flex items-center gap-1 mt-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCart((items: CartItem[]) =>
+                            items
+                              .map(x =>
+                                x.variantId === item.variantId
+                                  ? { ...x, quantity: Math.max(0, x.quantity - 1) }
+                                  : x
+                              )
+                              .filter(x => x.quantity > 0)
+                          )
+                        }
+                        className="size-5 rounded bg-background border flex items-center justify-center font-bold hover:bg-muted transition-colors cursor-pointer"
+                        title="Restar 1 unidad"
+                      >
+                        −
+                      </button>
+                      <span className="font-mono font-bold w-5 text-center">{item.quantity}</span>
+                      <button
+                        type="button"
+                        disabled={!allowNegative && item.quantity >= item.max}
+                        onClick={() =>
+                          setCart((items: CartItem[]) =>
+                            items.map(x =>
+                              x.variantId === item.variantId
+                                ? { ...x, quantity: allowNegative ? x.quantity + 1 : Math.min(x.max, x.quantity + 1) }
+                                : x
+                            )
+                          )
+                        }
+                        className="size-5 rounded bg-background border flex items-center justify-center font-bold hover:bg-muted transition-colors disabled:opacity-35 cursor-pointer"
+                        title="Sumar 1 unidad"
+                      >
+                        +
+                      </button>
+                      <span className="text-[11px] text-muted-foreground ml-1 font-mono">
+                        × {formatCurr(toActiveCurrency(item.unitPrice))}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="font-mono font-bold">{formatCurr(toActiveCurrency(item.unitPrice * item.quantity))}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCart((items: CartItem[]) =>
+                          items.filter(x => x.variantId !== item.variantId)
+                        )
+                      }
+                      className="size-6 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/15 flex items-center justify-center transition-colors cursor-pointer"
+                      title="Quitar este producto de la venta"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -5462,11 +5546,11 @@ function SalesPOSConfigured({
           <button
             type="button"
             onClick={() => {
-              setPettySubMode("gasto");
+              setPettySubMode("egreso");
               setPettyCategory("Gastos de Local / Mantenimiento");
             }}
             className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all ${
-              pettySubMode === "gasto"
+              pettySubMode === "egreso"
                 ? "bg-rose-500 text-white shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
@@ -5543,7 +5627,7 @@ function SalesPOSConfigured({
           <div>
             <label className="text-xs font-bold block mb-1">Categoría *</label>
             <div className="flex flex-wrap gap-1 mb-2">
-              {(pettySubMode === "gasto"
+              {(pettySubMode === "egreso"
                 ? [
                     "Gastos de Local / Mantenimiento",
                     "Artículos de Limpieza e Insumos",
@@ -5589,7 +5673,7 @@ function SalesPOSConfigured({
             <Input
               value={pettyDescription}
               onChange={(e) => setPettyDescription(e.target.value)}
-              placeholder={pettySubMode === "gasto" ? "Ej: Flete remis depósito, bolsas, lavandina..." : "Ej: Cobro particular, dinero dejado por dueño..."}
+              placeholder={pettySubMode === "egreso" ? "Ej: Flete remis depósito, bolsas, lavandina..." : "Ej: Cobro particular, dinero dejado por dueño..."}
               className="h-9 text-xs"
             />
           </div>
@@ -5638,12 +5722,12 @@ function SalesPOSConfigured({
                 size="sm"
                 disabled={pettyBusy || !pettyAmount || parseFloat(pettyAmount) <= 0}
                 className={`h-9 text-xs font-bold gap-1.5 ${
-                  pettySubMode === "gasto"
+                  pettySubMode === "egreso"
                     ? "bg-rose-600 hover:bg-rose-700 text-white"
                     : "bg-emerald-600 hover:bg-emerald-700 text-white"
                 }`}
               >
-                {pettyBusy ? "Guardando..." : pettySubMode === "gasto" ? "Guardar Gasto" : "Guardar Ingreso"}
+                {pettyBusy ? "Guardando..." : pettySubMode === "egreso" ? "Guardar Gasto" : "Guardar Ingreso"}
               </Button>
             </div>
           </div>

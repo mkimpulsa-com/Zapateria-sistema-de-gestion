@@ -50,6 +50,7 @@ import { toast } from "sonner";
 interface CashShiftReportsProps {
   cashShifts: any[];
   sales?: any[];
+  pettyCashMovements?: any[];
   settings?: any;
   onViewShift?: (shift: any) => void;
   onDeleteShift?: (shift: any) => void;
@@ -59,11 +60,35 @@ interface CashShiftReportsProps {
 export function CashShiftReports({
   cashShifts = [],
   sales = [],
+  pettyCashMovements = [],
   settings = {},
   onViewShift,
   onDeleteShift,
   isCashier = false,
 }: CashShiftReportsProps) {
+  const getShiftPettyStats = (shift: any) => {
+    const openTime = shift?.opened_at ? String(shift.opened_at) : "";
+    const closeTime = shift?.closed_at ? String(shift.closed_at) : "";
+    const moves = openTime
+      ? (pettyCashMovements || []).filter((m: any) => {
+          const t = String(m.created_at || "");
+          return closeTime ? t >= openTime && t <= closeTime : t >= openTime;
+        })
+      : [];
+    const inArs = shift?.petty_cash_incomes_ars !== undefined
+      ? Number(shift.petty_cash_incomes_ars)
+      : moves.filter((m: any) => (m.currency || "ARS") === "ARS" && m.type === "ingreso").reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+    const outArs = shift?.petty_cash_expenses_ars !== undefined
+      ? Number(shift.petty_cash_expenses_ars)
+      : moves.filter((m: any) => (m.currency || "ARS") === "ARS" && m.type !== "ingreso").reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+    const inBrl = shift?.petty_cash_incomes_brl !== undefined
+      ? Number(shift.petty_cash_incomes_brl)
+      : moves.filter((m: any) => m.currency === "BRL" && m.type === "ingreso").reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+    const outBrl = shift?.petty_cash_expenses_brl !== undefined
+      ? Number(shift.petty_cash_expenses_brl)
+      : moves.filter((m: any) => m.currency === "BRL" && m.type !== "ingreso").reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+    return { inArs, outArs, inBrl, outBrl, count: shift?.petty_cash_count ?? moves.length };
+  };
   // --- Estados de Filtro ---
   const [periodPreset, setPeriodPreset] = useState<"hoy" | "ayer" | "7dias" | "mes" | "mes_anterior" | "historico" | "custom">("mes");
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
@@ -310,12 +335,17 @@ export function CashShiftReports({
       "Diferencia Arqueo",
       "Retirado a Tesoreria",
       "Fondo Retenido Proximo Turno",
+      "Caja Chica Ingresos ARS",
+      "Caja Chica Gastos ARS",
+      "Caja Chica Ingresos BRL",
+      "Caja Chica Gastos BRL",
       "Notas Cierre",
     ];
 
     const rows = filteredShifts.map((s) => {
       const openD = s.opened_at ? new Date(s.opened_at) : null;
       const closeD = s.closed_at ? new Date(s.closed_at) : null;
+      const ps = getShiftPettyStats(s);
 
       return [
         s.shift_number || 1,
@@ -338,6 +368,10 @@ export function CashShiftReports({
         Number(s.difference || 0),
         Number(s.withdrawn_cash || 0),
         Number(s.retained_cash || 0),
+        ps.inArs,
+        ps.outArs,
+        ps.inBrl,
+        ps.outBrl,
         `"${(s.closing_notes || "").replace(/"/g, '""')}"`,
       ].join(",");
     });
@@ -789,13 +823,14 @@ export function CashShiftReports({
                   <TableHead className="text-center font-bold">Diferencia</TableHead>
                   <TableHead className="text-right font-bold">Retirado</TableHead>
                   <TableHead className="text-right font-bold">Quedó</TableHead>
+                  <TableHead className="text-right font-bold text-purple-700 dark:text-purple-400">Caja Chica</TableHead>
                   <TableHead className="text-right font-bold w-28">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredShifts.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center py-10 text-muted-foreground italic">
+                    <TableCell colSpan={12} className="text-center py-10 text-muted-foreground italic">
                       No se encontraron turnos con los filtros seleccionados.
                     </TableCell>
                   </TableRow>
@@ -811,6 +846,8 @@ export function CashShiftReports({
                     const total = Number(shift.total_sales || (cash + other));
                     const withdrawn = Number(shift.withdrawn_cash || 0);
                     const retained = Number(shift.retained_cash || 0);
+                    const ps = getShiftPettyStats(shift);
+                    const hasPetty = ps.inArs > 0 || ps.outArs > 0 || ps.inBrl > 0 || ps.outBrl > 0;
 
                     return (
                       <TableRow key={shift.id} className="hover:bg-muted/30 text-xs">
@@ -908,6 +945,20 @@ export function CashShiftReports({
                           {isOpen ? "—" : formatMoney(retained, "ARS")}
                         </TableCell>
 
+                        {/* Caja Chica en este Turno */}
+                        <TableCell className="text-right font-mono text-[11px]">
+                          {!hasPetty ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : (
+                            <div className="space-y-0.5">
+                              {ps.inArs > 0 && <div className="text-emerald-600 dark:text-emerald-400 font-semibold">+{formatMoney(ps.inArs, "ARS")}</div>}
+                              {ps.outArs > 0 && <div className="text-rose-600 dark:text-rose-400 font-semibold">-{formatMoney(ps.outArs, "ARS")}</div>}
+                              {ps.inBrl > 0 && <div className="text-emerald-600 dark:text-emerald-400 font-semibold">+{formatMoney(ps.inBrl, "BRL")}</div>}
+                              {ps.outBrl > 0 && <div className="text-rose-600 dark:text-rose-400 font-semibold">-{formatMoney(ps.outBrl, "BRL")}</div>}
+                            </div>
+                          )}
+                        </TableCell>
+
                         {/* Acciones */}
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
@@ -925,7 +976,7 @@ export function CashShiftReports({
                               <Button
                                 variant="outline"
                                 size="xs"
-                                onClick={() => printShiftCloseThermalTicket({ shift, settings, paperWidth: "80mm" })}
+                                onClick={() => printShiftCloseThermalTicket({ shift, settings, paperWidth: "80mm", pettyCashMovements })}
                                 className="h-7 px-2 text-xs font-semibold gap-1 rounded-lg text-emerald-600 hover:text-emerald-700"
                                 title="Reimprimir Ticket Z"
                               >

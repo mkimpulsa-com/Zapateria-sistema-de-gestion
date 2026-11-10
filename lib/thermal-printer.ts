@@ -16,6 +16,7 @@ export interface ThermalShiftPrintData {
   shift: any;
   settings?: any;
   paperWidth?: "80mm" | "58mm";
+  pettyCashMovements?: any[];
 }
 
 /**
@@ -515,7 +516,7 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
 /**
  * Imprime el ticket térmico de Cierre y Arqueo Z de Caja (Turno)
  */
-export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth = "80mm" }: ThermalShiftPrintData) {
+export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth = "80mm", pettyCashMovements = [] }: ThermalShiftPrintData) {
   if (typeof window === "undefined" || !shift) return;
 
   const rawBusinessName = settings.business_name || "CR BAZAR";
@@ -536,6 +537,34 @@ export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth 
   const difference = Number(shift.difference !== undefined ? shift.difference : (actualCash - expectedCash));
   const withdrawnCash = Number(shift.withdrawn_cash || 0);
   const retainedCash = Number(shift.retained_cash !== undefined ? shift.retained_cash : (actualCash - withdrawnCash));
+
+  // Datos de Caja Chica en este turno (snapshot del cierre o cálculo por ventana temporal)
+  const openTime = shift.opened_at ? String(shift.opened_at) : "";
+  const closeTime = shift.closed_at ? String(shift.closed_at) : "";
+  const fallbackPettyMoves = (pettyCashMovements || []).filter((m: any) => {
+    if (!openTime) return false;
+    const t = String(m.created_at || "");
+    return closeTime ? (t >= openTime && t <= closeTime) : (t >= openTime);
+  });
+  const pettyInArs = shift.petty_cash_incomes_ars !== undefined
+    ? Number(shift.petty_cash_incomes_ars)
+    : fallbackPettyMoves.filter((m: any) => (m.currency || "ARS") === "ARS" && m.type === "ingreso").reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+  const pettyOutArs = shift.petty_cash_expenses_ars !== undefined
+    ? Number(shift.petty_cash_expenses_ars)
+    : fallbackPettyMoves.filter((m: any) => (m.currency || "ARS") === "ARS" && m.type !== "ingreso").reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+  const pettyInBrl = shift.petty_cash_incomes_brl !== undefined
+    ? Number(shift.petty_cash_incomes_brl)
+    : fallbackPettyMoves.filter((m: any) => m.currency === "BRL" && m.type === "ingreso").reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+  const pettyOutBrl = shift.petty_cash_expenses_brl !== undefined
+    ? Number(shift.petty_cash_expenses_brl)
+    : fallbackPettyMoves.filter((m: any) => m.currency === "BRL" && m.type !== "ingreso").reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+  const pettyBalArs = shift.petty_cash_balance_ars !== undefined
+    ? Number(shift.petty_cash_balance_ars)
+    : (pettyCashMovements || []).filter((m: any) => (m.currency || "ARS") === "ARS").reduce((s: number, m: any) => s + (m.type === "ingreso" ? Number(m.amount || 0) : -Number(m.amount || 0)), 0);
+  const pettyBalBrl = shift.petty_cash_balance_brl !== undefined
+    ? Number(shift.petty_cash_balance_brl)
+    : (pettyCashMovements || []).filter((m: any) => m.currency === "BRL").reduce((s: number, m: any) => s + (m.type === "ingreso" ? Number(m.amount || 0) : -Number(m.amount || 0)), 0);
+  const hasPettyData = pettyInArs > 0 || pettyOutArs > 0 || pettyInBrl > 0 || pettyOutBrl > 0 || pettyBalArs !== 0 || pettyBalBrl !== 0 || shift.petty_cash_balance_ars !== undefined;
 
   const diffLabel = difference === 0 
     ? "EXACTA ($ 0)" 
@@ -723,6 +752,25 @@ export function printShiftCloseThermalTicket({ shift, settings = {}, paperWidth 
     <span>TOTAL VENDIDO:</span>
     <span>${thermalMoney(totalSales, "ARS")}</span>
   </div>
+
+  ${hasPettyData ? `
+    <div class="divider"></div>
+    <div class="font-bold text-center" style="margin: 2px 0;">CAJA CHICA (POR FUERA)</div>
+    ${pettyInArs > 0 ? `<div class="row"><span>(+) Ingresos ARS Turno:</span><span>+${thermalMoney(pettyInArs, "ARS")}</span></div>` : ""}
+    ${pettyOutArs > 0 ? `<div class="row"><span>(-) Gastos ARS Turno:</span><span>-${thermalMoney(pettyOutArs, "ARS")}</span></div>` : ""}
+    ${pettyInBrl > 0 ? `<div class="row"><span>(+) Ingresos BRL Turno:</span><span>+${thermalMoney(pettyInBrl, "BRL")}</span></div>` : ""}
+    ${pettyOutBrl > 0 ? `<div class="row"><span>(-) Gastos BRL Turno:</span><span>-${thermalMoney(pettyOutBrl, "BRL")}</span></div>` : ""}
+    <div class="row font-bold">
+      <span>Saldo Caja Chica ARS:</span>
+      <span>${thermalMoney(pettyBalArs, "ARS")}</span>
+    </div>
+    ${pettyBalBrl !== 0 ? `
+      <div class="row font-bold">
+        <span>Saldo Caja Chica BRL:</span>
+        <span>${thermalMoney(pettyBalBrl, "BRL")}</span>
+      </div>
+    ` : ""}
+  ` : ""}
 
   ${shift.closing_notes ? `
     <div class="divider"></div>

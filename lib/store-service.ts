@@ -323,6 +323,13 @@ export async function loadStore(uid?: string) {
   const bankMoves = withId(bankMovesSnap).sort((a:any,b:any)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0,100);
   const staff = withId(staffSnap).sort((a:any,b:any)=>String(a.name||"").localeCompare(String(b.name||"")));
   const cashShifts = withId(cashShiftsSnap).sort((a:any,b:any)=>String(b.opened_at||"").localeCompare(String(a.opened_at||"")));
+  const pettyCashMovements = withId(pettyCashSnap);
+  const pettyCashBalanceArs = pettyCashMovements
+    .filter((m: any) => (m.currency || "ARS") === "ARS")
+    .reduce((sum: number, m: any) => sum + (m.type === "ingreso" ? Number(m.amount || 0) : -Number(m.amount || 0)), 0);
+  const pettyCashBalanceBrl = pettyCashMovements
+    .filter((m: any) => m.currency === "BRL")
+    .reduce((sum: number, m: any) => sum + (m.type === "ingreso" ? Number(m.amount || 0) : -Number(m.amount || 0)), 0);
 
   // Turno de caja activo (si existe)
   const activeShift = cashShifts.find((s: any) => s.status === "open") || null;
@@ -379,6 +386,13 @@ export async function loadStore(uid?: string) {
     const expectedCashBrl = initialCashBrl + cashSalesBrl;
     const expectedCashUsd = initialCashUsd + cashSalesUsd;
 
+    // Movimientos de Caja Chica durante el turno actual
+    const shiftPettyMoves = pettyCashMovements.filter((m: any) => String(m.created_at || "") >= shiftOpenedAt);
+    const pettyIncomesArs = shiftPettyMoves.filter((m: any) => (m.currency || "ARS") === "ARS" && m.type === "ingreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
+    const pettyExpensesArs = shiftPettyMoves.filter((m: any) => (m.currency || "ARS") === "ARS" && m.type !== "ingreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
+    const pettyIncomesBrl = shiftPettyMoves.filter((m: any) => m.currency === "BRL" && m.type === "ingreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
+    const pettyExpensesBrl = shiftPettyMoves.filter((m: any) => m.currency === "BRL" && m.type !== "ingreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
+
     activeShift.cash_sales = cashSales;
     activeShift.other_sales = otherSales;
     activeShift.total_sales = cashSales + otherSales;
@@ -396,6 +410,14 @@ export async function loadStore(uid?: string) {
     activeShift.expected_cash_ars = expectedCashArs;
     activeShift.expected_cash_brl = expectedCashBrl;
     activeShift.expected_cash_usd = expectedCashUsd;
+
+    activeShift.petty_cash_incomes_ars = pettyIncomesArs;
+    activeShift.petty_cash_expenses_ars = pettyExpensesArs;
+    activeShift.petty_cash_incomes_brl = pettyIncomesBrl;
+    activeShift.petty_cash_expenses_brl = pettyExpensesBrl;
+    activeShift.petty_cash_balance_ars = pettyCashBalanceArs;
+    activeShift.petty_cash_balance_brl = pettyCashBalanceBrl;
+    activeShift.petty_cash_count = shiftPettyMoves.length;
   }
 
   let categories = withId(categoriesSnap);
@@ -418,14 +440,6 @@ export async function loadStore(uid?: string) {
 
   const today = new Date().toISOString().slice(0,10);
   const todaySales = sales.filter((sale:any)=>String(sale.created_at).slice(0,10)===today);
-
-  const pettyCashMovements = withId(pettyCashSnap);
-  const pettyCashBalanceArs = pettyCashMovements
-    .filter((m: any) => (m.currency || "ARS") === "ARS")
-    .reduce((sum: number, m: any) => sum + (m.type === "ingreso" ? Number(m.amount || 0) : -Number(m.amount || 0)), 0);
-  const pettyCashBalanceBrl = pettyCashMovements
-    .filter((m: any) => m.currency === "BRL")
-    .reduce((sum: number, m: any) => sum + (m.type === "ingreso" ? Number(m.amount || 0) : -Number(m.amount || 0)), 0);
 
   return {settings,products,customers,suppliers,sales,movements,stockMoves,customerMoves,supplierMoves,bankAccounts,bankMoves,categories,staff,cashShifts,activeShift,pettyCashMovements,stats:{
     revenueToday:todaySales.reduce((sum:number,sale:any)=>sum+Number(sale.total !== undefined ? sale.total : (sale.total_ars || sale.total_brl || 0)),0),
@@ -1243,7 +1257,7 @@ export async function runStoreAction(body: any, uid?: string) {
     if (!(amt > 0)) throw new Error("Ingresá un importe válido.");
     const cur = body.currency === "BRL" ? "BRL" : "ARS";
     await addDoc(userCol("pettyCashMovements", userId), {
-      type: body.type === "egreso" ? "egreso" : "ingreso",
+      type: (body.type === "egreso" || body.type === "gasto") ? "egreso" : "ingreso",
       currency: cur,
       amount: amt,
       category: text(body.category, "General"),
@@ -1260,7 +1274,7 @@ export async function runStoreAction(body: any, uid?: string) {
     if (!(amt > 0)) throw new Error("Ingresá un importe válido.");
     const cur = body.currency === "BRL" ? "BRL" : "ARS";
     await updateDoc(userDoc("pettyCashMovements", movementId, userId), {
-      type: body.type === "egreso" ? "egreso" : "ingreso",
+      type: (body.type === "egreso" || body.type === "gasto") ? "egreso" : "ingreso",
       currency: cur,
       amount: amt,
       category: text(body.category, "General"),
@@ -1652,6 +1666,22 @@ export async function runStoreAction(body: any, uid?: string) {
     const cashIncomes = shiftMoves.filter((m: any) => m.type === "ingreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
     const cashExpenses = shiftMoves.filter((m: any) => m.type === "egreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
 
+    // Consultar movimientos y saldo de Caja Chica durante el turno
+    const pettySnap = await getDocs(query(userCol("pettyCashMovements", userId), orderBy("created_at", "desc"), limit(300)));
+    const allPettyMoves = withId(pettySnap);
+    const shiftPettyMoves = allPettyMoves.filter((m: any) => String(m.created_at || "") >= shiftOpenedAt && String(m.created_at || "") <= time);
+    const pettyIncomesArs = shiftPettyMoves.filter((m: any) => (m.currency || "ARS") === "ARS" && m.type === "ingreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
+    const pettyExpensesArs = shiftPettyMoves.filter((m: any) => (m.currency || "ARS") === "ARS" && m.type !== "ingreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
+    const pettyIncomesBrl = shiftPettyMoves.filter((m: any) => m.currency === "BRL" && m.type === "ingreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
+    const pettyExpensesBrl = shiftPettyMoves.filter((m: any) => m.currency === "BRL" && m.type !== "ingreso").reduce((sum: number, m: any) => sum + Number(m.amount || 0), 0);
+
+    const pettyBalanceArs = allPettyMoves
+      .filter((m: any) => (m.currency || "ARS") === "ARS")
+      .reduce((sum: number, m: any) => sum + (m.type === "ingreso" ? Number(m.amount || 0) : -Number(m.amount || 0)), 0);
+    const pettyBalanceBrl = allPettyMoves
+      .filter((m: any) => m.currency === "BRL")
+      .reduce((sum: number, m: any) => sum + (m.type === "ingreso" ? Number(m.amount || 0) : -Number(m.amount || 0)), 0);
+
     const initialCash = Number(shiftData.initial_cash || 0);
     const initialCashArs = Number(shiftData.initial_cash_ars !== undefined ? shiftData.initial_cash_ars : initialCash);
     const initialCashBrl = Number(shiftData.initial_cash_brl || 0);
@@ -1715,6 +1745,13 @@ export async function runStoreAction(body: any, uid?: string) {
       expected_cash_ars: expectedCashArs,
       expected_cash_brl: expectedCashBrl,
       expected_cash_usd: expectedCashUsd,
+      petty_cash_incomes_ars: pettyIncomesArs,
+      petty_cash_expenses_ars: pettyExpensesArs,
+      petty_cash_incomes_brl: pettyIncomesBrl,
+      petty_cash_expenses_brl: pettyExpensesBrl,
+      petty_cash_balance_ars: pettyBalanceArs,
+      petty_cash_balance_brl: pettyBalanceBrl,
+      petty_cash_count: shiftPettyMoves.length,
       updated_at: time,
     };
 

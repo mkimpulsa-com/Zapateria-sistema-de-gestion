@@ -25,6 +25,7 @@ import {
   ChevronDown,
   ChevronUp,
   Receipt,
+  Wallet,
 } from "lucide-react";
 import { formatMoney } from "@/lib/currency";
 import { printShiftCloseThermalTicket } from "@/lib/thermal-printer";
@@ -476,11 +477,168 @@ export function OpenCashShiftModal({
   );
 }
 
+function ShiftPettyCashSection({
+  shift,
+  pettyCashMovements = [],
+  pettyCashBalanceArs,
+  pettyCashBalanceBrl,
+  isClosed = false,
+}: {
+  shift: any;
+  pettyCashMovements?: any[];
+  pettyCashBalanceArs?: number;
+  pettyCashBalanceBrl?: number;
+  isClosed?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const shiftPettyMoves = useMemo(() => {
+    if (!shift?.opened_at) return [];
+    const openTime = String(shift.opened_at);
+    const closeTime = shift.closed_at ? String(shift.closed_at) : "";
+    return (pettyCashMovements || [])
+      .filter((m: any) => {
+        const t = String(m.created_at || "");
+        return closeTime ? t >= openTime && t <= closeTime : t >= openTime;
+      })
+      .sort((a: any, b: any) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  }, [pettyCashMovements, shift]);
+
+  const inArs = shift?.petty_cash_incomes_ars !== undefined
+    ? Number(shift.petty_cash_incomes_ars)
+    : shiftPettyMoves.filter((m: any) => (m.currency || "ARS") === "ARS" && m.type === "ingreso").reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+  const outArs = shift?.petty_cash_expenses_ars !== undefined
+    ? Number(shift.petty_cash_expenses_ars)
+    : shiftPettyMoves.filter((m: any) => (m.currency || "ARS") === "ARS" && m.type !== "ingreso").reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+  const inBrl = shift?.petty_cash_incomes_brl !== undefined
+    ? Number(shift.petty_cash_incomes_brl)
+    : shiftPettyMoves.filter((m: any) => m.currency === "BRL" && m.type === "ingreso").reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+  const outBrl = shift?.petty_cash_expenses_brl !== undefined
+    ? Number(shift.petty_cash_expenses_brl)
+    : shiftPettyMoves.filter((m: any) => m.currency === "BRL" && m.type !== "ingreso").reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+
+  const balArs = shift?.petty_cash_balance_ars !== undefined
+    ? Number(shift.petty_cash_balance_ars)
+    : (pettyCashBalanceArs !== undefined
+        ? Number(pettyCashBalanceArs)
+        : (pettyCashMovements || []).filter((m: any) => (m.currency || "ARS") === "ARS").reduce((s: number, m: any) => s + (m.type === "ingreso" ? Number(m.amount || 0) : -Number(m.amount || 0)), 0));
+  const balBrl = shift?.petty_cash_balance_brl !== undefined
+    ? Number(shift.petty_cash_balance_brl)
+    : (pettyCashBalanceBrl !== undefined
+        ? Number(pettyCashBalanceBrl)
+        : (pettyCashMovements || []).filter((m: any) => m.currency === "BRL").reduce((s: number, m: any) => s + (m.type === "ingreso" ? Number(m.amount || 0) : -Number(m.amount || 0)), 0));
+
+  return (
+    <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 overflow-hidden text-xs">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between p-2.5 font-semibold hover:bg-purple-500/10 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Wallet className="size-4 text-purple-600 dark:text-purple-400 shrink-0" />
+          <span className="font-bold text-foreground">
+            Caja Chica · Movimientos por fuera
+          </span>
+          <Badge variant="secondary" className="text-[10px] h-5 px-1.5 font-bold bg-purple-500/15 text-purple-800 dark:text-purple-300">
+            {shiftPettyMoves.length} {shiftPettyMoves.length === 1 ? "mov." : "movs."}
+          </Badge>
+        </div>
+        <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
+          <span>{expanded ? "Ocultar" : "Ver detalle"}</span>
+          {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+        </div>
+      </button>
+
+      <div className="px-3 pb-2.5 pt-1 border-t border-purple-500/15 space-y-1.5">
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
+          <div className="rounded-lg bg-background/70 px-2.5 py-1.5 border border-border/50">
+            <span className="text-muted-foreground block text-[10px]">Ingresos en este Turno</span>
+            <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+              +{formatMoney(inArs, "ARS")}
+            </span>
+            {inBrl > 0 && (
+              <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 block">
+                +{formatMoney(inBrl, "BRL")}
+              </span>
+            )}
+          </div>
+          <div className="rounded-lg bg-background/70 px-2.5 py-1.5 border border-border/50">
+            <span className="text-muted-foreground block text-[10px]">Gastos / Egresos Turno</span>
+            <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
+              -{formatMoney(outArs, "ARS")}
+            </span>
+            {outBrl > 0 && (
+              <span className="font-mono font-bold text-rose-600 dark:text-rose-400 block">
+                -{formatMoney(outBrl, "BRL")}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between pt-1 text-[11px] font-bold">
+          <span className="text-muted-foreground">
+            {isClosed ? "Saldo Caja Chica al cierre:" : "Saldo Actual en Caja Chica:"}
+          </span>
+          <div className="flex items-center gap-2 font-mono text-purple-700 dark:text-purple-300">
+            <span>{formatMoney(balArs, "ARS")}</span>
+            {(balBrl !== 0) && (
+              <span>· {formatMoney(balBrl, "BRL")}</span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="border-t border-purple-500/20 divide-y divide-border/50 max-h-48 overflow-y-auto bg-background/60">
+          {shiftPettyMoves.length === 0 ? (
+            <p className="text-center py-3 text-[11px] text-muted-foreground italic">
+              No se registraron movimientos de Caja Chica durante este turno.
+            </p>
+          ) : (
+            shiftPettyMoves.map((m: any) => {
+              const cur = m.currency === "BRL" ? "BRL" : "ARS";
+              const isIncome = m.type === "ingreso";
+              const timeStr = m.created_at
+                ? new Date(m.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
+                : "";
+              return (
+                <div key={m.id} className="px-3 py-2 flex items-center justify-between gap-2 text-[11px]">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold ${isIncome ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-rose-500/15 text-rose-700 dark:text-rose-400"}`}>
+                        {isIncome ? "INGRESO" : "GASTO"}
+                      </span>
+                      <span className="font-bold text-foreground truncate">{m.category || "General"}</span>
+                      {timeStr && <span className="text-[10px] text-muted-foreground font-mono">· {timeStr} hs</span>}
+                    </div>
+                    {(m.description || m.reference) && (
+                      <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+                        {m.description}{m.reference ? ` (${m.reference})` : ""}
+                      </p>
+                    )}
+                  </div>
+                  <span className={`font-mono font-bold shrink-0 ${isIncome ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                    {isIncome ? "+" : "-"}{formatMoney(Number(m.amount || 0), cur)}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface CloseCashShiftModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   activeShift: any;
   sales?: any[];
+  pettyCashMovements?: any[];
+  pettyCashBalanceArs?: number;
+  pettyCashBalanceBrl?: number;
   settings?: any;
   defaultCashierName?: string;
   onSubmit: (data: {
@@ -507,6 +665,9 @@ export function CloseCashShiftModal({
   onOpenChange,
   activeShift,
   sales = [],
+  pettyCashMovements = [],
+  pettyCashBalanceArs,
+  pettyCashBalanceBrl,
   settings = {},
   defaultCashierName = "Administrador",
   onSubmit,
@@ -674,6 +835,7 @@ export function CloseCashShiftModal({
           shift: result.closedShift,
           settings,
           paperWidth: "80mm",
+          pettyCashMovements,
         });
       }
     } catch (err: any) {
@@ -896,6 +1058,15 @@ export function CloseCashShiftModal({
               </div>
             )}
           </div>
+
+          {/* Información de Caja Chica durante el turno */}
+          <ShiftPettyCashSection
+            shift={activeShift}
+            pettyCashMovements={pettyCashMovements}
+            pettyCashBalanceArs={pettyCashBalanceArs}
+            pettyCashBalanceBrl={pettyCashBalanceBrl}
+            isClosed={false}
+          />
 
           {/* Arqueo: Ingreso del Efectivo Real Multi-moneda */}
           <div className="space-y-2">
@@ -1306,6 +1477,9 @@ interface CashShiftDetailModalProps {
   onOpenChange: (open: boolean) => void;
   shift: any;
   sales?: any[];
+  pettyCashMovements?: any[];
+  pettyCashBalanceArs?: number;
+  pettyCashBalanceBrl?: number;
   settings?: any;
 }
 
@@ -1314,10 +1488,11 @@ export function CashShiftDetailModal({
   onOpenChange,
   shift,
   sales = [],
+  pettyCashMovements = [],
+  pettyCashBalanceArs,
+  pettyCashBalanceBrl,
   settings = {},
 }: CashShiftDetailModalProps) {
-  if (!shift) return null;
-
   const [showSalesList, setShowSalesList] = useState(false);
 
   const shiftSales = useMemo(() => {
@@ -1335,6 +1510,8 @@ export function CashShiftDetailModal({
       return sTime >= openTime;
     }).sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
   }, [sales, shift]);
+
+  if (!shift) return null;
 
   const initialCash = Number(shift.initial_cash || 0);
   const initialCashArs = Number(shift.initial_cash_ars !== undefined ? shift.initial_cash_ars : initialCash);
@@ -1584,6 +1761,15 @@ export function CashShiftDetailModal({
             )}
           </div>
 
+          {/* Resumen e historial de Caja Chica en este turno */}
+          <ShiftPettyCashSection
+            shift={shift}
+            pettyCashMovements={pettyCashMovements}
+            pettyCashBalanceArs={pettyCashBalanceArs}
+            pettyCashBalanceBrl={pettyCashBalanceBrl}
+            isClosed={isClosed}
+          />
+
           {shift.closing_notes && (
             <div className="rounded-lg bg-muted/40 p-2.5 text-[11px] text-muted-foreground">
               <strong className="text-foreground block mb-0.5">Notas de cierre:</strong>
@@ -1598,7 +1784,7 @@ export function CashShiftDetailModal({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => printShiftCloseThermalTicket({ shift, settings, paperWidth: "80mm" })}
+              onClick={() => printShiftCloseThermalTicket({ shift, settings, paperWidth: "80mm", pettyCashMovements })}
               className="gap-1.5 text-xs font-semibold"
             >
               <Printer className="size-3.5" />
