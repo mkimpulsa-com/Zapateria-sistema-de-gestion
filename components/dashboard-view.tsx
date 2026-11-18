@@ -174,8 +174,85 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
   const products = data.products || [];
   const sales = data.sales || [];
   const customers = data.customers || [];
-  const movements = data.movements || [];
+  const rawMovements = data.movements || [];
   const pettyMovements: any[] = data.pettyCashMovements || [];
+
+  // Unificar movimientos con ventas históricas enriqueciendo con medio de pago real
+  const movements = useMemo(() => {
+    const raw = data.movements || [];
+    const salesList = data.sales || [];
+    const salesByRef = new Map<string, any>();
+    salesList.forEach((s: any) => {
+      if (s.id) salesByRef.set(String(s.id).trim(), s);
+      if (s.receipt_no) salesByRef.set(String(s.receipt_no).trim(), s);
+      if (s.orderNumber) salesByRef.set(String(s.orderNumber).trim(), s);
+    });
+
+    const enriched = raw.map((m: any) => {
+      let sale = salesByRef.get(String(m.sale_id || m.reference || "").trim());
+      if (!sale && m.description) {
+        const match = String(m.description).match(/([ABCX]-\d{4}-\d{8})/i);
+        if (match && salesByRef.has(match[1])) {
+          sale = salesByRef.get(match[1]);
+        }
+      }
+      let pm = m.payment_method || sale?.payment_method;
+      if (!pm) {
+        const descLower = String(m.description || m.category || "").toLowerCase();
+        if (descLower.includes("transferencia") || descLower.includes("pix")) pm = "Transferencia";
+        else if (descLower.includes("tarjeta") || descLower.includes("débito") || descLower.includes("debito") || descLower.includes("crédito") || descLower.includes("credito")) pm = "Tarjeta";
+        else if (descLower.includes("mercado pago") || descLower.includes("qr")) pm = "Mercado Pago";
+        else if (descLower.includes("mixto")) pm = "Mixto";
+        else pm = "Efectivo";
+      }
+      const isCash = m.is_cash !== undefined ? m.is_cash : (sale?.is_cash !== undefined ? sale.is_cash : String(pm).toLowerCase().includes("efectivo"));
+      let desc = m.description || m.category;
+      if (!isCash && desc && /venta en efectivo/i.test(desc)) {
+        desc = desc.replace(/venta en efectivo/gi, `Venta (${pm})`);
+      }
+      return {
+        ...m,
+        payment_method: pm,
+        is_cash: isCash,
+        description: desc,
+        bank_account_name: m.bank_account_name || sale?.bank_account_name || null,
+        bank_account_id: m.bank_account_id || sale?.bank_account_id || null,
+      };
+    });
+
+    const knownRefs = new Set(
+      enriched.map((m: any) => String(m.sale_id || m.reference || "").trim()).filter(Boolean)
+    );
+    salesList.forEach((s: any) => {
+      if (s.status === "cancelled") return;
+      if (!knownRefs.has(String(s.id).trim()) && !knownRefs.has(String(s.receipt_no).trim())) {
+        const isCash = s.is_cash !== undefined ? s.is_cash : String(s.payment_method || "").toLowerCase().includes("efectivo");
+        const paid = Number(s.paid_amount_ars !== undefined ? s.paid_amount_ars : (s.paid_amount || s.total || 0));
+        if (paid > 0) {
+          const pm = s.payment_method || (isCash ? "Efectivo" : "Transferencia");
+          enriched.push({
+            id: `synth_sale_${s.id}`,
+            type: "ingreso",
+            category: s.channel === "online" ? "Venta Online" : "Venta",
+            description: s.channel === "online"
+              ? `Venta online #${s.receipt_no || s.id} (${pm})`
+              : isCash
+              ? `Venta #${s.receipt_no || s.id} (Efectivo)`
+              : `Venta #${s.receipt_no || s.id} (${pm})`,
+            amount: paid,
+            currency: s.currency || "ARS",
+            payment_method: pm,
+            is_cash: isCash,
+            created_at: s.created_at || s.date || new Date().toISOString(),
+            shift_id: s.shift_id,
+            is_synthetic: true,
+          });
+        }
+      }
+    });
+
+    return enriched;
+  }, [data.movements, data.sales]);
 
   // Filter sales and movements by selected period
   const { filteredSales, filteredMovements, filteredPettyMovements } = useMemo(() => {

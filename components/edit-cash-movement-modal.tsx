@@ -44,6 +44,7 @@ export function EditCashMovementModal({
   const [type, setType] = useState<"ingreso" | "egreso">("ingreso");
   const [category, setCategory] = useState("General");
   const [amount, setAmount] = useState<number | string>("");
+  const [paymentMethod, setPaymentMethod] = useState("Efectivo");
   const [reference, setReference] = useState("");
   const [description, setDescription] = useState("");
 
@@ -52,6 +53,7 @@ export function EditCashMovementModal({
       setType(movement.type === "egreso" ? "egreso" : "ingreso");
       setCategory(movement.category || "General");
       setAmount(movement.amount || "");
+      setPaymentMethod(movement.payment_method || (movement.is_cash === false ? "Transferencia" : "Efectivo"));
       setReference(movement.reference || "");
       setDescription(movement.description || "");
     }
@@ -70,8 +72,11 @@ export function EditCashMovementModal({
       type,
       category: category.trim() || "General",
       amount: valAmount,
+      payment_method: paymentMethod,
+      is_cash: paymentMethod.toLowerCase().includes("efectivo"),
       reference: reference.trim(),
       description: description.trim(),
+      sale_id: movement.sale_id || null,
     });
   };
 
@@ -148,6 +153,24 @@ export function EditCashMovementModal({
                 className="pl-9 h-11 text-lg font-bold"
               />
             </div>
+          </div>
+
+          {/* MEDIO DE COBRO / PAGO */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold">Medio de cobro / pago</label>
+            <select
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value)}
+              className="h-10 w-full rounded-xl border bg-background px-3 text-sm font-semibold"
+            >
+              <option value="Efectivo">💵 Efectivo (Impacta en cajón físico)</option>
+              <option value="Transferencia">💳 Transferencia bancaria (Digital)</option>
+              <option value="Tarjeta de Débito">💳 Tarjeta de Débito (Digital)</option>
+              <option value="Tarjeta de Crédito">💳 Tarjeta de Crédito (Digital)</option>
+              <option value="Mercado Pago">📲 Mercado Pago / QR (Digital)</option>
+              <option value="Mixto">🪙 Pago Mixto</option>
+              <option value="Otro">Otro medio digital</option>
+            </select>
           </div>
 
           {/* CATEGORIA */}

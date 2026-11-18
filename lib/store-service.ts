@@ -489,7 +489,9 @@ export async function loadStore(uid?: string) {
     revenueToday:todaySales.reduce((sum:number,sale:any)=>sum+Number(sale.total !== undefined ? sale.total : (sale.total_ars || sale.total_brl || 0)),0),
     salesToday:todaySales.length,
     stockValue:products.reduce((sum:number,product:any)=>sum+Number(product.cost||0)*Number(product.total_stock||0),0),
-    cashBalance:movements.reduce((sum:number,movement:any)=>sum+(movement.type==="ingreso"?Number(movement.amount||0):-Number(movement.amount||0)),0),
+    cashBalance:movements
+      .filter((movement:any)=>movement.is_cash !== false && (!movement.payment_method || String(movement.payment_method).toLowerCase().includes("efectivo")))
+      .reduce((sum:number,movement:any)=>sum+(movement.type==="ingreso"?Number(movement.amount||0):-Number(movement.amount||0)),0),
     bankBalance:bankAccounts.filter((acc:any)=>acc.currency==="ARS").reduce((sum:number,acc:any)=>sum+Number(acc.balance||0),0),
     bankBalanceArs:bankAccounts.filter((acc:any)=>acc.currency==="ARS").reduce((sum:number,acc:any)=>sum+Number(acc.balance||0),0),
     bankBalanceBrl:bankAccounts.filter((acc:any)=>acc.currency==="BRL" || !acc.currency).reduce((sum:number,acc:any)=>sum+Number(acc.balance||0),0),
@@ -1288,14 +1290,31 @@ export async function runStoreAction(body: any, uid?: string) {
     const movementId = String(body.id || body.movementId || "");
     if (!movementId) throw new Error("Movimiento de caja no encontrado.");
     if (!(number(body.amount) > 0)) throw new Error("Ingresá un importe válido.");
-    await updateDoc(userDoc("cashMovements", movementId, userId), {
+    const pm = body.payment_method ? text(body.payment_method) : undefined;
+    const isCash = body.is_cash !== undefined ? Boolean(body.is_cash) : (pm ? pm.toLowerCase().includes("efectivo") : undefined);
+    const movUpdates: any = {
       type: body.type === "egreso" ? "egreso" : "ingreso",
       category: text(body.category, "General"),
       amount: number(body.amount),
       description: text(body.description),
       reference: text(body.reference),
       updated_at: now(),
-    });
+    };
+    if (pm !== undefined) movUpdates.payment_method = pm;
+    if (isCash !== undefined) movUpdates.is_cash = isCash;
+    await updateDoc(userDoc("cashMovements", movementId, userId), movUpdates);
+
+    // Si tiene venta asociada, actualizar también el método de pago en la venta
+    const saleId = body.sale_id ? String(body.sale_id) : "";
+    if (saleId && pm) {
+      try {
+        await updateDoc(userDoc("sales", saleId, userId), {
+          payment_method: pm,
+          is_cash: isCash,
+          updated_at: now(),
+        });
+      } catch {}
+    }
   } else if (action === "petty_cash_movement" || action === "create_petty_cash_movement") {
     const amt = number(body.amount);
     if (!(amt > 0)) throw new Error("Ingresá un importe válido.");
@@ -2630,21 +2649,25 @@ export async function runStoreAction(body: any, uid?: string) {
               description: `Venta mixta ${receiptNo} · Tramo ARS (${splitArsMethod})`,
               created_at: createdAt,
             });
-          } else {
-            transaction.set(doc(userCol("cashMovements", userId)), {
-              type: "ingreso",
-              category: "Venta",
-              amount: splitArs,
-              currency: "ARS",
-              amount_currency: splitArs,
-              shift_id: activeOpenShift ? activeOpenShift.id : null,
-              shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
-              description: `Venta mixta ${receiptNo} · Tramo efectivo Pesos ($ ARS)`,
-              reference: receiptNo,
-              sale_id: saleRef.id,
-              created_at: createdAt,
-            });
           }
+          // Siempre registrar en el libro de movimientos de caja (con is_cash: false si es digital)
+          transaction.set(doc(userCol("cashMovements", userId)), {
+            type: "ingreso",
+            category: "Venta",
+            amount: splitArs,
+            currency: "ARS",
+            amount_currency: splitArs,
+            payment_method: splitArsMethod,
+            is_cash: arsIsCash,
+            bank_account_id: !arsIsCash ? (bankAccountId || null) : null,
+            bank_account_name: !arsIsCash ? (bankAccountName || null) : null,
+            shift_id: activeOpenShift ? activeOpenShift.id : null,
+            shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
+            description: `Venta mixta ${receiptNo} · Tramo Pesos ($ ARS - ${splitArsMethod})`,
+            reference: receiptNo,
+            sale_id: saleRef.id,
+            created_at: createdAt,
+          });
         }
 
         // 2) Tramo en Reales (BRL)
@@ -2671,27 +2694,33 @@ export async function runStoreAction(body: any, uid?: string) {
               description: `Venta mixta ${receiptNo} · Tramo BRL (${splitBrlMethod})`,
               created_at: createdAt,
             });
-          } else {
-            transaction.set(doc(userCol("cashMovements", userId)), {
-              type: "ingreso",
-              category: "Venta",
-              amount: splitBrl,
-              currency: "BRL",
-              amount_currency: splitBrl,
-              shift_id: activeOpenShift ? activeOpenShift.id : null,
-              shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
-              description: `Venta mixta ${receiptNo} · Tramo efectivo Reales (R$ BRL)`,
-              reference: receiptNo,
-              sale_id: saleRef.id,
-              created_at: createdAt,
-            });
           }
+          // Siempre registrar en el libro de movimientos de caja (con is_cash: false si es digital)
+          transaction.set(doc(userCol("cashMovements", userId)), {
+            type: "ingreso",
+            category: "Venta",
+            amount: splitBrl,
+            currency: "BRL",
+            amount_currency: splitBrl,
+            payment_method: splitBrlMethod,
+            is_cash: brlIsCash,
+            bank_account_id: !brlIsCash ? (splitBrlBankId || bankAccountId || null) : null,
+            bank_account_name: !brlIsCash ? (splitBrlBankName || bankAccountName || null) : null,
+            shift_id: activeOpenShift ? activeOpenShift.id : null,
+            shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
+            description: `Venta mixta ${receiptNo} · Tramo Reales (R$ BRL - ${splitBrlMethod})`,
+            reference: receiptNo,
+            sale_id: saleRef.id,
+            created_at: createdAt,
+          });
         }
       } else {
         // Venta simple (1 sola moneda)
         if (bankAccountData?.currency === "ARS") depositAmount = paidAmountArs;
         else if (bankAccountData?.currency === "USD") depositAmount = paidAmountUsd;
         else depositAmount = paidAmountBrl;
+
+        const effectivePaymentAmount = isCashPayment ? effectiveCashAmount : (depositAmount > 0 ? depositAmount : effectiveCashAmount);
 
         if (!isCashPayment && depositAmount > 0 && bankAccountRef && bankAccountData) {
           const prevAccBal = number(bankAccountData.balance, 0);
@@ -2715,21 +2744,30 @@ export async function runStoreAction(body: any, uid?: string) {
             sale_id: saleRef.id,
             description: isOnline
               ? `Venta online comprobante ${receiptNo}${body.orderNumber ? ` (${body.orderNumber})` : ""} · ${body.paymentMethod || "Transferencia"}`
-              : `Venta comprobante ${receiptNo} (${saleStatus === "pago_parcial" ? "Cobro parcial" : "Cobro total"} - ${saleCurrency === "BRL" ? `R$ ${paidAmountBrl.toFixed(2)}` : (saleCurrency === "USD" ? `US$ ${paidAmountUsd.toFixed(2)}` : `$${paidAmountArs}`)} - ${body.paymentMethod || "Efectivo"})`,
+              : `Venta comprobante ${receiptNo} (${saleStatus === "pago_parcial" ? "Cobro parcial" : "Cobro total"} - ${saleCurrency === "BRL" ? `R$ ${paidAmountBrl.toFixed(2)}` : (saleCurrency === "USD" ? `US$ ${paidAmountUsd.toFixed(2)}` : `$${paidAmountArs}`)} - ${effectivePaymentMethod})`,
             created_at: createdAt,
           });
-        } else if (effectiveCashAmount > 0) {
+        }
+
+        // Siempre registrar el movimiento de venta en cashMovements (con is_cash: false si es digital)
+        if (effectivePaymentAmount > 0) {
           transaction.set(doc(userCol("cashMovements", userId)), {
             type: "ingreso",
             category: isOnline ? "Venta Online" : "Venta",
-            amount: effectiveCashAmount,
+            amount: effectivePaymentAmount,
             currency: saleCurrency,
-            amount_currency: effectiveCashAmount,
+            amount_currency: effectivePaymentAmount,
+            payment_method: effectivePaymentMethod,
+            is_cash: isCashPayment,
+            bank_account_id: !isCashPayment ? (bankAccountId || null) : null,
+            bank_account_name: !isCashPayment ? (bankAccountName || null) : null,
             shift_id: activeOpenShift ? activeOpenShift.id : null,
             shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
             description: isOnline
-              ? `Venta online comprobante ${receiptNo}${body.orderNumber ? ` (${body.orderNumber})` : ""} · ${body.paymentMethod || "Efectivo"}`
-              : `Venta en efectivo ${body.channel === "minorista" ? "minorista" : "mayorista"} comprobante ${receiptNo}`,
+              ? `Venta online comprobante ${receiptNo}${body.orderNumber ? ` (${body.orderNumber})` : ""} · ${effectivePaymentMethod}`
+              : isCashPayment
+              ? `Venta en efectivo ${body.channel === "minorista" ? "minorista" : "mayorista"} comprobante ${receiptNo}`
+              : `Venta ${body.channel === "minorista" ? "minorista" : "mayorista"} comprobante ${receiptNo} (${effectivePaymentMethod})`,
             reference: receiptNo,
             sale_id: saleRef.id,
             created_at: createdAt,
