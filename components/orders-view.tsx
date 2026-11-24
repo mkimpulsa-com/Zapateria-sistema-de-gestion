@@ -365,7 +365,13 @@ export function OrdersView({
     if (!orderToCancel) return;
     try {
       setCancelingSaleBusy(true);
-      if (orderToCancel.convertedToSaleId && onCancelOrderSale) {
+      const hasLinkedSale = Boolean(
+        orderToCancel.convertedToSaleId ||
+        (orderToCancel as any).sale_id ||
+        orderToCancel.saleReceiptNo ||
+        orderToCancel.status === "confirmado"
+      );
+      if (hasLinkedSale && onCancelOrderSale) {
         await onCancelOrderSale(orderToCancel, { cancelOrder: true });
       } else {
         await updateStoreOrderStatus(storeUid, orderToCancel.id, "cancelado");

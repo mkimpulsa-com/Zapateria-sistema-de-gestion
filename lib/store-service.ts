@@ -1410,11 +1410,122 @@ export async function runStoreAction(body: any, uid?: string) {
         created_at: time,
       });
     }
-  } else if (action === "delete_cash_movement") {
+  }
+
+  // Función robusta para restituir el stock al anular una venta
+  async function restoreSaleItemsStock(items: any[], receiptNo: string, userId: string) {
+    const updatedProductsVariants: Array<{ id: string; variants: any[]; total_stock: number }> = [];
+    if (!Array.isArray(items) || items.length === 0) return updatedProductsVariants;
+
+    let allProductsCache: any[] | null = null;
+
+    for (const it of items) {
+      const prodId = String(it.product_id || it.productId || it.id || "").trim();
+      const varId = it.variant_id !== undefined ? String(it.variant_id).trim() : (it.variantId !== undefined ? String(it.variantId).trim() : "");
+      const size = String(it.size || "").trim();
+      const qty = Math.max(1, Number(it.quantity || it.qty || 1));
+
+      let targetDocId = prodId;
+      let targetDocRef = prodId ? userDoc("products", prodId, userId) : null;
+      let pSnap = targetDocRef ? await getDoc(targetDocRef) : null;
+
+      if (!pSnap || !pSnap.exists()) {
+        if (!allProductsCache) {
+          const snap = await getDocs(userCol("products", userId));
+          allProductsCache = withId(snap);
+        }
+        const found = ((allProductsCache || []) as any[]).find((p: any) =>
+          (prodId && String(p.id) === prodId) ||
+          (it.barcode && p.barcode && isBarcodeMatch(p.barcode, it.barcode)) ||
+          (it.sku && p.sku && String(p.sku).trim().toLowerCase() === String(it.sku).trim().toLowerCase()) ||
+          (it.name && p.name && String(p.name).trim().toLowerCase() === String(it.name).trim().toLowerCase())
+        );
+        if (found) {
+          targetDocId = found.id;
+          targetDocRef = userDoc("products", found.id, userId);
+          pSnap = await getDoc(targetDocRef);
+        }
+      }
+
+      if (pSnap && pSnap.exists() && targetDocRef) {
+        const pData = pSnap.data() as any;
+        let matched = false;
+        let matchedVariantId = "";
+        let matchedVariantSize = "";
+
+        const updatedVariants = (pData.variants || []).map((v: any) => {
+          const vIdStr = String(v.id || "").trim();
+          const vSizeStr = String(v.size || "").trim();
+          const matchId = Boolean(varId && vIdStr === varId);
+          const matchSize = Boolean(size && vSizeStr.toLowerCase() === size.toLowerCase());
+
+          if (!matched && (matchId || matchSize)) {
+            matched = true;
+            matchedVariantId = vIdStr;
+            matchedVariantSize = vSizeStr;
+            return { ...v, stock: Number(v.stock || 0) + qty };
+          }
+          return v;
+        });
+
+        if (!matched && updatedVariants.length === 1) {
+          matched = true;
+          matchedVariantId = String(updatedVariants[0].id || "");
+          matchedVariantSize = String(updatedVariants[0].size || "");
+          updatedVariants[0].stock = Number(updatedVariants[0].stock || 0) + qty;
+        }
+
+        if (!matched) {
+          const newVarId = varId || `${targetDocId}-${size || "U"}`;
+          const newVar = { id: newVarId, size: size || "Único", stock: qty };
+          updatedVariants.push(newVar);
+          matchedVariantId = newVarId;
+          matchedVariantSize = size || "Único";
+        }
+
+        const total_stock = updatedVariants.reduce((sum: number, v: any) => sum + Number(v.stock || 0), 0);
+
+        await updateDoc(targetDocRef, {
+          variants: updatedVariants,
+          total_stock,
+          updated_at: now(),
+        });
+
+        try {
+          await addDoc(userCol("stockMovements", userId), {
+            product_id: targetDocId,
+            variant_id: matchedVariantId,
+            product_name: it.name || pData.name,
+            size: matchedVariantSize || size || "Único",
+            type: "anulacion_venta",
+            quantity: qty,
+            note: `Restitución por anulación de comprobante ${receiptNo || "de venta"}`,
+            created_at: now(),
+          });
+        } catch (smErr) {
+          console.warn("No se pudo registrar stockMovement de anulación:", smErr);
+        }
+
+        updatedProductsVariants.push({
+          id: targetDocId,
+          variants: updatedVariants,
+          total_stock,
+        });
+      }
+    }
+
+    return updatedProductsVariants;
+  }
+
+  if (action === "delete_cash_movement") {
     const movementId = String(body.id || body.movementId || "");
     if (!movementId) throw new Error("Movimiento de caja no encontrado.");
     const moveRef = userDoc("cashMovements", movementId, userId);
     const moveSnap = await getDoc(moveRef);
+    let updatedProductsVariants: any[] = [];
+    let linkedSaleId: string | null = null;
+    let linkedReceiptNo: string | null = null;
+
     if (moveSnap.exists()) {
       const moveData = moveSnap.data() as any;
       // Si el movimiento proviene de una venta, anular y sincronizar la venta para que no siga figurando en el Resumen
@@ -1433,27 +1544,11 @@ export async function runStoreAction(body: any, uid?: string) {
           (moveData.reference && s.receipt_no === moveData.reference)
         );
         if (linkedSale) {
-          // Revertir stock de productos vendidos
+          linkedSaleId = linkedSale.id;
+          linkedReceiptNo = linkedSale.receipt_no;
+          // Revertir stock de productos vendidos de manera robusta
           if (Array.isArray(linkedSale.items)) {
-            for (const it of linkedSale.items) {
-              const prodId = it.product_id || it.productId;
-              const varId = it.variant_id || it.variantId;
-              const qty = Number(it.quantity || 1);
-              if (prodId && qty > 0) {
-                const prodRef = userDoc("products", String(prodId), userId);
-                const pSnap = await getDoc(prodRef);
-                if (pSnap.exists()) {
-                  const pData = pSnap.data() as any;
-                  const updatedVariants = (pData.variants || []).map((v: any) => {
-                    if (String(v.id) === String(varId) || (!varId && String(v.size) === String(it.size))) {
-                      return { ...v, stock: Number(v.stock || 0) + qty };
-                    }
-                    return v;
-                  });
-                  await updateDoc(prodRef, { variants: updatedVariants });
-                }
-              }
-            }
+            updatedProductsVariants = await restoreSaleItemsStock(linkedSale.items, linkedSale.receipt_no || "", userId);
           }
           if (linkedSale.order_id) {
             try {
@@ -1472,45 +1567,45 @@ export async function runStoreAction(body: any, uid?: string) {
       }
       await deleteDoc(moveRef);
     }
+
+    return {
+      deletedMovementId: movementId,
+      deletedSaleId: linkedSaleId,
+      receiptNo: linkedReceiptNo,
+      updatedProductsVariants,
+    };
   } else if (action === "delete_sale") {
     let saleId = String(body.saleId || body.id || "").trim();
-    if (!saleId && (body.receiptNo || body.orderId)) {
-      const salesSnap = await getDocs(query(userCol("sales", userId), orderBy("created_at", "desc"), limit(100)));
-      const found = withId(salesSnap).find((s: any) => 
-        (body.receiptNo && s.receipt_no === body.receiptNo) ||
-        (body.orderId && (s.order_id === body.orderId || s.orderId === body.orderId))
-      );
-      if (found) saleId = found.id;
+    let saleRef = saleId ? userDoc("sales", saleId, userId) : null;
+    let saleSnap = saleRef ? await getDoc(saleRef) : null;
+
+    if (!saleSnap || !saleSnap.exists()) {
+      if (body.receiptNo || body.orderId) {
+        const salesSnap = await getDocs(query(userCol("sales", userId), orderBy("created_at", "desc"), limit(100)));
+        const found = withId(salesSnap).find((s: any) => 
+          (body.receiptNo && s.receipt_no === body.receiptNo) ||
+          (body.receiptNo && s.receiptNo === body.receiptNo) ||
+          (body.orderId && (s.order_id === body.orderId || s.orderId === body.orderId))
+        );
+        if (found) {
+          saleId = found.id;
+          saleRef = userDoc("sales", saleId, userId);
+          saleSnap = await getDoc(saleRef);
+        }
+      }
     }
-    if (!saleId) throw new Error("ID de venta no especificado.");
-    const saleRef = userDoc("sales", saleId, userId);
-    const saleSnap = await getDoc(saleRef);
-    if (!saleSnap.exists()) throw new Error("La venta no existe o ya fue eliminada.");
+
+    if (!saleRef || !saleSnap || !saleSnap.exists()) {
+      throw new Error("La venta no existe o ya fue eliminada.");
+    }
     const saleData = saleSnap.data() as any;
     const receiptNo = saleData.receipt_no || "";
 
-    // 1. Restablecer stock de productos vendidos
+    // 1. Restablecer stock de productos vendidos con verificación infalible
     const restoreStock = body.restoreStock !== false;
+    let updatedProductsVariants: any[] = [];
     if (restoreStock && Array.isArray(saleData.items) && saleData.items.length > 0) {
-      for (const it of saleData.items) {
-        const prodId = it.product_id || it.productId;
-        const varId = it.variant_id || it.variantId;
-        const qty = Number(it.quantity || 1);
-        if (prodId && qty > 0) {
-          const prodRef = userDoc("products", String(prodId), userId);
-          const pSnap = await getDoc(prodRef);
-          if (pSnap.exists()) {
-            const pData = pSnap.data() as any;
-            const updatedVariants = (pData.variants || []).map((v: any) => {
-              if (String(v.id) === String(varId) || (!varId && String(v.size) === String(it.size))) {
-                return { ...v, stock: Number(v.stock || 0) + qty };
-              }
-              return v;
-            });
-            await updateDoc(prodRef, { variants: updatedVariants });
-          }
-        }
-      }
+      updatedProductsVariants = await restoreSaleItemsStock(saleData.items, receiptNo, userId);
     }
 
     // 2. Eliminar movimientos de caja y banco vinculados a esta venta
@@ -1581,6 +1676,12 @@ export async function runStoreAction(body: any, uid?: string) {
 
     // 5. Eliminar el documento de la venta
     await deleteDoc(saleRef);
+
+    return {
+      deletedSaleId: saleId,
+      receiptNo,
+      updatedProductsVariants,
+    };
   } else if (action === "open_cash_shift") {
     // Verificar si ya existe un turno abierto
     const existingOpenSnap = await getDocs(query(userCol("cashShifts", userId), orderBy("opened_at", "desc"), limit(10)));

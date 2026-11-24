@@ -665,6 +665,31 @@ export default function StoreApp({
             },
           };
         });
+      } else if (nextData?.deletedSaleId) {
+        setData((prevData: any) => {
+          if (!prevData) return prevData;
+          const updatedProducts = (prevData.products || []).map((p: any) => {
+            const found = (nextData.updatedProductsVariants || []).find((up: any) => String(up.id) === String(p.id));
+            if (found) {
+              return { ...p, variants: found.variants, total_stock: found.total_stock };
+            }
+            return p;
+          });
+          const updatedSales = (prevData.sales || []).filter((s: any) => s.id !== nextData.deletedSaleId && s.receipt_no !== nextData.receiptNo);
+          const updatedMovements = (prevData.movements || []).filter((m: any) => m.sale_id !== nextData.deletedSaleId && m.reference !== nextData.receiptNo);
+          return {
+            ...prevData,
+            products: updatedProducts,
+            sales: updatedSales,
+            movements: updatedMovements,
+          };
+        });
+        // Sincronizar en segundo plano el store completo sin bloquear la interfaz
+        loadStore(uid).then((fresh) => {
+          if (fresh && Array.isArray(fresh.products)) {
+            setData(fresh as StoreData);
+          }
+        }).catch(() => {});
       } else if (nextData && Array.isArray(nextData.products)) {
         setData(nextData as StoreData);
         if (body.action === "save_settings" && body.themeDefault) {
