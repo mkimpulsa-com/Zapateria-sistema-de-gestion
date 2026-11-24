@@ -421,7 +421,11 @@ export function SaleInvoiceModal({
         (isBrl
           ? `💵 *Equivalencia:* $${totalArs.toLocaleString("es-AR")} ARS\n`
           : `💵 *Equivalencia:* R$ ${totalBrl.toFixed(2)} BRL\n`) +
-        (sale.is_split_payment
+        (sale.is_split_ars_payment
+          ? `💰 *Pago Mixto (Pesos):*\n` +
+            `   • Efectivo: $${Number(sale.split_cash_ars || 0).toLocaleString("es-AR")} ARS\n` +
+            `   • ${sale.split_transfer_method || "Transferencia"}: $${Number(sale.split_transfer_ars || 0).toLocaleString("es-AR")} ARS\n`
+          : sale.is_split_payment
           ? `💰 *Pago Mixto:*\n` +
             (Number(sale.split_ars || 0) > 0 ? `   • Pesos (${sale.split_ars_method || "Efectivo"}): $${Number(sale.split_ars).toLocaleString("es-AR")} ARS\n` : "") +
             (Number(sale.split_brl || 0) > 0 ? `   • Reales (${sale.split_brl_method || "Efectivo"}): R$ ${Number(sale.split_brl).toFixed(2)} BRL\n` : "")
@@ -1244,7 +1248,9 @@ export function SaleInvoiceModal({
                     <div className="flex justify-between font-bold text-xs">
                       <span>Moneda de cobro</span>
                       <span>
-                        {sale.is_split_payment
+                        {sale.is_split_ars_payment
+                          ? "💵+💳 Mixto (Efectivo + Transferencia)"
+                          : sale.is_split_payment
                           ? "🇦🇷+🇧🇷 Mixto (Pesos + Reales)"
                           : curr === "BRL"
                           ? "🇧🇷 Reales (R$ BRL)"
@@ -1267,7 +1273,19 @@ export function SaleInvoiceModal({
                     </div>
                   </div>
 
-                  {sale.is_split_payment && (
+                  {sale.is_split_ars_payment ? (
+                    <div className="rounded-lg bg-blue-50 border border-blue-200 p-2 text-[11px] space-y-0.5 text-blue-950">
+                      <div className="font-bold text-blue-800">Desglose de Cobro Mixto en Pesos:</div>
+                      <div className="flex justify-between">
+                        <span>· En Efectivo:</span>
+                        <span className="font-mono font-bold">{moneyArs(Number(sale.split_cash_ars || 0))}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>· En {sale.split_transfer_method || "Transferencia"}:</span>
+                        <span className="font-mono font-bold">{moneyArs(Number(sale.split_transfer_ars || 0))}</span>
+                      </div>
+                    </div>
+                  ) : sale.is_split_payment && (
                     <div className="rounded-lg bg-purple-50 border border-purple-200 p-2 text-[11px] space-y-0.5 text-purple-950">
                       <div className="font-bold text-purple-800">Desglose de Cobro Mixto:</div>
                       {Number(sale.split_ars || 0) > 0 && (

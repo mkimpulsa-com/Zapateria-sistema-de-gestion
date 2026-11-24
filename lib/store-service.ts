@@ -233,6 +233,14 @@ function accumulateShiftSaleTotals(shiftSales: any[], defaultRateArs = 250) {
 
   shiftSales.forEach((s: any) => {
     if (s.status === "cancelled") return;
+    if (s.is_split_ars_payment || (s.is_split_payment && (Number(s.split_cash_ars || 0) > 0 || Number(s.split_transfer_ars || 0) > 0))) {
+      const cArs = Number(s.split_cash_ars || 0);
+      const tArs = Number(s.split_transfer_ars || 0);
+      cashSales += cArs;
+      cashSalesArs += cArs;
+      otherSales += tArs;
+      return;
+    }
     if (s.is_split_payment) {
       const sArs = Number(s.split_ars || 0);
       const sBrl = Number(s.split_brl || 0);
@@ -2363,10 +2371,14 @@ export async function runStoreAction(body: any, uid?: string) {
       }
 
       const isSplitPayment = Boolean(body.isSplitPayment);
-      const splitArs = isSplitPayment ? Math.max(0, Number(body.splitArs) || 0) : 0;
-      const splitBrl = isSplitPayment ? Math.max(0, Math.round((Number(body.splitBrl) || 0) * 100) / 100) : 0;
-      const splitArsMethod = isSplitPayment ? text(body.splitArsMethod || body.paymentMethod, "Efectivo") : "";
-      const splitBrlMethod = isSplitPayment ? text(body.splitBrlMethod || body.paymentMethod, "Efectivo") : "";
+      const isSplitArsPayment = Boolean(body.isSplitArsPayment) || (isSplitPayment && Number(body.splitCashArs || 0) > 0 && Number(body.splitTransferArs || 0) > 0);
+      const splitCashArs = isSplitArsPayment ? Math.max(0, Number(body.splitCashArs) || 0) : 0;
+      const splitTransferArs = isSplitArsPayment ? Math.max(0, Number(body.splitTransferArs) || 0) : 0;
+      const splitTransferMethod = isSplitArsPayment ? text(body.splitTransferMethod, "Transferencia") : "Transferencia";
+      const splitArs = isSplitPayment && !isSplitArsPayment ? Math.max(0, Number(body.splitArs) || 0) : 0;
+      const splitBrl = isSplitPayment && !isSplitArsPayment ? Math.max(0, Math.round((Number(body.splitBrl) || 0) * 100) / 100) : 0;
+      const splitArsMethod = isSplitPayment && !isSplitArsPayment ? text(body.splitArsMethod || body.paymentMethod, "Efectivo") : "";
+      const splitBrlMethod = isSplitPayment && !isSplitArsPayment ? text(body.splitBrlMethod || body.paymentMethod, "Efectivo") : "";
 
       let paidAmountBrl = 0;
       let pendingAmountBrl = 0;
@@ -2375,7 +2387,14 @@ export async function runStoreAction(body: any, uid?: string) {
       let paidAmountUsd = 0;
       let pendingAmountUsd = 0;
 
-      if (isSplitPayment) {
+      if (isSplitArsPayment) {
+        paidAmountArs = Math.min(totalArs, splitCashArs + splitTransferArs);
+        pendingAmountArs = Math.max(0, totalArs - paidAmountArs);
+        paidAmountBrl = Math.round((paidAmountArs / rateArs) * 100) / 100;
+        pendingAmountBrl = Math.round((pendingAmountArs / rateArs) * 100) / 100;
+        paidAmountUsd = Math.round((paidAmountBrl / rateUsd) * 100) / 100;
+        pendingAmountUsd = Math.round((pendingAmountBrl / rateUsd) * 100) / 100;
+      } else if (isSplitPayment) {
         const rawSplitEquivArs = Math.round(splitArs + (splitBrl * rateArs));
         // Tolerancia de redondeo hasta $2 cuando el tramo BRL tiene centavos al cubrir el total exacto
         const isCoveredWithRounding = (splitArs > 0 || splitBrl > 0) && Math.abs(rawSplitEquivArs - totalArs) <= 2 && rawSplitEquivArs >= totalArs - 2;
@@ -2507,7 +2526,9 @@ export async function runStoreAction(body: any, uid?: string) {
 
       const arsIsCash = isSplitPayment ? splitArsMethod.toLowerCase().includes("efectivo") : String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo");
       const brlIsCash = isSplitPayment ? splitBrlMethod.toLowerCase().includes("efectivo") : String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo");
-      const effectivePaymentMethod = isSplitPayment
+      const effectivePaymentMethod = isSplitArsPayment
+        ? `Mixto (Efectivo + ${splitTransferMethod})`
+        : isSplitPayment
         ? ((arsIsCash && brlIsCash)
           ? "Mixto · Efectivo (ARS + BRL)"
           : `Mixto (${splitArsMethod} ARS + ${splitBrlMethod} BRL)`)
@@ -2553,10 +2574,15 @@ export async function runStoreAction(body: any, uid?: string) {
         exchange_rate: rateArs,
         exchange_rate_ars: rateArs,
         exchange_rate_usd: rateUsd,
-        is_split_payment: isSplitPayment,
-        split_ars: isSplitPayment ? splitArs : 0,
+        is_split_payment: isSplitPayment || isSplitArsPayment,
+        is_split_ars_payment: isSplitArsPayment,
+        split_type: isSplitArsPayment ? "ars_mixed" : (isSplitPayment ? "currency_mixed" : "single"),
+        split_cash_ars: isSplitArsPayment ? splitCashArs : 0,
+        split_transfer_ars: isSplitArsPayment ? splitTransferArs : 0,
+        split_transfer_method: isSplitArsPayment ? splitTransferMethod : "",
+        split_ars: isSplitPayment ? splitArs : (isSplitArsPayment ? splitCashArs : 0),
         split_brl: isSplitPayment ? splitBrl : 0,
-        split_ars_method: isSplitPayment ? splitArsMethod : "",
+        split_ars_method: isSplitPayment ? splitArsMethod : (isSplitArsPayment ? "Efectivo" : ""),
         split_brl_method: isSplitPayment ? splitBrlMethod : "",
         total_brl: totalBrl,
         paid_amount_brl: paidAmountBrl,
@@ -2618,14 +2644,77 @@ export async function runStoreAction(body: any, uid?: string) {
       }));
 
       const isOnline = body.channel === "online";
-      const isCashPayment = isSplitPayment ? (arsIsCash && brlIsCash) : String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo");
+      const isCashPayment = isSplitArsPayment ? false : (isSplitPayment ? (arsIsCash && brlIsCash) : String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo"));
       const effectiveCashAmount = saleCurrency === "ARS" ? paidAmountArs : (saleCurrency === "BRL" ? paidAmountBrl : paidAmountUsd);
 
       let depositAmount = 0;
       let splitArsDeposit = 0;
       let splitBrlDeposit = 0;
 
-      if (isSplitPayment) {
+      if (isSplitArsPayment) {
+        // 1) Tramo Efectivo en Pesos ($ ARS) -> ingresa al cajón de mostrador
+        if (splitCashArs > 0) {
+          transaction.set(doc(userCol("cashMovements", userId)), {
+            type: "ingreso",
+            category: "Venta",
+            amount: splitCashArs,
+            currency: "ARS",
+            amount_currency: splitCashArs,
+            payment_method: "Efectivo",
+            is_cash: true,
+            shift_id: activeOpenShift ? activeOpenShift.id : null,
+            shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
+            description: `Venta mixta ${receiptNo} · Tramo Efectivo ($ ARS)`,
+            reference: receiptNo,
+            sale_id: saleRef.id,
+            created_at: createdAt,
+          });
+        }
+
+        // 2) Tramo Transferencia en Pesos ($ ARS) -> ingresa a la cuenta bancaria
+        if (splitTransferArs > 0) {
+          if (bankAccountRef && bankAccountData) {
+            const prevAccBal = number(bankAccountData.balance, 0);
+            const amtToAcc = bankAccountData.currency === "BRL" ? Math.round((splitTransferArs / rateArs) * 100) / 100 : splitTransferArs;
+            const nextAccBal = prevAccBal + amtToAcc;
+            transaction.update(bankAccountRef, { balance: nextAccBal, updated_at: createdAt });
+            splitArsDeposit = amtToAcc;
+            transaction.set(doc(userCol("bankMovements", userId)), {
+              account_id: bankAccountId,
+              account_name: bankAccountName,
+              type: "ingreso",
+              category: "Venta",
+              amount: amtToAcc,
+              currency: bankAccountData.currency || "ARS",
+              exchange_rate: bankAccountData.currency === "BRL" ? rateArs : 1,
+              balance_before: prevAccBal,
+              balance_after: nextAccBal,
+              reference: receiptNo,
+              sale_id: saleRef.id,
+              description: `Venta mixta ${receiptNo} · Tramo ${splitTransferMethod}`,
+              created_at: createdAt,
+            });
+          }
+          // Asentar en el libro de caja con is_cash: false
+          transaction.set(doc(userCol("cashMovements", userId)), {
+            type: "ingreso",
+            category: "Venta",
+            amount: splitTransferArs,
+            currency: "ARS",
+            amount_currency: splitTransferArs,
+            payment_method: splitTransferMethod,
+            is_cash: false,
+            bank_account_id: bankAccountId || null,
+            bank_account_name: bankAccountName || null,
+            shift_id: activeOpenShift ? activeOpenShift.id : null,
+            shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
+            description: `Venta mixta ${receiptNo} · Tramo ${splitTransferMethod}`,
+            reference: receiptNo,
+            sale_id: saleRef.id,
+            created_at: createdAt,
+          });
+        }
+      } else if (isSplitPayment) {
         // 1) Tramo en Pesos (ARS)
         if (splitArs > 0) {
           if (!arsIsCash && bankAccountRef && bankAccountData) {
@@ -2825,6 +2914,10 @@ export async function runStoreAction(body: any, uid?: string) {
         paidAmount: effectiveCashAmount,
         isCashPayment,
         isSplitPayment,
+        isSplitArsPayment,
+        splitCashArs,
+        splitTransferArs,
+        splitTransferMethod,
         splitArs,
         splitBrl,
         arsIsCash,

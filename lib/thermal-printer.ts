@@ -469,7 +469,10 @@ export function printSaleThermalTicket({ sale, settings = {}, paperWidth = "80mm
       <span><strong>${paymentMethod}</strong></span>
     </div>
 
-    ${sale.is_split_payment ? `
+    ${sale.is_split_ars_payment ? `
+      <div class="total-row" style="padding-left: 6px; font-size: 0.9em;"><span>· Tramo Efectivo:</span><span>${thermalMoney(sale.split_cash_ars || 0, "ARS")}</span></div>
+      <div class="total-row" style="padding-left: 6px; font-size: 0.9em;"><span>· Tramo ${cleanThermalText(sale.split_transfer_method || "Transferencia")}:</span><span>${thermalMoney(sale.split_transfer_ars || 0, "ARS")}</span></div>
+    ` : sale.is_split_payment ? `
       ${Number(sale.split_ars || 0) > 0 ? `<div class="total-row" style="padding-left: 6px; font-size: 0.9em;"><span>· Abonado ARS (${cleanThermalText(sale.split_ars_method || "Efectivo")}):</span><span>${thermalMoney(sale.split_ars, "ARS")}</span></div>` : ""}
       ${Number(sale.split_brl || 0) > 0 ? `<div class="total-row" style="padding-left: 6px; font-size: 0.9em;"><span>· Abonado BRL (${cleanThermalText(sale.split_brl_method || "Efectivo")}):</span><span>${thermalMoney(sale.split_brl, "BRL")}</span></div>` : ""}
     ` : ""}

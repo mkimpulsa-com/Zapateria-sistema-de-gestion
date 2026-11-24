@@ -423,7 +423,50 @@ export default function StoreApp({
           const salePaid = Number(nextData.paidAmount || nextData.paidAmountArs || 0);
           const isSplit = Boolean(nextData.isSplitPayment);
 
-          if (isSplit) {
+          if (nextData.isSplitArsPayment) {
+            const splitMovs: any[] = [];
+            if (Number(nextData.splitCashArs) > 0) {
+              splitMovs.push({
+                id: `cm-ars-cash-${Date.now()}`,
+                type: "ingreso",
+                category: "Venta",
+                amount: Number(nextData.splitCashArs),
+                currency: "ARS",
+                amount_currency: Number(nextData.splitCashArs),
+                payment_method: "Efectivo",
+                is_cash: true,
+                shift_id: nextData.createdSale?.shift_id || null,
+                shift_number: nextData.createdSale?.shift_number || null,
+                description: `Venta mixta ${nextData.createdSale.receipt_no} · Tramo Efectivo ($ ARS)`,
+                reference: nextData.createdSale.receipt_no,
+                sale_id: nextData.createdSale.id,
+                created_at: nextData.createdAt,
+              });
+            }
+            if (Number(nextData.splitTransferArs) > 0) {
+              splitMovs.push({
+                id: `cm-ars-trans-${Date.now() + 1}`,
+                type: "ingreso",
+                category: "Venta",
+                amount: Number(nextData.splitTransferArs),
+                currency: "ARS",
+                amount_currency: Number(nextData.splitTransferArs),
+                payment_method: nextData.splitTransferMethod || "Transferencia",
+                is_cash: false,
+                bank_account_id: nextData.bankAccountId || null,
+                bank_account_name: nextData.bankAccountName || null,
+                shift_id: nextData.createdSale?.shift_id || null,
+                shift_number: nextData.createdSale?.shift_number || null,
+                description: `Venta mixta ${nextData.createdSale.receipt_no} · Tramo ${nextData.splitTransferMethod || "Transferencia"}`,
+                reference: nextData.createdSale.receipt_no,
+                sale_id: nextData.createdSale.id,
+                created_at: nextData.createdAt,
+              });
+            }
+            if (splitMovs.length > 0) {
+              updatedMovements = [...splitMovs, ...updatedMovements].slice(0, 50);
+            }
+          } else if (isSplit) {
             const splitMovs: any[] = [];
             if (Number(nextData.splitArs) > 0) {
               splitMovs.push({
@@ -506,7 +549,17 @@ export default function StoreApp({
 
           // 5. Actualizar saldo bancario si corresponde
           let updatedBankAccounts = prevData.bankAccounts || [];
-          if (isSplit) {
+          if (nextData.isSplitArsPayment) {
+            if (nextData.bankAccountId && Number(nextData.splitTransferArs) > 0) {
+              const transAmt = Number(nextData.splitTransferArs);
+              const sRateTmp = Math.max(0.0001, Number(nextData.rateArs || prevData.settings?.exchange_rate_ars || 250));
+              updatedBankAccounts = updatedBankAccounts.map((b: any) =>
+                String(b.id) === String(nextData.bankAccountId)
+                  ? { ...b, balance: Number(b.balance || 0) + (b.currency === "BRL" ? Math.round((transAmt / sRateTmp) * 100) / 100 : transAmt) }
+                  : b
+              );
+            }
+          } else if (isSplit) {
             if (nextData.bankAccountId && Number(nextData.splitArsDeposit) > 0) {
               updatedBankAccounts = updatedBankAccounts.map((b: any) =>
                 String(b.id) === String(nextData.bankAccountId)
@@ -537,7 +590,13 @@ export default function StoreApp({
           let addedCashArs = 0;
           let addedCashBrl = 0;
           const sRate = Math.max(0.0001, Number(nextData.rateArs || prevData.settings?.exchange_rate_ars || 250));
-          if (isSplit) {
+          if (nextData.isSplitArsPayment) {
+            const cArs = Number(nextData.splitCashArs || 0);
+            const tArs = Number(nextData.splitTransferArs || 0);
+            addedCashArs += cArs;
+            addedCashTotalArs += cArs;
+            addedOtherTotalArs += tArs;
+          } else if (isSplit) {
             const sArs = Number(nextData.splitArs || 0);
             const sBrl = Number(nextData.splitBrl || 0);
             const sBrlEquivArs = Math.round(sBrl * sRate);
@@ -853,7 +912,7 @@ export default function StoreApp({
       input?.focus();
     }, 40);
   };
-  const closeSale = async (paidAmountOverride?: number, options?: { discount?: number; discountPercent?: number; additionalCharge?: number; additionalChargeDescription?: string; currency?: "BRL" | "ARS" | "USD" | string; exchangeRate?: number; exchangeRateArs?: number; exchangeRateUsd?: number; invoiceType?: string; applyVat?: boolean; vatRate?: number; vatAmount?: number; isSplitPayment?: boolean; splitArs?: number; splitBrl?: number; splitArsMethod?: string; splitBrlMethod?: string; splitBrlBankAccountId?: string; paymentMethod?: string }) => {
+  const closeSale = async (paidAmountOverride?: number, options?: { discount?: number; discountPercent?: number; additionalCharge?: number; additionalChargeDescription?: string; currency?: "BRL" | "ARS" | "USD" | string; exchangeRate?: number; exchangeRateArs?: number; exchangeRateUsd?: number; invoiceType?: string; applyVat?: boolean; vatRate?: number; vatAmount?: number; isSplitPayment?: boolean; splitArs?: number; splitBrl?: number; splitArsMethod?: string; splitBrlMethod?: string; splitBrlBankAccountId?: string; paymentMethod?: string; isSplitArsPayment?: boolean; splitCashArs?: number; splitTransferArs?: number; splitTransferMethod?: string }) => {
     const finalDiscount = options?.discount !== undefined ? options.discount : discount;
     const finalDiscountPercent = options?.discountPercent !== undefined ? options.discountPercent : discountPercent;
     const finalAdditionalCharge = options?.additionalCharge !== undefined ? options.additionalCharge : additionalCharge;
@@ -887,6 +946,10 @@ export default function StoreApp({
       splitArsMethod: options?.splitArsMethod,
       splitBrlMethod: options?.splitBrlMethod,
       splitBrlBankAccountId: options?.splitBrlBankAccountId,
+      isSplitArsPayment: options?.isSplitArsPayment,
+      splitCashArs: options?.splitCashArs,
+      splitTransferArs: options?.splitTransferArs,
+      splitTransferMethod: options?.splitTransferMethod,
     }, "Venta registrada exitosamente");
     if (res) {
       if (res.createdSale) {
@@ -4449,9 +4512,32 @@ function SalesPOSConfigured({
   const [splitBrlMethod, setSplitBrlMethod] = useState<string>("Efectivo");
   const [splitBrlBankAccountId, setSplitBrlBankAccountId] = useState<string>("");
 
+  // Estados para cobro mixto en Pesos (Efectivo + Transferencia)
+  const [splitCashArsInput, setSplitCashArsInput] = useState<string>("");
+  const [splitTransferArsInput, setSplitTransferArsInput] = useState<string>("");
+  const [splitTransferMethod, setSplitTransferMethod] = useState<string>("Transferencia");
+
+  const isSplitArs = saleCurrency === "ARS" && payment === "Pago Mixto (Efectivo + Transferencia)";
+
+  const activateSplitArs = () => {
+    setSaleCurrency("ARS");
+    setPayment("Pago Mixto (Efectivo + Transferencia)");
+    const half = Math.round(displayTotalArs / 2);
+    setSplitCashArsInput(displayTotalArs > 0 ? String(half) : "");
+    setSplitTransferArsInput(displayTotalArs > 0 ? String(displayTotalArs - half) : "");
+    setSplitTransferMethod("Transferencia");
+    const arsAccs = (data.bankAccounts || []).filter((a: any) => (a.currency || "ARS") === "ARS");
+    if (arsAccs.length > 0 && !bankAccountId) {
+      setBankAccountId(String(arsAccs[0].id));
+    }
+  };
+
   const handleCurrencyChange = (newCur: "BRL" | "ARS" | "MIXTO") => {
     setSaleCurrency(newCur);
     setIsCustomPaid(false);
+    if (payment === "Pago Mixto (Efectivo + Transferencia)") {
+      setPayment("Efectivo");
+    }
     if (newCur === "MIXTO") {
       // Prellenar mitad en pesos y el resto en reales si aún estaba vacío o al cambiar a Mixto
       const halfArs = Math.round(displayTotalArs / 2);
@@ -4492,6 +4578,13 @@ function SalesPOSConfigured({
     }
   }, [cart.length, saleCurrency]);
 
+  useEffect(() => {
+    if (isSplitArs && cart.length === 0) {
+      setSplitCashArsInput("");
+      setSplitTransferArsInput("");
+    }
+  }, [cart.length, isSplitArs]);
+
   const rawSplitArs = Math.max(0, Number(splitArsInput) || 0);
   const rawSplitBrl = Math.max(0, Number(splitBrlInput) || 0);
   const rawSplitEquivArs = Math.round(rawSplitArs + (rawSplitBrl * rateArs));
@@ -4500,7 +4593,7 @@ function SalesPOSConfigured({
   const splitRemainingArs = Math.max(0, splitCoveredWithRounding ? 0 : displayTotalArs - rawSplitEquivArs);
   const splitRemainingBrl = rateArs > 0 ? Math.max(0, Math.round((splitRemainingArs / rateArs) * 100) / 100) : 0;
 
-  // Si entregó vuelto en pago mixto, descontamos el excedente de ARS primero (o BRL si no hubo ARS) para que a caja ingrese neto exacto
+  // Si entregó vuelto en pago mixto (ARS + BRL), descontamos el excedente de ARS primero para que a caja ingrese neto exacto
   let appliedSplitArs = rawSplitArs;
   let appliedSplitBrl = rawSplitBrl;
   if (saleCurrency === "MIXTO" && splitExcessArs > 2) {
@@ -4513,6 +4606,24 @@ function SalesPOSConfigured({
     }
   }
 
+  // Cálculos para cobro mixto en Pesos (Efectivo + Transferencia)
+  const rawSplitCashArs = Math.max(0, Number(splitCashArsInput) || 0);
+  const rawSplitTransferArs = Math.max(0, Number(splitTransferArsInput) || 0);
+  const rawSplitArsTotal = rawSplitCashArs + rawSplitTransferArs;
+  const splitArsRemaining = Math.max(0, displayTotalArs - rawSplitArsTotal);
+  const splitArsExcess = Math.max(0, rawSplitArsTotal - displayTotalArs);
+
+  let appliedSplitCashArs = rawSplitCashArs;
+  let appliedSplitTransferArs = rawSplitTransferArs;
+  if (isSplitArs && splitArsExcess > 0) {
+    if (appliedSplitCashArs >= splitArsExcess) {
+      appliedSplitCashArs = Math.max(0, appliedSplitCashArs - splitArsExcess);
+    } else {
+      appliedSplitCashArs = 0;
+      appliedSplitTransferArs = Math.max(0, appliedSplitTransferArs - (splitArsExcess - appliedSplitCashArs));
+    }
+  }
+
   const parsedPaid = Number(paidInput);
   const paidAmount = saleCurrency === "MIXTO"
     ? (splitCoveredWithRounding
@@ -4520,7 +4631,9 @@ function SalesPOSConfigured({
       : (activeDisplayCurrency === "ARS"
         ? Math.min(displayTotalArs, rawSplitEquivArs)
         : Math.min(displayTotalBrl, Math.round((rawSplitEquivArs / rateArs) * 100) / 100)))
-    : (isNaN(parsedPaid) ? 0 : Math.max(0, Math.min(currentTotal, parsedPaid)));
+    : isSplitArs
+      ? Math.min(displayTotalArs, rawSplitArsTotal)
+      : (isNaN(parsedPaid) ? 0 : Math.max(0, Math.min(currentTotal, parsedPaid)));
   const pendingAmount = Math.max(0, Math.round((currentTotal - paidAmount) * 100) / 100);
   const saleStatus: "pagada" | "pago_parcial" | "con_deuda" =
     pendingAmount === 0 ? "pagada" : paidAmount > 0 ? "pago_parcial" : "con_deuda";
@@ -5594,24 +5707,50 @@ function SalesPOSConfigured({
                 Volver a 1 moneda
               </button>
             </div>
+          ) : isSplitArs ? (
+            <div className="flex items-center justify-between p-2.5 rounded-lg border border-blue-500/40 bg-blue-500/10 text-xs">
+              <span className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                <Coins className="size-3.5 text-blue-600 dark:text-blue-400" />
+                Medio de cobro: Mixto (Efectivo + Transferencia)
+              </span>
+              <button
+                type="button"
+                onClick={() => setPayment("Efectivo")}
+                className="text-[11px] font-semibold text-blue-700 dark:text-blue-300 hover:underline px-2 py-0.5 rounded border border-blue-300 bg-background cursor-pointer"
+              >
+                Volver a 1 medio
+              </button>
+            </div>
           ) : (
             <>
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-xs font-semibold">Medio de pago</label>
-                  <button
-                    type="button"
-                    onClick={() => handleCurrencyChange("MIXTO")}
-                    className="text-[11px] font-bold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
-                  >
-                    + Cobrar con Pesos y Reales
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={activateSplitArs}
+                      className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                      title="Cobrar una parte en efectivo y otra por transferencia"
+                    >
+                      + Efectivo y Transf.
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCurrencyChange("MIXTO")}
+                      className="text-[11px] font-bold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
+                    >
+                      + Pesos y Reales
+                    </button>
+                  </div>
                 </div>
                 <select
                   value={payment}
                   onChange={e => {
                     if (e.target.value === "Pago Mixto (Pesos y Reales)") {
                       handleCurrencyChange("MIXTO");
+                    } else if (e.target.value === "Pago Mixto (Efectivo + Transferencia)") {
+                      activateSplitArs();
                     } else {
                       setPayment(e.target.value);
                     }
@@ -5621,6 +5760,7 @@ function SalesPOSConfigured({
                   {methods.map((method: string) => (
                     <option key={method} value={method}>{method}</option>
                   ))}
+                  <option value="Pago Mixto (Efectivo + Transferencia)">💵+💳 Pago Mixto (Efectivo + Transferencia)</option>
                   <option value="Pago Mixto (Pesos y Reales)">🇦🇷+🇧🇷 Pago Mixto (Pesos + Reales)</option>
                 </select>
               </div>
@@ -5927,6 +6067,168 @@ function SalesPOSConfigured({
                 )}
               </div>
             </div>
+          ) : isSplitArs ? (
+            <div className="rounded-xl border border-blue-500/35 bg-blue-500/5 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-blue-800 dark:text-blue-300 flex items-center gap-1.5">
+                  <Coins className="size-3.5" />
+                  Cobro Mixto en Pesos (Efectivo + Transferencia)
+                </span>
+                <div className="flex items-center gap-1 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const half = Math.round(displayTotalArs / 2);
+                      setSplitCashArsInput(displayTotalArs > 0 ? String(half) : "0");
+                      setSplitTransferArsInput(displayTotalArs > 0 ? String(displayTotalArs - half) : "0");
+                    }}
+                    className="text-[10.5px] font-semibold text-blue-700 dark:text-blue-300 hover:underline px-1.5 py-0.5 rounded bg-blue-500/15 cursor-pointer"
+                  >
+                    50% / 50%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSplitCashArsInput("0");
+                      setSplitTransferArsInput(String(displayTotalArs));
+                    }}
+                    className="text-[10.5px] font-semibold text-indigo-700 dark:text-indigo-300 hover:underline px-1.5 py-0.5 rounded bg-indigo-500/15 cursor-pointer"
+                  >
+                    100% Transf.
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPayment("Efectivo");
+                    }}
+                    className="text-[10.5px] font-semibold text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded border bg-background cursor-pointer"
+                    title="Volver a 1 solo medio de pago"
+                  >
+                    1 medio
+                  </button>
+                </div>
+              </div>
+
+              {/* Tramo 1: Efectivo */}
+              <div className="rounded-lg border bg-background/80 p-2.5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold flex items-center gap-1">
+                    <span>💵</span> Tramo Efectivo ($ ARS)
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">Ingresa a caja física</span>
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground font-mono">$</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="1"
+                    value={splitCashArsInput}
+                    onChange={(e) => setSplitCashArsInput(e.target.value)}
+                    placeholder="0"
+                    className="pl-8 font-mono font-bold text-base h-9"
+                  />
+                </div>
+              </div>
+
+              {/* Tramo 2: Transferencia / Digital */}
+              <div className="rounded-lg border bg-background/80 p-2.5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold flex items-center gap-1 text-blue-700 dark:text-blue-400">
+                    <span>💳</span> Tramo Transferencia ($ ARS)
+                  </span>
+                  <select
+                    value={splitTransferMethod}
+                    onChange={(e) => setSplitTransferMethod(e.target.value)}
+                    className="h-7 rounded-md border bg-background px-1.5 text-[11px] font-semibold"
+                  >
+                    <option value="Transferencia">Transferencia</option>
+                    <option value="Mercado Pago">Mercado Pago</option>
+                    <option value="Tarjeta de Débito">Tarjeta de Débito</option>
+                    <option value="Tarjeta de Crédito">Tarjeta de Crédito</option>
+                    <option value="QR / Transferencia">QR / Transferencia</option>
+                  </select>
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground font-mono">$</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="1"
+                    value={splitTransferArsInput}
+                    onChange={(e) => setSplitTransferArsInput(e.target.value)}
+                    placeholder="0"
+                    className="pl-8 font-mono font-bold text-base h-9"
+                  />
+                </div>
+                <BankAccountSelectField
+                  accounts={data.bankAccounts || []}
+                  bankAccountId={bankAccountId}
+                  setBankAccountId={setBankAccountId}
+                  onNewAccount={() => setModal("bank_account")}
+                  currency="ARS"
+                />
+              </div>
+
+              {/* Botones rápidos para completar lo que falta */}
+              {splitArsRemaining > 0 && displayTotalArs > 0 && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between font-bold text-amber-800 dark:text-amber-300">
+                    <span>Falta cubrir:</span>
+                    <span className="font-mono">${splitArsRemaining.toLocaleString("es-AR")} ARS</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="xs"
+                      onClick={() => setSplitCashArsInput(String(rawSplitCashArs + splitArsRemaining))}
+                      className="h-7 text-[11px] font-bold bg-background"
+                    >
+                      + Efectivo ${splitArsRemaining.toLocaleString("es-AR")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="xs"
+                      onClick={() => setSplitTransferArsInput(String(rawSplitTransferArs + splitArsRemaining))}
+                      className="h-7 text-[11px] font-bold bg-background text-blue-700 dark:text-blue-400"
+                    >
+                      + Transf. ${splitArsRemaining.toLocaleString("es-AR")}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Indicador de Vuelto si entregó de más en efectivo */}
+              {splitArsExcess > 0 && (
+                <div className="flex items-center justify-between rounded-lg bg-blue-500/10 border border-blue-500/30 p-2 text-xs">
+                  <span className="font-bold text-blue-800 dark:text-blue-300">Vuelto a entregar (en efectivo):</span>
+                  <span className="font-mono font-black text-blue-700 dark:text-blue-300">
+                    ${splitArsExcess.toLocaleString("es-AR")} ARS
+                  </span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-0.5 text-xs">
+                <span className="text-muted-foreground font-medium">
+                  Cubierto: <strong className="font-mono text-foreground">${Math.min(displayTotalArs, rawSplitArsTotal).toLocaleString("es-AR")}</strong>
+                </span>
+                {saleStatus === "pagada" ? (
+                  <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px]">
+                    ✓ Pagada Total (Mixto)
+                  </Badge>
+                ) : saleStatus === "pago_parcial" ? (
+                  <Badge className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px]">
+                    ⚠ Pago Parcial · Deuda: {formatCurr(pendingAmount)}
+                  </Badge>
+                ) : (
+                  <Badge variant="destructive" className="font-bold text-[11px]">
+                    ⛔ Con Deuda Total
+                  </Badge>
+                )}
+              </div>
+            </div>
           ) : (
             <div className="rounded-xl border border-border/80 bg-muted/30 p-3 space-y-2.5">
               <div className="flex items-center justify-between">
@@ -5975,6 +6277,18 @@ function SalesPOSConfigured({
                   className="pl-12 font-bold text-base h-10"
                 />
               </div>
+
+              {/* Botón destacado para activar cobro en Efectivo + Transferencia */}
+              {saleCurrency === "ARS" && (
+                <button
+                  type="button"
+                  onClick={activateSplitArs}
+                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border-2 border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 text-blue-900 dark:text-blue-200 text-xs font-black transition-all cursor-pointer shadow-xs"
+                >
+                  <Coins className="size-4 text-blue-600 dark:text-blue-400" />
+                  <span>💵 + 💳 Cobrar Efectivo y Transferencia (Mixto en Pesos)</span>
+                </button>
+              )}
 
               {/* Botón destacado para activar cobro en Pesos y Reales */}
               <button
@@ -6035,7 +6349,7 @@ function SalesPOSConfigured({
               }`}
             disabled={!cart.length || busy || (pendingAmount > 0 && !customerId) || (invoiceType === "A" && (!selectedCustomer || selectedCustomer.vat_condition !== "Responsable Inscripto" || !selectedCustomer.document))}
             onClick={() => closeSale(paidAmount, {
-              paymentMethod: payment,
+              paymentMethod: isSplitArs ? "Pago Mixto (Efectivo + Transferencia)" : payment,
               discount,
               discountPercent,
               additionalCharge: chargeAmount,
@@ -6046,12 +6360,16 @@ function SalesPOSConfigured({
               applyVat,
               vatRate: applyVat ? vatRate : 0,
               vatAmount: vatCharge,
-              isSplitPayment: saleCurrency === "MIXTO",
+              isSplitPayment: saleCurrency === "MIXTO" || isSplitArs,
               splitArs: saleCurrency === "MIXTO" ? appliedSplitArs : undefined,
               splitBrl: saleCurrency === "MIXTO" ? appliedSplitBrl : undefined,
               splitArsMethod: saleCurrency === "MIXTO" ? splitArsMethod : undefined,
               splitBrlMethod: saleCurrency === "MIXTO" ? splitBrlMethod : undefined,
               splitBrlBankAccountId: saleCurrency === "MIXTO" && !splitBrlMethod.toLowerCase().includes("efectivo") ? splitBrlBankAccountId : undefined,
+              isSplitArsPayment: isSplitArs,
+              splitCashArs: isSplitArs ? appliedSplitCashArs : undefined,
+              splitTransferArs: isSplitArs ? appliedSplitTransferArs : undefined,
+              splitTransferMethod: isSplitArs ? splitTransferMethod : undefined,
             })}
           >
             {busy
