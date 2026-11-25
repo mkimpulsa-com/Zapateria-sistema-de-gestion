@@ -740,6 +740,7 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                             <img
                               src={coverUrl}
                               alt={p.name}
+                              referrerPolicy="no-referrer"
                               className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300"
                               loading="lazy"
                             />
@@ -1038,6 +1039,7 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                     <img
                       src={item.imageUrl}
                       alt={item.name}
+                      referrerPolicy="no-referrer"
                       className="w-14 h-14 rounded-xl object-cover border border-slate-200 shrink-0"
                     />
                   ) : (
@@ -1131,6 +1133,7 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                     key={detailImages[detailImageIndex]}
                     src={detailImages[detailImageIndex]}
                     alt={`${detailProduct.name} - foto ${detailImageIndex + 1}`}
+                    referrerPolicy="no-referrer"
                     className="max-h-full max-w-full object-contain rounded-2xl drop-shadow-md transition-all duration-300"
                   />
                 ) : (
@@ -1216,6 +1219,7 @@ export function PublicStore({ settings, products, channel = "minorista", storeUi
                       <img
                         src={imgUrl}
                         alt={`Miniatura ${idx + 1}`}
+                        referrerPolicy="no-referrer"
                         className="w-full h-full object-cover"
                       />
                       {idx === 0 && (

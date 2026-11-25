@@ -156,6 +156,7 @@ export function ProductDetailModal({
                 <img
                   src={activeImage}
                   alt={product.name}
+                  referrerPolicy="no-referrer"
                   className="size-full object-cover"
                 />
               ) : (
@@ -182,6 +183,7 @@ export function ProductDetailModal({
                     <img
                       src={img}
                       alt={`${product.name} ${idx + 1}`}
+                      referrerPolicy="no-referrer"
                       className="size-full object-cover"
                     />
                   </button>

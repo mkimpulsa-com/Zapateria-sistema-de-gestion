@@ -122,9 +122,11 @@ export function NewProductModal({
   const [vatRate, setVatRate] = useState<number>(defaultVat);
   const [isCustomVat, setIsCustomVat] = useState<boolean>(false);
   const [barcode, setBarcode] = useState("");
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
 
   useEffect(() => {
     if (open) {
+      setUploadedImages([]);
       setBarcode("");
       setHasVariants(false);
       setProductType("simple");
@@ -306,7 +308,9 @@ export function NewProductModal({
     }
 
     let imagesList: string[] = [];
-    if (typeof data.imagesJson === "string") {
+    if (uploadedImages.length > 0) {
+      imagesList = uploadedImages;
+    } else if (typeof data.imagesJson === "string") {
       try {
         imagesList = JSON.parse(data.imagesJson);
       } catch {}
@@ -342,6 +346,7 @@ export function NewProductModal({
     if (ok) {
       if (isContinue) {
         // Modo carga rápida: limpiar datos del producto pero mantener categoría y marca
+        setUploadedImages([]);
         setName("");
         setBarcode("");
         setSku("");
@@ -388,7 +393,11 @@ export function NewProductModal({
 
             {/* Subida y preview de fotos (hasta 10 fotos) */}
             <div className="rounded-2xl border border-border/70 bg-card/60 p-3.5 shadow-2xs mb-3.5">
-              <ProductImageUpload maxImages={10} />
+              <ProductImageUpload
+                values={uploadedImages}
+                onChange={setUploadedImages}
+                maxImages={10}
+              />
             </div>
 
             <div className="grid gap-3.5 sm:grid-cols-3">

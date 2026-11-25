@@ -2126,7 +2126,7 @@ function Products({ data, filtered, setModal, onView, onEdit, onAdjust, onDelete
                   >
                     <TableCell className="py-3">
                       <div className="flex items-center gap-3">
-                        <ProductImage src={p.image_url} alt={p.name} className="size-10 rounded-full object-cover border shrink-0" />
+                        <ProductImage src={p.image_url || (Array.isArray(p.images) && p.images[0]) || ""} alt={p.name} className="size-10 rounded-full object-cover border shrink-0" />
                         <div>
                           <p className="font-bold text-sm text-foreground hover:text-primary transition-colors">{p.name}</p>
                           <p className="text-xs text-muted-foreground">
@@ -2571,7 +2571,7 @@ function Inventory({ data, filtered, adjust, isCashier, onView, onAddToCart }: a
               <CardHeader className="px-5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2.5">
-                    <ProductImage src={p.image_url} alt={p.name} className="size-10 rounded-xl object-cover border shrink-0" />
+                    <ProductImage src={p.image_url || (Array.isArray(p.images) && p.images[0]) || ""} alt={p.name} className="size-10 rounded-xl object-cover border shrink-0" />
                     <div>
                       <CardTitle className="hover:text-primary transition-colors">{p.name}</CardTitle>
                       <p className="mt-0.5 text-xs text-muted-foreground">{p.sku} · {p.color}</p>
@@ -2669,7 +2669,7 @@ function Inventory({ data, filtered, adjust, isCashier, onView, onAddToCart }: a
                     >
                       <TableCell className="py-3">
                         <div className="flex items-center gap-3">
-                          <ProductImage src={p.image_url} alt={p.name} className="size-10 rounded-xl object-cover border shrink-0" />
+                          <ProductImage src={p.image_url || (Array.isArray(p.images) && p.images[0]) || ""} alt={p.name} className="size-10 rounded-xl object-cover border shrink-0" />
                           <div>
                             <p className="font-bold text-sm text-foreground hover:text-primary transition-colors">{p.name}</p>
                             <p className="text-xs text-muted-foreground">
@@ -4352,6 +4352,11 @@ function SettingsFormCard({ title, description, icon: Icon, onSubmit, busy, chil
 
 function ProductImage({ src, alt, className = "size-11 rounded-xl object-cover border shrink-0" }: { src?: string; alt?: string; className?: string }) {
   const [error, setError] = useState(false);
+
+  useEffect(() => {
+    setError(false);
+  }, [src]);
+
   if (!src || error) {
     return (
       <div className={`${className} bg-muted/60 border border-border/60 flex items-center justify-center text-muted-foreground/60 shrink-0`}>
@@ -4365,6 +4370,7 @@ function ProductImage({ src, alt, className = "size-11 rounded-xl object-cover b
       alt={alt || ""}
       loading="lazy"
       decoding="async"
+      referrerPolicy="no-referrer"
       onError={() => setError(true)}
       className={className}
     />
@@ -4936,7 +4942,7 @@ function SalesPOSConfigured({
               <div className="grid content-start gap-3 sm:grid-cols-2 2xl:grid-cols-3">
                 {matchingProducts.map((p: Product) => (
                   <Card key={p.id} className="gap-2 border bg-card py-0 shadow-sm overflow-hidden flex flex-col">
-                    <ProductImage src={p.image_url} alt={p.name} className="h-28 w-full object-cover rounded-none border-b border-border/40" />
+                    <ProductImage src={p.image_url || (Array.isArray(p.images) && p.images[0]) || ""} alt={p.name} className="h-28 w-full object-cover rounded-none border-b border-border/40" />
                     <CardContent className="px-3 pb-3 pt-2 flex-1 flex flex-col justify-between">
                       <div>
                         <div className="mb-1 flex items-start justify-between gap-1.5">
@@ -5035,7 +5041,7 @@ function SalesPOSConfigured({
             <div className="grid content-start gap-4 sm:grid-cols-2 2xl:grid-cols-3">
               {visibleCatalog.map((p: Product) => (
                 <Card key={p.id} className="gap-3 border-0 py-0 shadow-sm overflow-hidden flex flex-col">
-                  <ProductImage src={p.image_url} alt={p.name} className="h-36 w-full object-cover rounded-none border-b border-border/40" />
+                  <ProductImage src={p.image_url || (Array.isArray(p.images) && p.images[0]) || ""} alt={p.name} className="h-36 w-full object-cover rounded-none border-b border-border/40" />
                   <CardContent className="px-4 pb-4 pt-2 flex-1 flex flex-col justify-between">
                     <div>
                       <div className="mb-2 flex items-start justify-between gap-2">
@@ -5150,7 +5156,7 @@ function SalesPOSConfigured({
                             {/* Información del Producto */}
                             <div className="flex items-center gap-3.5 min-w-0">
                               <ProductImage
-                                src={parent?.image_url}
+                                src={parent?.image_url || (Array.isArray(parent?.images) && parent.images[0]) || ""}
                                 alt={item.name}
                                 className="size-16 rounded-xl object-cover border border-border/60 shrink-0"
                               />
@@ -6745,7 +6751,7 @@ function CatalogConfigured({ data, products }: any) {
           <Card key={product.id} className="print-card gap-3 overflow-hidden border-0 py-0 shadow-sm flex flex-col justify-between">
             <div>
               <ProductImage
-                src={product.image_url}
+                src={product.image_url || (Array.isArray(product.images) && product.images[0]) || ""}
                 alt={product.name}
                 className="h-44 w-full object-cover rounded-none border-b border-border/30"
               />

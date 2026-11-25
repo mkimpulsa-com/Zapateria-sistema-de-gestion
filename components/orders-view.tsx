@@ -1187,6 +1187,7 @@ export function OrdersView({
                               <img
                                 src={itemImg}
                                 alt={item.name}
+                                referrerPolicy="no-referrer"
                                 className="size-8 rounded-md object-cover border shrink-0 bg-muted/40 shadow-xs"
                                 loading="lazy"
                               />
@@ -1614,6 +1615,7 @@ export function OrdersView({
                             <img
                               src={itemImg}
                               alt={item.name}
+                              referrerPolicy="no-referrer"
                               className="size-14 rounded-lg object-cover border shrink-0 bg-muted/40 shadow-xs"
                               loading="lazy"
                             />
@@ -1974,6 +1976,7 @@ export function OrdersView({
                                   <img
                                     src={itemImg}
                                     alt={item.name}
+                                    referrerPolicy="no-referrer"
                                     className="size-full object-cover"
                                     loading="lazy"
                                   />

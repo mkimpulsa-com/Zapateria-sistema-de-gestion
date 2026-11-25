@@ -16,6 +16,7 @@ import {
   Plus,
   AlertCircle,
   Eye,
+  ClipboardPaste,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -79,6 +80,118 @@ export function ProductImageUpload({
     if (trimmed.length === 0) setOptimizedInfo("");
     if (onChange) onChange(trimmed);
   };
+
+  const processUrlImport = async (urlToImport: string) => {
+    const clean = urlToImport.trim();
+    if (!clean) return;
+
+    if (clean.startsWith("blob:")) {
+      alert(
+        "⚠️ Los enlaces que empiezan con 'blob:' son temporales de la pestaña de WhatsApp Web y no se pueden transferir.\n\n👉 Para usar esta foto: en WhatsApp hacé clic derecho en la foto, elegí 'Copiar imagen' y simplemente presiona Ctrl+V acá en la pantalla para pegarla directamente."
+      );
+      return;
+    }
+
+    if (images.length >= maxImages) {
+      alert(`Límite de ${maxImages} imágenes alcanzado.`);
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadProgress("Descargando y optimizando imagen...");
+
+    try {
+      // Intentar descargar la imagen para independizarla de WhatsApp/servidor externo y guardarla en Firebase Storage
+      const response = await fetch(clean, { mode: "cors", referrerPolicy: "no-referrer" });
+      if (response.ok) {
+        const blob = await response.blob();
+        if (blob && blob.type.startsWith("image/")) {
+          const file = new File([blob], `imported-${Date.now()}.webp`, { type: blob.type });
+          const result = await compressImageFile(file, {
+            maxWidth: 1200,
+            maxHeight: 1200,
+            quality: 0.82,
+            outputFormat: "image/webp",
+          });
+          const uploadedUrl = await uploadProductImage(result.file);
+          if (uploadedUrl) {
+            updateImagesList([...images, uploadedUrl]);
+            setOptimizedInfo("✓ Imagen importada y guardada permanentemente en WebP");
+            setTempUrl("");
+            setShowUrlInput(false);
+            return;
+          }
+        }
+      }
+    } catch {
+      // Si CORS o el host no permite fetch directo, guardamos la URL asegurando no-referrer
+    } finally {
+      setIsUploading(false);
+      setUploadProgress("");
+    }
+
+    // Fallback: guardar URL directa
+    updateImagesList([...images, clean]);
+    setOptimizedInfo("✓ Enlace de imagen agregado");
+    setTempUrl("");
+    setShowUrlInput(false);
+  };
+
+  // Soporte universal para pegar fotos con Ctrl+V (desde WhatsApp, capturas o cualquier web)
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const activeEl = document.activeElement as HTMLElement;
+      const isInput =
+        activeEl &&
+        (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA");
+      const isPhotoInput =
+        isInput && activeEl.getAttribute("placeholder")?.includes("foto");
+
+      const clipboard = e.clipboardData;
+      if (!clipboard) return;
+
+      // 1. Archivos de imagen en el portapapeles (ej. clic derecho -> "Copiar imagen" en WhatsApp o screenshot)
+      const imageFiles: File[] = [];
+      if (clipboard.files && clipboard.files.length > 0) {
+        for (let i = 0; i < clipboard.files.length; i++) {
+          const f = clipboard.files[i];
+          if (f.type.startsWith("image/")) imageFiles.push(f);
+        }
+      } else if (clipboard.items && clipboard.items.length > 0) {
+        for (let i = 0; i < clipboard.items.length; i++) {
+          const it = clipboard.items[i];
+          if (it.type.startsWith("image/")) {
+            const f = it.getAsFile();
+            if (f) imageFiles.push(f);
+          }
+        }
+      }
+
+      if (imageFiles.length > 0) {
+        e.preventDefault();
+        handleFiles(imageFiles);
+        return;
+      }
+
+      // 2. Si el usuario copió un link de imagen y presiona Ctrl+V fuera de campos de texto o en el de foto
+      if (!isInput || isPhotoInput) {
+        const pastedText = clipboard.getData("text")?.trim();
+        if (
+          pastedText &&
+          (pastedText.startsWith("http://") ||
+            pastedText.startsWith("https://") ||
+            pastedText.startsWith("blob:") ||
+            pastedText.startsWith("data:image/"))
+        ) {
+          e.preventDefault();
+          processUrlImport(pastedText);
+        }
+      }
+    };
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [images, maxImages]);
 
   const handleFiles = async (fileList: FileList | File[]) => {
     const rawFiles = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
@@ -162,17 +275,7 @@ export function ProductImageUpload({
   };
 
   const applyUrl = () => {
-    const clean = tempUrl.trim();
-    if (!clean) return;
-
-    if (images.length >= maxImages) {
-      alert(`Límite de ${maxImages} imágenes alcanzado.`);
-      return;
-    }
-
-    updateImagesList([...images, clean]);
-    setTempUrl("");
-    setShowUrlInput(false);
+    processUrlImport(tempUrl);
   };
 
   const removeImage = (indexToRemove: number) => {
@@ -234,6 +337,10 @@ export function ProductImageUpload({
             >
               {images.length} de {maxImages} fotos
             </Badge>
+            <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+              <ClipboardPaste className="size-3 text-emerald-600 dark:text-emerald-400" />
+              Pegá con Ctrl+V desde WhatsApp
+            </span>
           </div>
           <p className="text-[11px] text-muted-foreground">
             Podés subir hasta 10 fotos. Se comprimen automáticamente a formato WebP ultraliviano para no ralentizar la tienda.
@@ -364,6 +471,7 @@ export function ProductImageUpload({
                   <img
                     src={imgUrl}
                     alt={`Foto ${index + 1}`}
+                    referrerPolicy="no-referrer"
                     className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                   />
 

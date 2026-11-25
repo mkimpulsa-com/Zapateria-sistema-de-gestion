@@ -1282,6 +1282,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                       alt={product.name}
                       loading="lazy"
                       decoding="async"
+                      referrerPolicy="no-referrer"
                       onError={(e) => {
                         (e.currentTarget as HTMLElement).style.display = 'none';
                         if (e.currentTarget.parentElement) {
@@ -1649,6 +1650,7 @@ export function DashboardView({ data, setSection, addVariant }: DashboardViewPro
                           alt={p.name}
                           loading="lazy"
                           decoding="async"
+                          referrerPolicy="no-referrer"
                           className="size-11 rounded-xl object-cover border border-border/80 shrink-0"
                         />
                       ) : (
