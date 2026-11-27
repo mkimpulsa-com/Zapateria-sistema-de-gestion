@@ -311,6 +311,12 @@ export async function loadStore(uid?: string) {
   ]);
   const rawSettings = settingsSnap.data() || {};
   const settings = { ...defaultSettings, ...rawSettings };
+  if (!String(settings.payment_methods || "").toUpperCase().includes("PIX")) {
+    settings.payment_methods = settings.payment_methods
+      ? `${settings.payment_methods},PIX`
+      : "Efectivo,Transferencia,Tarjeta,PIX,Mercado Pago,Cuenta corriente";
+    updateDoc(userSettingsDoc(userId), { payment_methods: settings.payment_methods }).catch(() => {});
+  }
   if (settings.currency === "USD") {
     settings.currency = "ARS";
     updateDoc(userSettingsDoc(userId), { currency: "ARS" }).catch(() => {});

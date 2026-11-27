@@ -1827,7 +1827,7 @@ function CustomerSelectField({
   );
 }
 
-function SalesPOS({ data, filtered, channel, setChannel, cart, setCart, addVariant, scan, setScan, scanProduct, setModal, discount, setDiscount, payment, setPayment, customerId, setCustomerId, cartTotal, closeSale, busy }: any) { return <><SectionTitle eyebrow="Venta rápida" title="Punto de venta" text="Escaneá, elegí la variante y cobrá sin salir de la pantalla." /><div className="mb-5 grid gap-3 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-[1fr_auto_auto]"><div className="relative"><Barcode className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-primary" /><Input autoFocus className="h-12 pl-10" placeholder="Escaneá con lector USB/Bluetooth o escribí el código" value={scan} onChange={e => { const val = e.target.value; if (val.includes("\n") || val.includes("\r")) { scanProduct(val); } else { setScan(val); } }} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); scanProduct(scan); } }} /></div><Button variant="outline" className="h-12" onClick={() => setModal("scanner")}><Camera />Usar cámara</Button><div className="flex rounded-xl bg-muted p-1"><button onClick={() => setChannel("minorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel === "minorista" ? "bg-card shadow" : "text-muted-foreground"}`}>Minorista</button><button onClick={() => setChannel("mayorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel === "mayorista" ? "bg-card shadow" : "text-muted-foreground"}`}>Mayorista</button></div></div><div className="grid gap-6 xl:grid-cols-[1fr_390px]"><div className="grid content-start gap-4 sm:grid-cols-2 2xl:grid-cols-3">{filtered.map((p: Product) => <Card key={p.id} className="gap-3 border-0 py-0 shadow-sm overflow-hidden flex flex-col">{p.image_url ? <div className="h-36 w-full overflow-hidden bg-muted/20"><img src={p.image_url} alt={p.name} className="h-full w-full object-cover hover:scale-105 transition-transform duration-300" /></div> : <div className="h-20 w-full bg-gradient-to-r from-primary/5 via-muted/30 to-primary/5 flex items-center justify-center text-muted-foreground/40"><ShoppingBag className="size-7 opacity-50" /></div>}<CardContent className="px-4 pb-4 pt-2 flex-1 flex flex-col justify-between"><div><div className="mb-2 flex items-start justify-between gap-2"><div><p className="font-bold">{p.name}</p><p className="text-xs text-muted-foreground">{p.brand} · {p.sku}</p></div><Badge variant="outline">{p.total_stock} u.</Badge></div><p className="mb-3 text-xl font-extrabold text-primary">{money(channel === "mayorista" ? p.wholesale_price : p.retail_price)}</p></div><div><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Elegir variante</p><div className="flex flex-wrap gap-1.5">{p.variants.map(v => <Button key={v.id} variant="outline" size="xs" disabled={!v.stock} onClick={() => addVariant(p, v)}>{v.size}<span className="text-[10px] text-muted-foreground">{v.stock}</span></Button>)}</div></div></CardContent></Card>)}</div><Card className="sticky top-24 h-fit gap-4 border-0 py-5 shadow-[0_14px_40px_rgb(15_33_55/12%)]"><CardHeader className="flex-row items-center justify-between px-5"><CardTitle className="flex items-center gap-2"><ShoppingCart className="size-5 text-primary" />Venta actual</CardTitle><Badge>{cart.reduce((s: number, i: CartItem) => s + i.quantity, 0)} unidades</Badge></CardHeader><CardContent className="space-y-4 px-5"><div className="max-h-64 space-y-2 overflow-y-auto pr-1">{cart.length === 0 ? <div className="rounded-2xl border border-dashed p-7 text-center text-sm text-muted-foreground">Escaneá un producto o elegí una variante para comenzar.</div> : cart.map((i: CartItem) => <div key={i.variantId} className="flex items-center gap-3 rounded-xl bg-muted/55 p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{i.name}</p><p className="text-xs text-muted-foreground">Variante {i.size} · {money(i.unitPrice)}</p></div><div className="flex items-center gap-1"><button className="size-7 rounded-lg border" onClick={() => setCart((c: CartItem[]) => c.map(x => x.variantId === i.variantId ? { ...x, quantity: Math.max(0, x.quantity - 1) } : x).filter(x => x.quantity > 0))}>−</button><span className="w-6 text-center text-sm font-bold">{i.quantity}</span><button className="size-7 rounded-lg border" onClick={() => setCart((c: CartItem[]) => c.map(x => x.variantId === i.variantId ? { ...x, quantity: Math.min(x.max, x.quantity + 1) } : x))}>+</button></div></div>)}</div><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold">Descuento<Input type="number" value={discount} onChange={e => setDiscount(Number(e.target.value) || 0)} className="mt-1" /></label><label className="text-xs font-semibold">Medio de pago<select value={payment} onChange={e => setPayment(e.target.value)} className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Cuenta corriente</option></select></label></div><CustomerSelectField customers={data?.customers || []} customerId={customerId} setCustomerId={setCustomerId} onNewCustomer={() => setModal("customer")} /><div className="border-t pt-4"><div className="flex justify-between text-sm text-muted-foreground"><span>Subtotal</span><span>{money(cartTotal + discount)}</span></div><div className="mt-2 flex items-end justify-between"><span className="font-semibold">Total</span><span className="text-3xl font-black tracking-tight">{money(cartTotal)}</span></div></div><Button className="h-12 w-full rounded-xl text-base" disabled={!cart.length || busy} onClick={closeSale}>{busy ? "Procesando…" : `Cobrar ${money(cartTotal)}`}</Button><p className="text-center text-xs text-muted-foreground">Genera comprobante X y descuenta el stock automáticamente.</p></CardContent></Card></div></> }
+function SalesPOS({ data, filtered, channel, setChannel, cart, setCart, addVariant, scan, setScan, scanProduct, setModal, discount, setDiscount, payment, setPayment, customerId, setCustomerId, cartTotal, closeSale, busy }: any) { return <><SectionTitle eyebrow="Venta rápida" title="Punto de venta" text="Escaneá, elegí la variante y cobrá sin salir de la pantalla." /><div className="mb-5 grid gap-3 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-[1fr_auto_auto]"><div className="relative"><Barcode className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-primary" /><Input autoFocus className="h-12 pl-10" placeholder="Escaneá con lector USB/Bluetooth o escribí el código" value={scan} onChange={e => { const val = e.target.value; if (val.includes("\n") || val.includes("\r")) { scanProduct(val); } else { setScan(val); } }} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); scanProduct(scan); } }} /></div><Button variant="outline" className="h-12" onClick={() => setModal("scanner")}><Camera />Usar cámara</Button><div className="flex rounded-xl bg-muted p-1"><button onClick={() => setChannel("minorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel === "minorista" ? "bg-card shadow" : "text-muted-foreground"}`}>Minorista</button><button onClick={() => setChannel("mayorista")} className={`rounded-lg px-4 text-sm font-semibold ${channel === "mayorista" ? "bg-card shadow" : "text-muted-foreground"}`}>Mayorista</button></div></div><div className="grid gap-6 xl:grid-cols-[1fr_390px]"><div className="grid content-start gap-4 sm:grid-cols-2 2xl:grid-cols-3">{filtered.map((p: Product) => <Card key={p.id} className="gap-3 border-0 py-0 shadow-sm overflow-hidden flex flex-col">{p.image_url ? <div className="h-36 w-full overflow-hidden bg-muted/20"><img src={p.image_url} alt={p.name} className="h-full w-full object-cover hover:scale-105 transition-transform duration-300" /></div> : <div className="h-20 w-full bg-gradient-to-r from-primary/5 via-muted/30 to-primary/5 flex items-center justify-center text-muted-foreground/40"><ShoppingBag className="size-7 opacity-50" /></div>}<CardContent className="px-4 pb-4 pt-2 flex-1 flex flex-col justify-between"><div><div className="mb-2 flex items-start justify-between gap-2"><div><p className="font-bold">{p.name}</p><p className="text-xs text-muted-foreground">{p.brand} · {p.sku}</p></div><Badge variant="outline">{p.total_stock} u.</Badge></div><p className="mb-3 text-xl font-extrabold text-primary">{money(channel === "mayorista" ? p.wholesale_price : p.retail_price)}</p></div><div><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Elegir variante</p><div className="flex flex-wrap gap-1.5">{p.variants.map(v => <Button key={v.id} variant="outline" size="xs" disabled={!v.stock} onClick={() => addVariant(p, v)}>{v.size}<span className="text-[10px] text-muted-foreground">{v.stock}</span></Button>)}</div></div></CardContent></Card>)}</div><Card className="sticky top-24 h-fit gap-4 border-0 py-5 shadow-[0_14px_40px_rgb(15_33_55/12%)]"><CardHeader className="flex-row items-center justify-between px-5"><CardTitle className="flex items-center gap-2"><ShoppingCart className="size-5 text-primary" />Venta actual</CardTitle><Badge>{cart.reduce((s: number, i: CartItem) => s + i.quantity, 0)} unidades</Badge></CardHeader><CardContent className="space-y-4 px-5"><div className="max-h-64 space-y-2 overflow-y-auto pr-1">{cart.length === 0 ? <div className="rounded-2xl border border-dashed p-7 text-center text-sm text-muted-foreground">Escaneá un producto o elegí una variante para comenzar.</div> : cart.map((i: CartItem) => <div key={i.variantId} className="flex items-center gap-3 rounded-xl bg-muted/55 p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{i.name}</p><p className="text-xs text-muted-foreground">Variante {i.size} · {money(i.unitPrice)}</p></div><div className="flex items-center gap-1"><button className="size-7 rounded-lg border" onClick={() => setCart((c: CartItem[]) => c.map(x => x.variantId === i.variantId ? { ...x, quantity: Math.max(0, x.quantity - 1) } : x).filter(x => x.quantity > 0))}>−</button><span className="w-6 text-center text-sm font-bold">{i.quantity}</span><button className="size-7 rounded-lg border" onClick={() => setCart((c: CartItem[]) => c.map(x => x.variantId === i.variantId ? { ...x, quantity: Math.min(x.max, x.quantity + 1) } : x))}>+</button></div></div>)}</div><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold">Descuento<Input type="number" value={discount} onChange={e => setDiscount(Number(e.target.value) || 0)} className="mt-1" /></label><label className="text-xs font-semibold">Medio de pago<select value={payment} onChange={e => setPayment(e.target.value)} className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>PIX</option><option>Mercado Pago</option><option>Cuenta corriente</option></select></label></div><CustomerSelectField customers={data?.customers || []} customerId={customerId} setCustomerId={setCustomerId} onNewCustomer={() => setModal("customer")} /><div className="border-t pt-4"><div className="flex justify-between text-sm text-muted-foreground"><span>Subtotal</span><span>{money(cartTotal + discount)}</span></div><div className="mt-2 flex items-end justify-between"><span className="font-semibold">Total</span><span className="text-3xl font-black tracking-tight">{money(cartTotal)}</span></div></div><Button className="h-12 w-full rounded-xl text-base" disabled={!cart.length || busy} onClick={closeSale}>{busy ? "Procesando…" : `Cobrar ${money(cartTotal)}`}</Button><p className="text-center text-xs text-muted-foreground">Genera comprobante X y descuenta el stock automáticamente.</p></CardContent></Card></div></> }
 
 function Products({ data, filtered, setModal, onView, onEdit, onAdjust, onDelete }: any) {
   const [pageSize, setPageSize] = useState(25);
@@ -5898,26 +5898,34 @@ function SalesPOSConfigured({
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-xs font-semibold">Medio de pago</label>
-                  <div className="flex items-center gap-2">
-                    {saleCurrency === "ARS" ? (
-                      <button
-                        type="button"
-                        onClick={activateSplitArs}
-                        className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-                        title="Cobrar una parte en efectivo y otra por transferencia"
-                      >
-                        + Efectivo y Transf.
-                      </button>
-                    ) : saleCurrency === "BRL" ? (
-                      <button
-                        type="button"
-                        onClick={activateSplitBrlPix}
-                        className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
-                        title="Cobrar una parte en efectivo y otra por PIX"
-                      >
-                        + Efectivo y PIX
-                      </button>
-                    ) : null}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={activateSplitArs}
+                      className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                      title="Cobrar una parte en efectivo y otra por transferencia"
+                    >
+                      + Efectivo y Transf.
+                    </button>
+                    <button
+                      type="button"
+                      onClick={activateSplitBrlPix}
+                      className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                      title="Cobrar en Reales con Efectivo y PIX"
+                    >
+                      + Efectivo y PIX
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCurrencyChange("BRL");
+                        setPayment("PIX");
+                      }}
+                      className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 hover:underline cursor-pointer"
+                      title="Cobrar con PIX en Reales"
+                    >
+                      ⚡ PIX
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleCurrencyChange("MIXTO")}
@@ -5930,27 +5938,34 @@ function SalesPOSConfigured({
                 <select
                   value={payment}
                   onChange={e => {
-                    if (e.target.value === "Pago Mixto (Pesos y Reales)") {
+                    const val = e.target.value;
+                    if (val === "Pago Mixto (Pesos y Reales)") {
                       handleCurrencyChange("MIXTO");
-                    } else if (e.target.value === "Pago Mixto (Efectivo + Transferencia)") {
+                    } else if (val === "Pago Mixto (Efectivo + Transferencia)") {
                       activateSplitArs();
-                    } else if (e.target.value === "Pago Mixto (Efectivo + PIX)") {
+                    } else if (val === "Pago Mixto (Efectivo + PIX)") {
                       activateSplitBrlPix();
+                    } else if (val === "PIX" || val.includes("PIX")) {
+                      handleCurrencyChange("BRL");
+                      setPayment("PIX");
                     } else {
-                      setPayment(e.target.value);
+                      setPayment(val);
                     }
                   }}
                   className="h-9 w-full rounded-md border bg-background px-2 text-sm"
                 >
                   {methods.map((method: string) => (
-                    <option key={method} value={method}>{method}</option>
+                    <option key={method} value={method}>{method === "PIX" ? "⚡ PIX" : method}</option>
                   ))}
+                  {saleCurrency !== "BRL" && (
+                    <option value="PIX">⚡ PIX (Cobro en Reales R$)</option>
+                  )}
                   {saleCurrency === "ARS" && (
                     <option value="Pago Mixto (Efectivo + Transferencia)">💵+💳 Pago Mixto (Efectivo + Transferencia)</option>
                   )}
-                  {saleCurrency === "BRL" && (
-                    <option value="Pago Mixto (Efectivo + PIX)">💵+⚡ Pago Mixto (Efectivo + PIX)</option>
-                  )}
+                  <option value="Pago Mixto (Efectivo + PIX)">
+                    {saleCurrency === "BRL" ? "💵+⚡ Pago Mixto (Efectivo + PIX)" : "💵+⚡ Pago Mixto (Efectivo + PIX en Reales)"}
+                  </option>
                   <option value="Pago Mixto (Pesos y Reales)">🇦🇷+🇧🇷 Pago Mixto (Pesos + Reales)</option>
                 </select>
               </div>
@@ -6623,28 +6638,37 @@ function SalesPOSConfigured({
               </div>
 
               {/* Botón destacado para activar cobro en Efectivo + Transferencia */}
-              {saleCurrency === "ARS" && (
-                <button
-                  type="button"
-                  onClick={activateSplitArs}
-                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border-2 border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 text-blue-900 dark:text-blue-200 text-xs font-black transition-all cursor-pointer shadow-xs"
-                >
-                  <Coins className="size-4 text-blue-600 dark:text-blue-400" />
-                  <span>💵 + 💳 Cobrar Efectivo y Transferencia (Mixto en Pesos)</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={activateSplitArs}
+                className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border-2 border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 text-blue-900 dark:text-blue-200 text-xs font-black transition-all cursor-pointer shadow-xs"
+              >
+                <Coins className="size-4 text-blue-600 dark:text-blue-400" />
+                <span>💵 + 💳 Cobrar Efectivo y Transferencia (Mixto en Pesos)</span>
+              </button>
 
               {/* Botón destacado para activar cobro en Efectivo + PIX en Reales */}
-              {saleCurrency === "BRL" && (
-                <button
-                  type="button"
-                  onClick={activateSplitBrlPix}
-                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border-2 border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-900 dark:text-emerald-200 text-xs font-black transition-all cursor-pointer shadow-xs"
-                >
-                  <Coins className="size-4 text-emerald-600 dark:text-emerald-400" />
-                  <span>💵 + ⚡ Cobrar Efectivo y PIX (Mixto en Reales)</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={activateSplitBrlPix}
+                className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border-2 border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-900 dark:text-emerald-200 text-xs font-black transition-all cursor-pointer shadow-xs"
+              >
+                <Coins className="size-4 text-emerald-600 dark:text-emerald-400" />
+                <span>💵 + ⚡ Cobrar Efectivo y PIX (Mixto en Reales R$)</span>
+              </button>
+
+              {/* Botón destacado para activar cobro 100% PIX en Reales */}
+              <button
+                type="button"
+                onClick={() => {
+                  handleCurrencyChange("BRL");
+                  setPayment("PIX");
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border-2 border-emerald-600/40 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-900 dark:text-emerald-200 text-xs font-black transition-all cursor-pointer shadow-xs"
+              >
+                <Coins className="size-4 text-emerald-600 dark:text-emerald-400" />
+                <span>⚡ Cobrar 100% con PIX (en Reales R$)</span>
+              </button>
 
               {/* Botón destacado para activar cobro en Pesos y Reales */}
               <button
