@@ -421,7 +421,11 @@ export function SaleInvoiceModal({
         (isBrl
           ? `💵 *Equivalencia:* $${totalArs.toLocaleString("es-AR")} ARS\n`
           : `💵 *Equivalencia:* R$ ${totalBrl.toFixed(2)} BRL\n`) +
-        (sale.is_split_ars_payment
+        (sale.is_split_brl_pix_payment
+          ? `💰 *Pago Mixto (Reales - Efectivo + PIX):*\n` +
+            `   • Efectivo: R$ ${Number(sale.split_cash_brl || 0).toFixed(2)} BRL\n` +
+            `   • PIX: R$ ${Number(sale.split_pix_brl || 0).toFixed(2)} BRL\n`
+          : sale.is_split_ars_payment
           ? `💰 *Pago Mixto (Pesos):*\n` +
             `   • Efectivo: $${Number(sale.split_cash_ars || 0).toLocaleString("es-AR")} ARS\n` +
             `   • ${sale.split_transfer_method || "Transferencia"}: $${Number(sale.split_transfer_ars || 0).toLocaleString("es-AR")} ARS\n`
@@ -1248,7 +1252,9 @@ export function SaleInvoiceModal({
                     <div className="flex justify-between font-bold text-xs">
                       <span>Moneda de cobro</span>
                       <span>
-                        {sale.is_split_ars_payment
+                        {sale.is_split_brl_pix_payment
+                          ? "💵+⚡ Mixto (Efectivo + PIX)"
+                          : sale.is_split_ars_payment
                           ? "💵+💳 Mixto (Efectivo + Transferencia)"
                           : sale.is_split_payment
                           ? "🇦🇷+🇧🇷 Mixto (Pesos + Reales)"
@@ -1273,7 +1279,19 @@ export function SaleInvoiceModal({
                     </div>
                   </div>
 
-                  {sale.is_split_ars_payment ? (
+                  {sale.is_split_brl_pix_payment ? (
+                    <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-2 text-[11px] space-y-0.5 text-emerald-950">
+                      <div className="font-bold text-emerald-800">Desglose de Cobro Mixto en Reales:</div>
+                      <div className="flex justify-between">
+                        <span>· En Efectivo (R$ BRL):</span>
+                        <span className="font-mono font-bold">{moneyBrl(Number(sale.split_cash_brl || 0))}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>· En PIX (R$ BRL):</span>
+                        <span className="font-mono font-bold">{moneyBrl(Number(sale.split_pix_brl || 0))}</span>
+                      </div>
+                    </div>
+                  ) : sale.is_split_ars_payment ? (
                     <div className="rounded-lg bg-blue-50 border border-blue-200 p-2 text-[11px] space-y-0.5 text-blue-950">
                       <div className="font-bold text-blue-800">Desglose de Cobro Mixto en Pesos:</div>
                       <div className="flex justify-between">

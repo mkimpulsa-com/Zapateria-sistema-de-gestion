@@ -423,7 +423,55 @@ export default function StoreApp({
           const salePaid = Number(nextData.paidAmount || nextData.paidAmountArs || 0);
           const isSplit = Boolean(nextData.isSplitPayment);
 
-          if (nextData.isSplitArsPayment) {
+          if (nextData.isSplitBrlPixPayment) {
+            const splitMovs: any[] = [];
+            const brlRate = Math.max(0.0001, Number(nextData.rateArs || prevData.settings?.exchange_rate_ars || 250));
+            if (Number(nextData.splitCashBrl) > 0) {
+              const cBrl = Number(nextData.splitCashBrl);
+              splitMovs.push({
+                id: `cm-brl-cash-${Date.now()}`,
+                type: "ingreso",
+                category: "Venta",
+                amount: Math.round(cBrl * brlRate),
+                amount_brl: cBrl,
+                currency: "BRL",
+                amount_currency: cBrl,
+                payment_method: "Efectivo",
+                is_cash: true,
+                shift_id: nextData.createdSale?.shift_id || null,
+                shift_number: nextData.createdSale?.shift_number || null,
+                description: `Venta mixta ${nextData.createdSale.receipt_no} · Tramo Efectivo (R$ BRL)`,
+                reference: nextData.createdSale.receipt_no,
+                sale_id: nextData.createdSale.id,
+                created_at: nextData.createdAt,
+              });
+            }
+            if (Number(nextData.splitPixBrl) > 0) {
+              const pBrl = Number(nextData.splitPixBrl);
+              splitMovs.push({
+                id: `cm-brl-pix-${Date.now() + 1}`,
+                type: "ingreso",
+                category: "Venta",
+                amount: Math.round(pBrl * brlRate),
+                amount_brl: pBrl,
+                currency: "BRL",
+                amount_currency: pBrl,
+                payment_method: "PIX",
+                is_cash: false,
+                bank_account_id: nextData.bankAccountId || null,
+                bank_account_name: nextData.bankAccountName || null,
+                shift_id: nextData.createdSale?.shift_id || null,
+                shift_number: nextData.createdSale?.shift_number || null,
+                description: `Venta mixta ${nextData.createdSale.receipt_no} · Tramo PIX (R$ BRL)`,
+                reference: nextData.createdSale.receipt_no,
+                sale_id: nextData.createdSale.id,
+                created_at: nextData.createdAt,
+              });
+            }
+            if (splitMovs.length > 0) {
+              updatedMovements = [...splitMovs, ...updatedMovements].slice(0, 50);
+            }
+          } else if (nextData.isSplitArsPayment) {
             const splitMovs: any[] = [];
             if (Number(nextData.splitCashArs) > 0) {
               splitMovs.push({
@@ -549,7 +597,17 @@ export default function StoreApp({
 
           // 5. Actualizar saldo bancario si corresponde
           let updatedBankAccounts = prevData.bankAccounts || [];
-          if (nextData.isSplitArsPayment) {
+          if (nextData.isSplitBrlPixPayment) {
+            if (nextData.bankAccountId && Number(nextData.splitPixBrl) > 0) {
+              const pixAmt = Number(nextData.splitPixBrl);
+              const sRateTmp = Math.max(0.0001, Number(nextData.rateArs || prevData.settings?.exchange_rate_ars || 250));
+              updatedBankAccounts = updatedBankAccounts.map((b: any) =>
+                String(b.id) === String(nextData.bankAccountId)
+                  ? { ...b, balance: Number(b.balance || 0) + (b.currency === "ARS" ? Math.round(pixAmt * sRateTmp) : pixAmt) }
+                  : b
+              );
+            }
+          } else if (nextData.isSplitArsPayment) {
             if (nextData.bankAccountId && Number(nextData.splitTransferArs) > 0) {
               const transAmt = Number(nextData.splitTransferArs);
               const sRateTmp = Math.max(0.0001, Number(nextData.rateArs || prevData.settings?.exchange_rate_ars || 250));
@@ -590,7 +648,15 @@ export default function StoreApp({
           let addedCashArs = 0;
           let addedCashBrl = 0;
           const sRate = Math.max(0.0001, Number(nextData.rateArs || prevData.settings?.exchange_rate_ars || 250));
-          if (nextData.isSplitArsPayment) {
+          if (nextData.isSplitBrlPixPayment) {
+            const cBrl = Number(nextData.splitCashBrl || 0);
+            const pBrl = Number(nextData.splitPixBrl || 0);
+            const cEquivArs = Math.round(cBrl * sRate);
+            const pEquivArs = Math.round(pBrl * sRate);
+            addedCashBrl += cBrl;
+            addedCashTotalArs += cEquivArs;
+            addedOtherTotalArs += pEquivArs;
+          } else if (nextData.isSplitArsPayment) {
             const cArs = Number(nextData.splitCashArs || 0);
             const tArs = Number(nextData.splitTransferArs || 0);
             addedCashArs += cArs;
@@ -937,7 +1003,7 @@ export default function StoreApp({
       input?.focus();
     }, 40);
   };
-  const closeSale = async (paidAmountOverride?: number, options?: { discount?: number; discountPercent?: number; additionalCharge?: number; additionalChargeDescription?: string; currency?: "BRL" | "ARS" | "USD" | string; exchangeRate?: number; exchangeRateArs?: number; exchangeRateUsd?: number; invoiceType?: string; applyVat?: boolean; vatRate?: number; vatAmount?: number; isSplitPayment?: boolean; splitArs?: number; splitBrl?: number; splitArsMethod?: string; splitBrlMethod?: string; splitBrlBankAccountId?: string; paymentMethod?: string; isSplitArsPayment?: boolean; splitCashArs?: number; splitTransferArs?: number; splitTransferMethod?: string }) => {
+  const closeSale = async (paidAmountOverride?: number, options?: { discount?: number; discountPercent?: number; additionalCharge?: number; additionalChargeDescription?: string; currency?: "BRL" | "ARS" | "USD" | string; exchangeRate?: number; exchangeRateArs?: number; exchangeRateUsd?: number; invoiceType?: string; applyVat?: boolean; vatRate?: number; vatAmount?: number; isSplitPayment?: boolean; splitArs?: number; splitBrl?: number; splitArsMethod?: string; splitBrlMethod?: string; splitBrlBankAccountId?: string; paymentMethod?: string; isSplitArsPayment?: boolean; splitCashArs?: number; splitTransferArs?: number; splitTransferMethod?: string; isSplitBrlPixPayment?: boolean; splitCashBrl?: number; splitPixBrl?: number }) => {
     const finalDiscount = options?.discount !== undefined ? options.discount : discount;
     const finalDiscountPercent = options?.discountPercent !== undefined ? options.discountPercent : discountPercent;
     const finalAdditionalCharge = options?.additionalCharge !== undefined ? options.additionalCharge : additionalCharge;
@@ -975,6 +1041,9 @@ export default function StoreApp({
       splitCashArs: options?.splitCashArs,
       splitTransferArs: options?.splitTransferArs,
       splitTransferMethod: options?.splitTransferMethod,
+      isSplitBrlPixPayment: options?.isSplitBrlPixPayment,
+      splitCashBrl: options?.splitCashBrl,
+      splitPixBrl: options?.splitPixBrl,
     }, "Venta registrada exitosamente");
     if (res) {
       if (res.createdSale) {
@@ -4431,7 +4500,6 @@ function SalesPOSConfigured({
 
   const allowNegative = Boolean(data.settings?.allow_negative_stock);
   const cameraEnabled = Boolean(data.settings?.camera_enabled);
-  const methods = String(data.settings?.payment_methods || "Efectivo").split(",").map((item: string) => item.trim()).filter(Boolean);
   const subtotal = cart.reduce((sum: number, item: CartItem) => sum + item.unitPrice * item.quantity, 0);
   const maxDiscountPercent = Number(data.settings?.max_discount_percent) || 0;
   const maxDiscount = subtotal * (Math.min(100, maxDiscountPercent) / 100);
@@ -4481,6 +4549,18 @@ function SalesPOSConfigured({
   const [saleCurrency, setSaleCurrency] = useState<"BRL" | "ARS" | "MIXTO">(baseCurrency);
   const activeDisplayCurrency: "BRL" | "ARS" = saleCurrency === "MIXTO" ? baseCurrency : saleCurrency;
   const rateArs = Number(data.settings?.exchange_rate_ars || data.settings?.exchange_rate_brl) || 250;
+
+  const rawMethods = String(data.settings?.payment_methods || "Efectivo,Transferencia,Tarjeta,PIX,Mercado Pago,Cuenta corriente").split(",").map((item: string) => item.trim()).filter(Boolean);
+  const methods = rawMethods.filter((item: string) => {
+    // PIX está estrictamente disponible solo para pagos en Reales (BRL)
+    if (item.toUpperCase() === "PIX") {
+      return saleCurrency === "BRL";
+    }
+    return true;
+  });
+  if (saleCurrency === "BRL" && !methods.some((m: string) => m.toUpperCase() === "PIX")) {
+    methods.push("PIX");
+  }
 
   useEffect(() => {
     setSaleCurrency(data.settings?.currency === "BRL" ? "BRL" : "ARS");
@@ -4548,7 +4628,12 @@ function SalesPOSConfigured({
   const [splitTransferArsInput, setSplitTransferArsInput] = useState<string>("");
   const [splitTransferMethod, setSplitTransferMethod] = useState<string>("Transferencia");
 
+  // Estados para cobro mixto en Reales (Efectivo + PIX)
+  const [splitCashBrlInput, setSplitCashBrlInput] = useState<string>("");
+  const [splitPixBrlInput, setSplitPixBrlInput] = useState<string>("");
+
   const isSplitArs = saleCurrency === "ARS" && payment === "Pago Mixto (Efectivo + Transferencia)";
+  const isSplitBrlPix = saleCurrency === "BRL" && payment === "Pago Mixto (Efectivo + PIX)";
 
   const activateSplitArs = () => {
     setSaleCurrency("ARS");
@@ -4563,10 +4648,25 @@ function SalesPOSConfigured({
     }
   };
 
+  const activateSplitBrlPix = () => {
+    setSaleCurrency("BRL");
+    setPayment("Pago Mixto (Efectivo + PIX)");
+    const half = Math.round((displayTotalBrl / 2) * 100) / 100;
+    setSplitCashBrlInput(displayTotalBrl > 0 ? String(half) : "");
+    setSplitPixBrlInput(displayTotalBrl > 0 ? String(Math.round((displayTotalBrl - half) * 100) / 100) : "");
+    const brlAccs = (data.bankAccounts || []).filter((a: any) => (a.currency || "ARS") === "BRL");
+    if (brlAccs.length > 0 && !bankAccountId) {
+      setBankAccountId(String(brlAccs[0].id));
+    }
+  };
+
   const handleCurrencyChange = (newCur: "BRL" | "ARS" | "MIXTO") => {
     setSaleCurrency(newCur);
     setIsCustomPaid(false);
-    if (payment === "Pago Mixto (Efectivo + Transferencia)") {
+    if (payment === "Pago Mixto (Efectivo + Transferencia)" || payment === "Pago Mixto (Efectivo + PIX)") {
+      setPayment("Efectivo");
+    }
+    if (newCur === "ARS" && payment.toUpperCase() === "PIX") {
       setPayment("Efectivo");
     }
     if (newCur === "MIXTO") {
@@ -4616,6 +4716,13 @@ function SalesPOSConfigured({
     }
   }, [cart.length, isSplitArs]);
 
+  useEffect(() => {
+    if (isSplitBrlPix && cart.length === 0) {
+      setSplitCashBrlInput("");
+      setSplitPixBrlInput("");
+    }
+  }, [cart.length, isSplitBrlPix]);
+
   const rawSplitArs = Math.max(0, Number(splitArsInput) || 0);
   const rawSplitBrl = Math.max(0, Number(splitBrlInput) || 0);
   const rawSplitEquivArs = Math.round(rawSplitArs + (rawSplitBrl * rateArs));
@@ -4655,6 +4762,24 @@ function SalesPOSConfigured({
     }
   }
 
+  // Cálculos para cobro mixto en Reales (Efectivo + PIX)
+  const rawSplitCashBrl = Math.max(0, Number(splitCashBrlInput) || 0);
+  const rawSplitPixBrl = Math.max(0, Number(splitPixBrlInput) || 0);
+  const rawSplitBrlTotal = Math.round((rawSplitCashBrl + rawSplitPixBrl) * 100) / 100;
+  const splitBrlPixRemaining = Math.max(0, Math.round((displayTotalBrl - rawSplitBrlTotal) * 100) / 100);
+  const splitBrlPixExcess = Math.max(0, Math.round((rawSplitBrlTotal - displayTotalBrl) * 100) / 100);
+
+  let appliedSplitCashBrl = rawSplitCashBrl;
+  let appliedSplitPixBrl = rawSplitPixBrl;
+  if (isSplitBrlPix && splitBrlPixExcess > 0) {
+    if (appliedSplitCashBrl >= splitBrlPixExcess) {
+      appliedSplitCashBrl = Math.max(0, Math.round((appliedSplitCashBrl - splitBrlPixExcess) * 100) / 100);
+    } else {
+      appliedSplitCashBrl = 0;
+      appliedSplitPixBrl = Math.max(0, Math.round((appliedSplitPixBrl - (splitBrlPixExcess - appliedSplitCashBrl)) * 100) / 100);
+    }
+  }
+
   const parsedPaid = Number(paidInput);
   const paidAmount = saleCurrency === "MIXTO"
     ? (splitCoveredWithRounding
@@ -4664,7 +4789,9 @@ function SalesPOSConfigured({
         : Math.min(displayTotalBrl, Math.round((rawSplitEquivArs / rateArs) * 100) / 100)))
     : isSplitArs
       ? Math.min(displayTotalArs, rawSplitArsTotal)
-      : (isNaN(parsedPaid) ? 0 : Math.max(0, Math.min(currentTotal, parsedPaid)));
+      : isSplitBrlPix
+        ? Math.min(displayTotalBrl, rawSplitBrlTotal)
+        : (isNaN(parsedPaid) ? 0 : Math.max(0, Math.min(currentTotal, parsedPaid)));
   const pendingAmount = Math.max(0, Math.round((currentTotal - paidAmount) * 100) / 100);
   const saleStatus: "pagada" | "pago_parcial" | "con_deuda" =
     pendingAmount === 0 ? "pagada" : paidAmount > 0 ? "pago_parcial" : "con_deuda";
@@ -5752,20 +5879,45 @@ function SalesPOSConfigured({
                 Volver a 1 medio
               </button>
             </div>
+          ) : isSplitBrlPix ? (
+            <div className="flex items-center justify-between p-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-xs">
+              <span className="font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
+                <Coins className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                Medio de cobro: Mixto (Efectivo + PIX en Reales)
+              </span>
+              <button
+                type="button"
+                onClick={() => setPayment("Efectivo")}
+                className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 hover:underline px-2 py-0.5 rounded border border-emerald-300 bg-background cursor-pointer"
+              >
+                Volver a 1 medio
+              </button>
+            </div>
           ) : (
             <>
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-xs font-semibold">Medio de pago</label>
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={activateSplitArs}
-                      className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-                      title="Cobrar una parte en efectivo y otra por transferencia"
-                    >
-                      + Efectivo y Transf.
-                    </button>
+                    {saleCurrency === "ARS" ? (
+                      <button
+                        type="button"
+                        onClick={activateSplitArs}
+                        className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                        title="Cobrar una parte en efectivo y otra por transferencia"
+                      >
+                        + Efectivo y Transf.
+                      </button>
+                    ) : saleCurrency === "BRL" ? (
+                      <button
+                        type="button"
+                        onClick={activateSplitBrlPix}
+                        className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                        title="Cobrar una parte en efectivo y otra por PIX"
+                      >
+                        + Efectivo y PIX
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => handleCurrencyChange("MIXTO")}
@@ -5782,6 +5934,8 @@ function SalesPOSConfigured({
                       handleCurrencyChange("MIXTO");
                     } else if (e.target.value === "Pago Mixto (Efectivo + Transferencia)") {
                       activateSplitArs();
+                    } else if (e.target.value === "Pago Mixto (Efectivo + PIX)") {
+                      activateSplitBrlPix();
                     } else {
                       setPayment(e.target.value);
                     }
@@ -5791,7 +5945,12 @@ function SalesPOSConfigured({
                   {methods.map((method: string) => (
                     <option key={method} value={method}>{method}</option>
                   ))}
-                  <option value="Pago Mixto (Efectivo + Transferencia)">💵+💳 Pago Mixto (Efectivo + Transferencia)</option>
+                  {saleCurrency === "ARS" && (
+                    <option value="Pago Mixto (Efectivo + Transferencia)">💵+💳 Pago Mixto (Efectivo + Transferencia)</option>
+                  )}
+                  {saleCurrency === "BRL" && (
+                    <option value="Pago Mixto (Efectivo + PIX)">💵+⚡ Pago Mixto (Efectivo + PIX)</option>
+                  )}
                   <option value="Pago Mixto (Pesos y Reales)">🇦🇷+🇧🇷 Pago Mixto (Pesos + Reales)</option>
                 </select>
               </div>
@@ -6260,6 +6419,160 @@ function SalesPOSConfigured({
                 )}
               </div>
             </div>
+          ) : isSplitBrlPix ? (
+            <div className="rounded-xl border border-emerald-500/35 bg-emerald-500/5 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                  <Coins className="size-3.5" />
+                  Cobro Mixto en Reales (Efectivo + PIX)
+                </span>
+                <div className="flex items-center gap-1 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const half = Math.round((displayTotalBrl / 2) * 100) / 100;
+                      setSplitCashBrlInput(displayTotalBrl > 0 ? String(half) : "0");
+                      setSplitPixBrlInput(displayTotalBrl > 0 ? String(Math.round((displayTotalBrl - half) * 100) / 100) : "0");
+                    }}
+                    className="text-[10.5px] font-semibold text-emerald-700 dark:text-emerald-300 hover:underline px-1.5 py-0.5 rounded bg-emerald-500/15 cursor-pointer"
+                  >
+                    50% / 50%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSplitCashBrlInput("0");
+                      setSplitPixBrlInput(String(displayTotalBrl));
+                    }}
+                    className="text-[10.5px] font-semibold text-emerald-700 dark:text-emerald-300 hover:underline px-1.5 py-0.5 rounded bg-emerald-500/15 cursor-pointer"
+                  >
+                    100% PIX
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPayment("Efectivo");
+                    }}
+                    className="text-[10.5px] font-semibold text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded border bg-background cursor-pointer"
+                    title="Volver a 1 solo medio de pago"
+                  >
+                    1 medio
+                  </button>
+                </div>
+              </div>
+
+              {/* Tramo 1: Efectivo */}
+              <div className="rounded-lg border bg-background/80 p-2.5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold flex items-center gap-1">
+                    <span>💵</span> Tramo Efectivo (R$ BRL)
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">Ingresa a caja física</span>
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground font-mono">R$</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={splitCashBrlInput}
+                    onChange={(e) => setSplitCashBrlInput(e.target.value)}
+                    placeholder="0.00"
+                    className="pl-9 font-mono font-bold text-base h-9"
+                  />
+                </div>
+              </div>
+
+              {/* Tramo 2: PIX */}
+              <div className="rounded-lg border bg-background/80 p-2.5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
+                    <span>⚡</span> Tramo PIX (R$ BRL)
+                  </span>
+                  <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                    Clave PIX / Banco BRL
+                  </span>
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground font-mono">R$</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={splitPixBrlInput}
+                    onChange={(e) => setSplitPixBrlInput(e.target.value)}
+                    placeholder="0.00"
+                    className="pl-9 font-mono font-bold text-base h-9"
+                  />
+                </div>
+                <BankAccountSelectField
+                  accounts={data.bankAccounts || []}
+                  bankAccountId={bankAccountId}
+                  setBankAccountId={setBankAccountId}
+                  onNewAccount={() => setModal("bank_account")}
+                  currency="BRL"
+                />
+              </div>
+
+              {/* Botones rápidos para completar lo que falta */}
+              {splitBrlPixRemaining > 0 && displayTotalBrl > 0 && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between font-bold text-amber-800 dark:text-amber-300">
+                    <span>Falta cubrir:</span>
+                    <span className="font-mono">R$ {splitBrlPixRemaining.toFixed(2)} BRL</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="xs"
+                      onClick={() => setSplitCashBrlInput(String(Math.round((rawSplitCashBrl + splitBrlPixRemaining) * 100) / 100))}
+                      className="h-7 text-[11px] font-bold bg-background"
+                    >
+                      + Efectivo R$ {splitBrlPixRemaining.toFixed(2)}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="xs"
+                      onClick={() => setSplitPixBrlInput(String(Math.round((rawSplitPixBrl + splitBrlPixRemaining) * 100) / 100))}
+                      className="h-7 text-[11px] font-bold bg-background text-emerald-700 dark:text-emerald-400"
+                    >
+                      + PIX R$ {splitBrlPixRemaining.toFixed(2)}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Indicador de Vuelto si entregó de más en efectivo */}
+              {splitBrlPixExcess > 0 && (
+                <div className="flex items-center justify-between rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-2 text-xs">
+                  <span className="font-bold text-emerald-800 dark:text-emerald-300">Vuelto a entregar (en efectivo):</span>
+                  <span className="font-mono font-black text-emerald-700 dark:text-emerald-300">
+                    R$ {splitBrlPixExcess.toFixed(2)} BRL
+                  </span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-0.5 text-xs">
+                <span className="text-muted-foreground font-medium">
+                  Cubierto: <strong className="font-mono text-foreground">R$ {Math.min(displayTotalBrl, rawSplitBrlTotal).toFixed(2)}</strong>
+                </span>
+                {saleStatus === "pagada" ? (
+                  <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px]">
+                    ✓ Pagada Total (Mixto PIX)
+                  </Badge>
+                ) : saleStatus === "pago_parcial" ? (
+                  <Badge className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px]">
+                    ⚠ Pago Parcial · Deuda: {formatCurr(pendingAmount)}
+                  </Badge>
+                ) : (
+                  <Badge variant="destructive" className="font-bold text-[11px]">
+                    ⛔ Con Deuda Total
+                  </Badge>
+                )}
+              </div>
+            </div>
           ) : (
             <div className="rounded-xl border border-border/80 bg-muted/30 p-3 space-y-2.5">
               <div className="flex items-center justify-between">
@@ -6318,6 +6631,18 @@ function SalesPOSConfigured({
                 >
                   <Coins className="size-4 text-blue-600 dark:text-blue-400" />
                   <span>💵 + 💳 Cobrar Efectivo y Transferencia (Mixto en Pesos)</span>
+                </button>
+              )}
+
+              {/* Botón destacado para activar cobro en Efectivo + PIX en Reales */}
+              {saleCurrency === "BRL" && (
+                <button
+                  type="button"
+                  onClick={activateSplitBrlPix}
+                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border-2 border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-900 dark:text-emerald-200 text-xs font-black transition-all cursor-pointer shadow-xs"
+                >
+                  <Coins className="size-4 text-emerald-600 dark:text-emerald-400" />
+                  <span>💵 + ⚡ Cobrar Efectivo y PIX (Mixto en Reales)</span>
                 </button>
               )}
 
@@ -6380,7 +6705,7 @@ function SalesPOSConfigured({
               }`}
             disabled={!cart.length || busy || (pendingAmount > 0 && !customerId) || (invoiceType === "A" && (!selectedCustomer || selectedCustomer.vat_condition !== "Responsable Inscripto" || !selectedCustomer.document))}
             onClick={() => closeSale(paidAmount, {
-              paymentMethod: isSplitArs ? "Pago Mixto (Efectivo + Transferencia)" : payment,
+              paymentMethod: isSplitArs ? "Pago Mixto (Efectivo + Transferencia)" : isSplitBrlPix ? "Pago Mixto (Efectivo + PIX)" : payment,
               discount,
               discountPercent,
               additionalCharge: chargeAmount,
@@ -6391,7 +6716,7 @@ function SalesPOSConfigured({
               applyVat,
               vatRate: applyVat ? vatRate : 0,
               vatAmount: vatCharge,
-              isSplitPayment: saleCurrency === "MIXTO" || isSplitArs,
+              isSplitPayment: saleCurrency === "MIXTO" || isSplitArs || isSplitBrlPix,
               splitArs: saleCurrency === "MIXTO" ? appliedSplitArs : undefined,
               splitBrl: saleCurrency === "MIXTO" ? appliedSplitBrl : undefined,
               splitArsMethod: saleCurrency === "MIXTO" ? splitArsMethod : undefined,
@@ -6401,6 +6726,9 @@ function SalesPOSConfigured({
               splitCashArs: isSplitArs ? appliedSplitCashArs : undefined,
               splitTransferArs: isSplitArs ? appliedSplitTransferArs : undefined,
               splitTransferMethod: isSplitArs ? splitTransferMethod : undefined,
+              isSplitBrlPixPayment: isSplitBrlPix,
+              splitCashBrl: isSplitBrlPix ? appliedSplitCashBrl : undefined,
+              splitPixBrl: isSplitBrlPix ? appliedSplitPixBrl : undefined,
             })}
           >
             {busy

@@ -25,7 +25,7 @@ const defaultSettings = {
   iibb_number:"", activity_start_date:"",
   receipt_type:"X", receipt_prefix:"X", next_receipt_number:1, currency:"ARS", secondary_currency:"BRL",
   exchange_rate_brl:250, exchange_rate_ars:250, exchange_rate_usd:5.70, default_channel:"minorista",
-  payment_methods:"Efectivo,Transferencia,Tarjeta,Mercado Pago,Cuenta corriente", max_discount_percent:20, rounding_mode:"none",
+  payment_methods:"Efectivo,Transferencia,Tarjeta,PIX,Mercado Pago,Cuenta corriente", max_discount_percent:20, rounding_mode:"none",
   wholesale_min_qty:0, allow_mixed_sale:true, wholesale_terms:"Precios mayoristas directos sin mínimo de compra.",
   low_stock_at:3, default_sizes:"35,36,37,38,39,40", allow_negative_stock:false, barcode_prefix:"",
   catalog_default_price:"wholesale", catalog_in_stock_only:true, catalog_show_barcode:true, catalog_contact:"",
@@ -2477,13 +2477,16 @@ export async function runStoreAction(body: any, uid?: string) {
 
       const isSplitPayment = Boolean(body.isSplitPayment);
       const isSplitArsPayment = Boolean(body.isSplitArsPayment) || (isSplitPayment && Number(body.splitCashArs || 0) > 0 && Number(body.splitTransferArs || 0) > 0);
+      const isSplitBrlPixPayment = Boolean(body.isSplitBrlPixPayment) || (isSplitPayment && Number(body.splitCashBrl || 0) > 0 && Number(body.splitPixBrl || 0) > 0);
+      const splitCashBrl = isSplitBrlPixPayment ? Math.max(0, Math.round((Number(body.splitCashBrl) || 0) * 100) / 100) : 0;
+      const splitPixBrl = isSplitBrlPixPayment ? Math.max(0, Math.round((Number(body.splitPixBrl) || 0) * 100) / 100) : 0;
       const splitCashArs = isSplitArsPayment ? Math.max(0, Number(body.splitCashArs) || 0) : 0;
       const splitTransferArs = isSplitArsPayment ? Math.max(0, Number(body.splitTransferArs) || 0) : 0;
       const splitTransferMethod = isSplitArsPayment ? text(body.splitTransferMethod, "Transferencia") : "Transferencia";
-      const splitArs = isSplitPayment && !isSplitArsPayment ? Math.max(0, Number(body.splitArs) || 0) : 0;
-      const splitBrl = isSplitPayment && !isSplitArsPayment ? Math.max(0, Math.round((Number(body.splitBrl) || 0) * 100) / 100) : 0;
-      const splitArsMethod = isSplitPayment && !isSplitArsPayment ? text(body.splitArsMethod || body.paymentMethod, "Efectivo") : "";
-      const splitBrlMethod = isSplitPayment && !isSplitArsPayment ? text(body.splitBrlMethod || body.paymentMethod, "Efectivo") : "";
+      const splitArs = isSplitPayment && !isSplitArsPayment && !isSplitBrlPixPayment ? Math.max(0, Number(body.splitArs) || 0) : 0;
+      const splitBrl = isSplitPayment && !isSplitArsPayment && !isSplitBrlPixPayment ? Math.max(0, Math.round((Number(body.splitBrl) || 0) * 100) / 100) : 0;
+      const splitArsMethod = isSplitPayment && !isSplitArsPayment && !isSplitBrlPixPayment ? text(body.splitArsMethod || body.paymentMethod, "Efectivo") : "";
+      const splitBrlMethod = isSplitPayment && !isSplitArsPayment && !isSplitBrlPixPayment ? text(body.splitBrlMethod || body.paymentMethod, "Efectivo") : "";
 
       let paidAmountBrl = 0;
       let pendingAmountBrl = 0;
@@ -2492,7 +2495,14 @@ export async function runStoreAction(body: any, uid?: string) {
       let paidAmountUsd = 0;
       let pendingAmountUsd = 0;
 
-      if (isSplitArsPayment) {
+      if (isSplitBrlPixPayment) {
+        paidAmountBrl = Math.min(totalBrl, splitCashBrl + splitPixBrl);
+        pendingAmountBrl = Math.max(0, Math.round((totalBrl - paidAmountBrl) * 100) / 100);
+        paidAmountArs = Math.round(paidAmountBrl * rateArs);
+        pendingAmountArs = Math.round(pendingAmountBrl * rateArs);
+        paidAmountUsd = Math.round((paidAmountBrl / rateUsd) * 100) / 100;
+        pendingAmountUsd = Math.round((pendingAmountBrl / rateUsd) * 100) / 100;
+      } else if (isSplitArsPayment) {
         paidAmountArs = Math.min(totalArs, splitCashArs + splitTransferArs);
         pendingAmountArs = Math.max(0, totalArs - paidAmountArs);
         paidAmountBrl = Math.round((paidAmountArs / rateArs) * 100) / 100;
@@ -2631,7 +2641,9 @@ export async function runStoreAction(body: any, uid?: string) {
 
       const arsIsCash = isSplitPayment ? splitArsMethod.toLowerCase().includes("efectivo") : String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo");
       const brlIsCash = isSplitPayment ? splitBrlMethod.toLowerCase().includes("efectivo") : String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo");
-      const effectivePaymentMethod = isSplitArsPayment
+      const effectivePaymentMethod = isSplitBrlPixPayment
+        ? "Mixto (Efectivo + PIX)"
+        : isSplitArsPayment
         ? `Mixto (Efectivo + ${splitTransferMethod})`
         : isSplitPayment
         ? ((arsIsCash && brlIsCash)
@@ -2679,16 +2691,19 @@ export async function runStoreAction(body: any, uid?: string) {
         exchange_rate: rateArs,
         exchange_rate_ars: rateArs,
         exchange_rate_usd: rateUsd,
-        is_split_payment: isSplitPayment || isSplitArsPayment,
+        is_split_payment: isSplitPayment || isSplitArsPayment || isSplitBrlPixPayment,
         is_split_ars_payment: isSplitArsPayment,
-        split_type: isSplitArsPayment ? "ars_mixed" : (isSplitPayment ? "currency_mixed" : "single"),
+        is_split_brl_pix_payment: isSplitBrlPixPayment,
+        split_type: isSplitBrlPixPayment ? "brl_pix_mixed" : (isSplitArsPayment ? "ars_mixed" : (isSplitPayment ? "currency_mixed" : "single")),
+        split_cash_brl: isSplitBrlPixPayment ? splitCashBrl : 0,
+        split_pix_brl: isSplitBrlPixPayment ? splitPixBrl : 0,
         split_cash_ars: isSplitArsPayment ? splitCashArs : 0,
         split_transfer_ars: isSplitArsPayment ? splitTransferArs : 0,
         split_transfer_method: isSplitArsPayment ? splitTransferMethod : "",
         split_ars: isSplitPayment ? splitArs : (isSplitArsPayment ? splitCashArs : 0),
-        split_brl: isSplitPayment ? splitBrl : 0,
+        split_brl: isSplitPayment ? splitBrl : (isSplitBrlPixPayment ? splitCashBrl + splitPixBrl : 0),
         split_ars_method: isSplitPayment ? splitArsMethod : (isSplitArsPayment ? "Efectivo" : ""),
-        split_brl_method: isSplitPayment ? splitBrlMethod : "",
+        split_brl_method: isSplitPayment ? splitBrlMethod : (isSplitBrlPixPayment ? "Mixto (Efectivo + PIX)" : ""),
         total_brl: totalBrl,
         paid_amount_brl: paidAmountBrl,
         pending_amount_brl: pendingAmountBrl,
@@ -2749,14 +2764,79 @@ export async function runStoreAction(body: any, uid?: string) {
       }));
 
       const isOnline = body.channel === "online";
-      const isCashPayment = isSplitArsPayment ? false : (isSplitPayment ? (arsIsCash && brlIsCash) : String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo"));
+      const isCashPayment = (isSplitArsPayment || isSplitBrlPixPayment) ? false : (isSplitPayment ? (arsIsCash && brlIsCash) : String(body.paymentMethod || "Efectivo").toLowerCase().includes("efectivo"));
       const effectiveCashAmount = saleCurrency === "ARS" ? paidAmountArs : (saleCurrency === "BRL" ? paidAmountBrl : paidAmountUsd);
 
       let depositAmount = 0;
       let splitArsDeposit = 0;
       let splitBrlDeposit = 0;
 
-      if (isSplitArsPayment) {
+      if (isSplitBrlPixPayment) {
+        // 1) Tramo Efectivo en Reales (R$ BRL) -> ingresa al cajón de mostrador
+        if (splitCashBrl > 0) {
+          transaction.set(doc(userCol("cashMovements", userId)), {
+            type: "ingreso",
+            category: "Venta",
+            amount: Math.round(splitCashBrl * rateArs),
+            amount_brl: splitCashBrl,
+            currency: "BRL",
+            amount_currency: splitCashBrl,
+            payment_method: "Efectivo",
+            is_cash: true,
+            shift_id: activeOpenShift ? activeOpenShift.id : null,
+            shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
+            description: `Venta mixta ${receiptNo} · Tramo Efectivo (R$ BRL)`,
+            reference: receiptNo,
+            sale_id: saleRef.id,
+            created_at: createdAt,
+          });
+        }
+
+        // 2) Tramo PIX en Reales (R$ BRL) -> ingresa a la cuenta bancaria BRL
+        if (splitPixBrl > 0) {
+          if (bankAccountRef && bankAccountData) {
+            const prevAccBal = number(bankAccountData.balance, 0);
+            const amtToAcc = bankAccountData.currency === "ARS" ? Math.round(splitPixBrl * rateArs) : splitPixBrl;
+            const nextAccBal = prevAccBal + amtToAcc;
+            transaction.update(bankAccountRef, { balance: nextAccBal, updated_at: createdAt });
+            splitBrlDeposit = amtToAcc;
+            transaction.set(doc(userCol("bankMovements", userId)), {
+              account_id: bankAccountId,
+              account_name: bankAccountName,
+              type: "ingreso",
+              category: "Venta",
+              amount: amtToAcc,
+              currency: bankAccountData.currency || "BRL",
+              exchange_rate: bankAccountData.currency === "ARS" ? rateArs : 1,
+              balance_before: prevAccBal,
+              balance_after: nextAccBal,
+              reference: receiptNo,
+              sale_id: saleRef.id,
+              description: `Venta mixta ${receiptNo} · Tramo PIX (R$ BRL)`,
+              created_at: createdAt,
+            });
+          }
+          // Asentar en el libro de caja con is_cash: false
+          transaction.set(doc(userCol("cashMovements", userId)), {
+            type: "ingreso",
+            category: "Venta",
+            amount: Math.round(splitPixBrl * rateArs),
+            amount_brl: splitPixBrl,
+            currency: "BRL",
+            amount_currency: splitPixBrl,
+            payment_method: "PIX",
+            is_cash: false,
+            bank_account_id: bankAccountId || null,
+            bank_account_name: bankAccountName || null,
+            shift_id: activeOpenShift ? activeOpenShift.id : null,
+            shift_number: activeOpenShift ? activeOpenShift.shift_number : null,
+            description: `Venta mixta ${receiptNo} · Tramo PIX (R$ BRL)`,
+            reference: receiptNo,
+            sale_id: saleRef.id,
+            created_at: createdAt,
+          });
+        }
+      } else if (isSplitArsPayment) {
         // 1) Tramo Efectivo en Pesos ($ ARS) -> ingresa al cajón de mostrador
         if (splitCashArs > 0) {
           transaction.set(doc(userCol("cashMovements", userId)), {
@@ -3020,6 +3100,9 @@ export async function runStoreAction(body: any, uid?: string) {
         isCashPayment,
         isSplitPayment,
         isSplitArsPayment,
+        isSplitBrlPixPayment,
+        splitCashBrl,
+        splitPixBrl,
         splitCashArs,
         splitTransferArs,
         splitTransferMethod,
